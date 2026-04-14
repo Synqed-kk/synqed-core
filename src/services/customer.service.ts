@@ -1,4 +1,4 @@
-import { supabase } from '../db/client.js'
+import { prisma } from '../db/client.js'
 import type {
   Customer,
   CreateCustomerInput,
@@ -6,6 +6,23 @@ import type {
   ListCustomersResponse,
   CheckDuplicateResponse,
 } from '../types/api.js'
+
+function toCustomer(row: any): Customer {
+  return {
+    id: row.id,
+    tenant_id: row.tenantId,
+    name: row.name,
+    furigana: row.furigana,
+    email: row.email,
+    phone: row.phone,
+    locale: row.locale,
+    notes: row.notes,
+    contact_info: row.contactInfo,
+    assigned_staff_id: row.assignedStaffId,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  }
+}
 
 export async function listCustomers(
   tenantId: string,
@@ -19,33 +36,40 @@ export async function listCustomers(
 ): Promise<ListCustomersResponse> {
   const page = options.page ?? 1
   const pageSize = options.page_size ?? 20
-  const sortBy = options.sort_by ?? 'name'
   const sortOrder = options.sort_order ?? 'asc'
   const offset = (page - 1) * pageSize
 
-  let query = supabase
-    .from('customers')
-    .select('*', { count: 'exact' })
-    .eq('tenant_id', tenantId)
+  // Map API sort_by to Prisma field names
+  const sortByMap: Record<string, string> = {
+    name: 'name',
+    created_at: 'createdAt',
+    updated_at: 'updatedAt',
+  }
+  const sortBy = sortByMap[options.sort_by ?? 'name'] ?? 'name'
+
+  const where: any = { tenantId }
 
   if (options.search) {
-    query = query.or(
-      `name.ilike.%${options.search}%,furigana.ilike.%${options.search}%,email.ilike.%${options.search}%,phone.ilike.%${options.search}%`
-    )
+    where.OR = [
+      { name: { contains: options.search, mode: 'insensitive' } },
+      { furigana: { contains: options.search, mode: 'insensitive' } },
+      { email: { contains: options.search, mode: 'insensitive' } },
+      { phone: { contains: options.search, mode: 'insensitive' } },
+    ]
   }
 
-  query = query
-    .order(sortBy, { ascending: sortOrder === 'asc' })
-    .range(offset, offset + pageSize - 1)
-
-  const { data, count, error } = await query
-
-  if (error) throw new Error(`Failed to list customers: ${error.message}`)
-
-  const total = count ?? 0
+  const [rows, total] = await Promise.all([
+    prisma.customer.findMany({
+      where,
+      orderBy: { [sortBy]: sortOrder },
+      skip: offset,
+      take: pageSize,
+    }),
+    prisma.customer.count({ where }),
+  ])
 
   return {
-    customers: data as Customer[],
+    customers: rows.map(toCustomer),
     total,
     page,
     page_size: pageSize,
@@ -57,44 +81,32 @@ export async function getCustomer(
   tenantId: string,
   id: string
 ): Promise<Customer | null> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('id', id)
-    .eq('tenant_id', tenantId)
-    .single()
+  const row = await prisma.customer.findFirst({
+    where: { id, tenantId },
+  })
 
-  if (error) {
-    if (error.code === 'PGRST116') return null
-    throw new Error(`Failed to get customer: ${error.message}`)
-  }
-
-  return data as Customer
+  return row ? toCustomer(row) : null
 }
 
 export async function createCustomer(
   tenantId: string,
   input: CreateCustomerInput
 ): Promise<Customer> {
-  const { data, error } = await supabase
-    .from('customers')
-    .insert({
-      tenant_id: tenantId,
+  const row = await prisma.customer.create({
+    data: {
+      tenantId,
       name: input.name,
       furigana: input.furigana ?? null,
       email: input.email ?? null,
       phone: input.phone ?? null,
       locale: input.locale ?? 'ja',
       notes: input.notes ?? null,
-      contact_info: input.contact_info ?? null,
-      assigned_staff_id: input.assigned_staff_id ?? null,
-    })
-    .select()
-    .single()
+      contactInfo: input.contact_info ?? null,
+      assignedStaffId: input.assigned_staff_id ?? null,
+    },
+  })
 
-  if (error) throw new Error(`Failed to create customer: ${error.message}`)
-
-  return data as Customer
+  return toCustomer(row)
 }
 
 export async function updateCustomer(
@@ -102,55 +114,60 @@ export async function updateCustomer(
   id: string,
   input: UpdateCustomerInput
 ): Promise<Customer> {
-  const updates: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(input)) {
-    if (value !== undefined) updates[key] = value
-  }
+  // Check existence first
+  const existing = await prisma.customer.findFirst({
+    where: { id, tenantId },
+  })
 
-  const { data, error } = await supabase
-    .from('customers')
-    .update(updates)
-    .eq('id', id)
-    .eq('tenant_id', tenantId)
-    .select()
-    .single()
+  if (!existing) throw new Error('Customer not found')
 
-  if (error) {
-    if (error.code === 'PGRST116') throw new Error('Customer not found')
-    throw new Error(`Failed to update customer: ${error.message}`)
-  }
+  // Map API field names to Prisma field names
+  const data: any = {}
+  if (input.name !== undefined) data.name = input.name
+  if (input.furigana !== undefined) data.furigana = input.furigana
+  if (input.email !== undefined) data.email = input.email
+  if (input.phone !== undefined) data.phone = input.phone
+  if (input.locale !== undefined) data.locale = input.locale
+  if (input.notes !== undefined) data.notes = input.notes
+  if (input.contact_info !== undefined) data.contactInfo = input.contact_info
+  if (input.assigned_staff_id !== undefined) data.assignedStaffId = input.assigned_staff_id
 
-  return data as Customer
+  const row = await prisma.customer.update({
+    where: { id },
+    data,
+  })
+
+  return toCustomer(row)
 }
 
 export async function deleteCustomer(
   tenantId: string,
   id: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from('customers')
-    .delete()
-    .eq('id', id)
-    .eq('tenant_id', tenantId)
+  // Verify tenant ownership before deleting
+  const existing = await prisma.customer.findFirst({
+    where: { id, tenantId },
+  })
 
-  if (error) throw new Error(`Failed to delete customer: ${error.message}`)
+  if (!existing) throw new Error('Customer not found')
+
+  await prisma.customer.delete({ where: { id } })
 }
 
 export async function checkDuplicateName(
   tenantId: string,
   name: string
 ): Promise<CheckDuplicateResponse> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('name')
-    .eq('tenant_id', tenantId)
-    .ilike('name', name)
-    .limit(1)
+  const existing = await prisma.customer.findFirst({
+    where: {
+      tenantId,
+      name: { equals: name, mode: 'insensitive' },
+    },
+    select: { name: true },
+  })
 
-  if (error) throw new Error(`Failed to check duplicate: ${error.message}`)
-
-  if (data && data.length > 0) {
-    return { exists: true, existing_name: data[0].name }
+  if (existing) {
+    return { exists: true, existing_name: existing.name }
   }
 
   return { exists: false }

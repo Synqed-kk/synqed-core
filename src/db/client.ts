@@ -1,12 +1,13 @@
-import { createClient } from '@supabase/supabase-js'
+import { PrismaClient } from '@prisma/client'
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+  })
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma
 }
-
-// Use service role key — synqed-core is a trusted backend service.
-// Tenant scoping is enforced in the service layer, not RLS.
-export const supabase = createClient(supabaseUrl, supabaseServiceKey)
