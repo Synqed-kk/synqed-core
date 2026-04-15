@@ -1,0 +1,146 @@
+/*
+ * @synqed/ui theme tokens
+ * 4 variants: amber, obsidian, sage, slate
+ * Import this file in your app's global CSS.
+ * Set <html data-theme="amber"> to activate a theme.
+ */
+
+/* ======================== AMBER ======================== */
+:root[data-theme="amber"] {
+  --color-bg: #f5ead0;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #faf4e4;
+  --color-bg-muted: #efe3c8;
+  --color-bg-overlay: rgba(26, 22, 16, 0.6);
+  --color-chrome: #1a1610;
+  --color-chrome-hover: #2a2418;
+  --color-chrome-active: #2a2418;
+  --color-chrome-border: #3a3428;
+  --color-chrome-text: #8a7a5a;
+  --color-chrome-text-active: #c8873e;
+  --color-accent: #c8873e;
+  --color-accent-hover: #b5792e;
+  --color-accent-light: #f5e6d0;
+  --color-accent-text: #ffffff;
+  --color-text: #2a1f0e;
+  --color-text-muted: #8a7a5a;
+  --color-text-inverse: #ffffff;
+  --color-border: #e8dcc0;
+  --color-border-strong: #d4c8a8;
+  --color-destructive: #ef4444;
+  --color-destructive-text: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-recording: #ef4444;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --sidebar-width: 80px;
+}
+
+/* ======================== OBSIDIAN ======================== */
+:root[data-theme="obsidian"] {
+  --color-bg: #09090b;
+  --color-bg-card: #18181b;
+  --color-bg-card-hover: #1f1f23;
+  --color-bg-muted: #27272a;
+  --color-bg-overlay: rgba(0, 0, 0, 0.7);
+  --color-chrome: #09090b;
+  --color-chrome-hover: #18181b;
+  --color-chrome-active: #18181b;
+  --color-chrome-border: #27272a;
+  --color-chrome-text: #52525b;
+  --color-chrome-text-active: #f97316;
+  --color-accent: #f97316;
+  --color-accent-hover: #ea580c;
+  --color-accent-light: #431407;
+  --color-accent-text: #ffffff;
+  --color-text: #fafafa;
+  --color-text-muted: #71717a;
+  --color-text-inverse: #09090b;
+  --color-border: #27272a;
+  --color-border-strong: #3f3f46;
+  --color-destructive: #ef4444;
+  --color-destructive-text: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-recording: #ef4444;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --sidebar-width: 80px;
+}
+
+/* ======================== SAGE ======================== */
+:root[data-theme="sage"] {
+  --color-bg: #e8ede6;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f0f4ee;
+  --color-bg-muted: #d8dfd5;
+  --color-bg-overlay: rgba(26, 30, 26, 0.6);
+  --color-chrome: #1a1e1a;
+  --color-chrome-hover: #252a25;
+  --color-chrome-active: #252a25;
+  --color-chrome-border: #353a35;
+  --color-chrome-text: #5a6a5a;
+  --color-chrome-text-active: #7aaa7a;
+  --color-accent: #5a7a5a;
+  --color-accent-hover: #4a6a4a;
+  --color-accent-light: #dce5d8;
+  --color-accent-text: #ffffff;
+  --color-text: #1a2a1a;
+  --color-text-muted: #6a7a6a;
+  --color-text-inverse: #ffffff;
+  --color-border: #cdd5c8;
+  --color-border-strong: #b5bfb0;
+  --color-destructive: #ef4444;
+  --color-destructive-text: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-recording: #ef4444;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --sidebar-width: 80px;
+}
+
+/* ======================== SLATE ======================== */
+:root[data-theme="slate"] {
+  --color-bg: #f0eeeb;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f5f3f0;
+  --color-bg-muted: #e4e0db;
+  --color-bg-overlay: rgba(28, 25, 23, 0.6);
+  --color-chrome: #1c1917;
+  --color-chrome-hover: #292524;
+  --color-chrome-active: #292524;
+  --color-chrome-border: #3a3633;
+  --color-chrome-text: #57534e;
+  --color-chrome-text-active: #818cf8;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-light: #eef2ff;
+  --color-accent-text: #ffffff;
+  --color-text: #1c1917;
+  --color-text-muted: #78716c;
+  --color-text-inverse: #ffffff;
+  --color-border: #ddd9d3;
+  --color-border-strong: #c4bfb8;
+  --color-destructive: #ef4444;
+  --color-destructive-text: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-recording: #ef4444;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --sidebar-width: 80px;
+}
