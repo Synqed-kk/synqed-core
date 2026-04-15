@@ -17,7 +17,7 @@ app.get('/health', (c) => c.json({ status: 'ok' }))
 
 const port = Number(process.env.PORT) || 3100
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port }, (info) => {
     console.log(`synqed-core running on http://localhost:${info.port}`)
   })
