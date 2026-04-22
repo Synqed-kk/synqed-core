@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =============================================================================
+// Customer — core tenant-scoped entity
+// =============================================================================
+
 model Customer {
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
@@ -18,12 +22,144 @@ model Customer {
   notes           String?
   contactInfo     String?  @map("contact_info")
   assignedStaffId String?  @map("assigned_staff_id") @db.Uuid
+  // External system references (e.g. { quickreserve: { customerId: 12345 } })
+  externalRefs    Json     @default("{}") @map("external_refs")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  appointments Appointment[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
   @@index([tenantId, name])
   @@index([tenantId, email])
   @@map("customers")
+}
+
+// =============================================================================
+// Staff — tenant members who take bookings / do karute
+// =============================================================================
+
+enum StaffRole {
+  OWNER
+  ADMIN
+  STYLIST
+  ASSISTANT
+}
+
+model Staff {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String?   @unique @map("user_id") @db.Uuid
+  name      String
+  nameKana  String?   @map("name_kana")
+  email     String?
+  role      StaffRole @default(STYLIST)
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  appointments Appointment[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@map("staff")
+}
+
+// =============================================================================
+// Appointment — booking from any source (manual or skimmed from Quick Reserve etc.)
+// =============================================================================
+
+enum AppointmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AppointmentSource {
+  MANUAL
+  QUICKRESERVE
+  SYNQED_RESERVE
+  SALON_BOARD
+  HOT_PEPPER
+  OTHER
+}
+
+model Appointment {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  customerId      String             @map("customer_id") @db.Uuid
+  staffId         String             @map("staff_id") @db.Uuid
+  startsAt        DateTime           @map("starts_at") @db.Timestamptz()
+  endsAt          DateTime           @map("ends_at") @db.Timestamptz()
+  durationMinutes Int?               @map("duration_minutes")
+  title           String?
+  notes           String?
+  status          AppointmentStatus  @default(SCHEDULED)
+  source          AppointmentSource  @default(MANUAL)
+  // External system references. Shape: { quickreserve: { reservationId: 12345, rid: "abc" } }
+  externalRefs    Json               @default("{}") @map("external_refs")
+  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz()
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  staff    Staff    @relation(fields: [staffId], references: [id])
+
+  @@index([tenantId, startsAt])
+  @@index([customerId, startsAt])
+  @@index([staffId, startsAt])
+  // External-ref-based dedup for upserts
+  @@index([tenantId, source])
+  @@map("appointments")
+}
+
+// =============================================================================
+// SyncConfig — per-tenant external booking system integration config
+// =============================================================================
+
+enum SyncProvider {
+  QUICKRESERVE
+  SYNQED_RESERVE
+  SALON_BOARD
+  HOT_PEPPER
+}
+
+enum SyncStatus {
+  OK
+  ERROR
+  RUNNING
+}
+
+model SyncConfig {
+  id                  String       @id @default(uuid()) @db.Uuid
+  tenantId            String       @map("tenant_id") @db.Uuid
+  provider            SyncProvider
+  // Encrypted credentials (AES-256-GCM). Shape of decrypted payload depends on provider.
+  // For QUICKRESERVE: { username, password, storeSlug, storeId }
+  credentialsEncrypted Bytes?      @map("credentials_encrypted")
+  // Non-secret config that the UI displays / edits
+  username            String?
+  storeSlug           String?      @map("store_slug")
+  storeId             Int?         @map("store_id")
+  // Scheduling
+  enabled             Boolean      @default(false)
+  intervalMinutes     Int          @default(15) @map("interval_minutes")
+  businessHoursStart  Int          @default(8) @map("business_hours_start") // hour 0-23
+  businessHoursEnd    Int          @default(22) @map("business_hours_end") // hour 0-23
+  timezone            String       @default("Asia/Tokyo")
+  // Date window: how many days forward to sync (today = 0, tomorrow = 1, ...)
+  lookaheadDays       Int          @default(7) @map("lookahead_days")
+  // Status
+  lastRunAt           DateTime?    @map("last_run_at") @db.Timestamptz()
+  lastRunStatus       SyncStatus?  @map("last_run_status")
+  lastRunError        String?      @map("last_run_error")
+  lastRunStats        Json         @default("{}") @map("last_run_stats") // { created, updated, cancelled, skipped, unmatchedStaff[] }
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([tenantId, provider])
+  @@index([enabled, lastRunAt])
+  @@map("sync_configs")
 }

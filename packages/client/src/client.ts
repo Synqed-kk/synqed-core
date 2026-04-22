@@ -1,5 +1,8 @@
 import type { SynqedClientConfig } from './types.js'
 import { CustomerClient } from './customers.js'
+import { StaffClient } from './staff.js'
+import { AppointmentClient } from './appointments.js'
+import { SyncClient } from './sync.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -7,12 +10,18 @@ export class SynqedClient {
   private tenantId: string
 
   public customers: CustomerClient
+  public staff: StaffClient
+  public appointments: AppointmentClient
+  public sync: SyncClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
     this.apiKey = config.apiKey
     this.tenantId = config.tenantId
     this.customers = new CustomerClient(this)
+    this.staff = new StaffClient(this)
+    this.appointments = new AppointmentClient(this)
+    this.sync = new SyncClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,7 +47,7 @@ export class SynqedClient {
 export class SynqedError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
   ) {
     super(message)
     this.name = 'SynqedError'

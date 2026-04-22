@@ -1,0 +1,65 @@
+import { Hono } from 'hono'
+import type { AppEnv } from '../types/api.js'
+import {
+  createStaffSchema,
+  updateStaffSchema,
+  listStaffSchema,
+} from '../validations/staff.js'
+import * as staffService from '../services/staff.service.js'
+
+export const staffRoutes = new Hono<AppEnv>()
+
+staffRoutes.get('/', async (c) => {
+  const tenantId = c.get('tenantId')
+  const raw = Object.fromEntries(new URL(c.req.url).searchParams)
+  const parsed = listStaffSchema.safeParse(raw)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  const result = await staffService.listStaff(tenantId, parsed.data)
+  return c.json(result)
+})
+
+staffRoutes.get('/:id', async (c) => {
+  const tenantId = c.get('tenantId')
+  const staff = await staffService.getStaff(tenantId, c.req.param('id'))
+  if (!staff) return c.json({ error: 'Staff not found' }, 404)
+  return c.json(staff)
+})
+
+staffRoutes.post('/', async (c) => {
+  const tenantId = c.get('tenantId')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = createStaffSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  const staff = await staffService.createStaff(tenantId, parsed.data)
+  return c.json(staff, 201)
+})
+
+staffRoutes.put('/:id', async (c) => {
+  const tenantId = c.get('tenantId')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = updateStaffSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+
+  try {
+    const staff = await staffService.updateStaff(tenantId, c.req.param('id'), parsed.data)
+    return c.json(staff)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
+
+staffRoutes.delete('/:id', async (c) => {
+  const tenantId = c.get('tenantId')
+  try {
+    await staffService.deleteStaff(tenantId, c.req.param('id'))
+    return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
