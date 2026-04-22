@@ -6,9 +6,20 @@ const getApiKeys = (): Set<string> => {
   return new Set(keys.split(',').map((k) => k.trim()).filter(Boolean))
 }
 
+// Paths that don't require tenant scoping — cron dispatch, health, anything
+// that operates across tenants. These do their own auth (e.g. CRON_SECRET).
+const CROSS_TENANT_PATHS = [
+  /\/health$/,
+  /\/v1\/sync\/cron\/dispatch$/,
+]
+
+function isCrossTenantPath(path: string): boolean {
+  return CROSS_TENANT_PATHS.some((re) => re.test(path))
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
-  // Skip auth for health check
-  if (c.req.path.endsWith('/health')) {
+  const path = c.req.path
+  if (isCrossTenantPath(path)) {
     return next()
   }
 
