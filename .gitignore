@@ -5,3 +5,4 @@ dist/
 .vercel/
 dev-data.json
 .vercel
+.worktrees/
