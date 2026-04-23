@@ -3,6 +3,9 @@ import { logger } from 'hono/logger'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { customerRoutes } from './routes/customers.js'
+import { staffRoutes } from './routes/staff.js'
+import { appointmentRoutes } from './routes/appointments.js'
+import { syncRoutes } from './routes/sync.js'
 import { authMiddleware } from './middleware/auth.js'
 
 const app = new Hono().basePath('/v1')
@@ -22,6 +25,9 @@ app.onError((err, c) => {
 })
 
 app.route('/customers', customerRoutes)
+app.route('/staff', staffRoutes)
+app.route('/appointments', appointmentRoutes)
+app.route('/sync', syncRoutes)
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
