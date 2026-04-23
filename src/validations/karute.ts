@@ -17,9 +17,10 @@ export const entryInputSchema = z.object({
   category: entryCategorySchema,
   content: z.string(),
   original_quote: z.string().nullable().optional(),
-  confidence: z.number().min(0).max(1).optional(),
+  confidence: z.number().min(0).max(1).nullable().optional(),
   tags: z.array(z.string()).optional(),
   sort_order: z.number().int().optional(),
+  is_manual: z.boolean().optional(),
 })
 
 export const createKaruteRecordSchema = z.object({

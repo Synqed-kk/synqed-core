@@ -8,6 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 15000,
+    fileParallelism: false,
     exclude: ['**/node_modules/**', '**/.worktrees/**'],
   },
   resolve: {

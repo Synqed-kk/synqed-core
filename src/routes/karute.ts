@@ -4,6 +4,7 @@ import {
   createKaruteRecordSchema,
   updateKaruteRecordSchema,
   listKaruteRecordsSchema,
+  entryInputSchema,
 } from '../validations/karute.js'
 import * as karuteService from '../services/karute.service.js'
 
@@ -78,6 +79,41 @@ karuteRoutes.delete('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Karute record not found') {
       return c.json({ error: 'Karute record not found' }, 404)
+    }
+    throw err
+  }
+})
+
+karuteRoutes.post('/:id/entries', async (c) => {
+  const tenantId = c.get('tenantId')
+  const karuteRecordId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = entryInputSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  try {
+    const entry = await karuteService.addEntry(tenantId, karuteRecordId, parsed.data)
+    return c.json(entry, 201)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Karute record not found') {
+      return c.json({ error: err.message }, 404)
+    }
+    throw err
+  }
+})
+
+karuteRoutes.delete('/:id/entries/:entryId', async (c) => {
+  const tenantId = c.get('tenantId')
+  const karuteRecordId = c.req.param('id')
+  const entryId = c.req.param('entryId')
+  try {
+    await karuteService.deleteEntry(tenantId, karuteRecordId, entryId)
+    return c.json({ success: true })
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message === 'Karute record not found' || err.message === 'Entry not found')
+    ) {
+      return c.json({ error: err.message }, 404)
     }
     throw err
   }

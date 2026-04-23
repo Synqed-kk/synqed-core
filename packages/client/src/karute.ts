@@ -1,6 +1,8 @@
 import type { SynqedClient } from './client.js'
 import type {
   KaruteRecord,
+  KaruteEntry,
+  KaruteEntryInput,
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
   ListKaruteRecordsOptions,
@@ -65,5 +67,18 @@ export class KaruteRecordClient {
 
   async delete(id: string): Promise<void> {
     await this.client.fetch(`/karute-records/${id}`, { method: 'DELETE' })
+  }
+
+  async addEntry(karuteRecordId: string, input: KaruteEntryInput): Promise<KaruteEntry> {
+    return this.client.fetch<KaruteEntry>(`/karute-records/${karuteRecordId}/entries`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+
+  async deleteEntry(karuteRecordId: string, entryId: string): Promise<void> {
+    await this.client.fetch(`/karute-records/${karuteRecordId}/entries/${entryId}`, {
+      method: 'DELETE',
+    })
   }
 }
