@@ -9,6 +9,7 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 15000,
     exclude: ['**/node_modules/**', '**/.worktrees/**'],
+    fileParallelism: false,
   },
   resolve: {
     alias: {
