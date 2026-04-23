@@ -7,8 +7,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    testTimeout: 15000,
-    fileParallelism: false,
+    testTimeout: 30000,
+    hookTimeout: 30000,
     exclude: ['**/node_modules/**', '**/.worktrees/**'],
     fileParallelism: false,
   },

@@ -8,6 +8,7 @@ import {
   verifyPinSchema,
 } from '../validations/staff.js'
 import * as staffService from '../services/staff.service.js'
+import { StaffLastMemberError, StaffAttributedRecordsError } from '../services/staff.service.js'
 
 export const staffRoutes = new Hono<AppEnv>()
 
@@ -61,6 +62,9 @@ staffRoutes.delete('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
+    }
+    if (err instanceof StaffLastMemberError || err instanceof StaffAttributedRecordsError) {
+      return c.json({ error: err.message }, 400)
     }
     throw err
   }

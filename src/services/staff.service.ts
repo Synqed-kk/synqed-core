@@ -3,6 +3,20 @@ import type { StaffRole } from '@prisma/client'
 import type { CreateStaffInput, UpdateStaffInput } from '../validations/staff.js'
 import { hashPin } from './crypto.js'
 
+export class StaffLastMemberError extends Error {
+  constructor() {
+    super('Cannot delete the last staff member.')
+    this.name = 'StaffLastMemberError'
+  }
+}
+
+export class StaffAttributedRecordsError extends Error {
+  constructor(public count: number) {
+    super(`This staff member has ${count} karute record${count === 1 ? '' : 's'} and cannot be deleted.`)
+    this.name = 'StaffAttributedRecordsError'
+  }
+}
+
 export interface StaffPublic {
   id: string
   tenant_id: string
@@ -114,6 +128,15 @@ export async function updateStaff(
 export async function deleteStaff(tenantId: string, id: string): Promise<void> {
   const existing = await prisma.staff.findFirst({ where: { id, tenantId } })
   if (!existing) throw new Error('Staff not found')
+
+  const [totalCount, recordCount] = await Promise.all([
+    prisma.staff.count({ where: { tenantId } }),
+    prisma.karuteRecord.count({ where: { tenantId, staffId: id } }),
+  ])
+
+  if (totalCount <= 1) throw new StaffLastMemberError()
+  if (recordCount > 0) throw new StaffAttributedRecordsError(recordCount)
+
   await prisma.staff.delete({ where: { id } })
 }
 
