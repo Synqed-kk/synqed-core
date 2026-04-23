@@ -164,3 +164,135 @@ model SyncConfig {
   @@index([enabled, lastRunAt])
   @@map("sync_configs")
 }
+
+// =============================================================================
+// RecordingSession — audio capture + transcription lifecycle
+// =============================================================================
+
+enum RecordingStatus {
+  RECORDING
+  UPLOADING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model RecordingSession {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @map("tenant_id") @db.Uuid
+  customerId       String?         @map("customer_id") @db.Uuid
+  staffId          String          @map("staff_id") @db.Uuid
+  appointmentId    String?         @map("appointment_id") @db.Uuid
+  audioStoragePath String?         @map("audio_storage_path")
+  durationSeconds  Int?            @map("duration_seconds")
+  status           RecordingStatus @default(RECORDING)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz()
+
+  segments     TranscriptionSegment[]
+  karuteRecord KaruteRecord?
+
+  @@index([tenantId, createdAt])
+  @@index([customerId])
+  @@index([staffId])
+  @@map("recording_sessions")
+}
+
+// =============================================================================
+// TranscriptionSegment — ordered chunks of transcript for a recording
+// =============================================================================
+
+model TranscriptionSegment {
+  id                 String           @id @default(uuid()) @db.Uuid
+  recordingSessionId String           @map("recording_session_id") @db.Uuid
+  segmentIndex       Int              @map("segment_index")
+  text               String
+  startTime          Float            @map("start_time")
+  endTime            Float            @map("end_time")
+  speakerLabel       String?          @map("speaker_label")
+  confidence         Float?
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+
+  recordingSession RecordingSession @relation(fields: [recordingSessionId], references: [id], onDelete: Cascade)
+
+  @@index([recordingSessionId, segmentIndex])
+  @@map("transcription_segments")
+}
+
+// =============================================================================
+// KaruteRecord — per-session clinical/service notes (header)
+// =============================================================================
+
+enum KaruteStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+}
+
+model KaruteRecord {
+  id                 String       @id @default(uuid()) @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  customerId         String?      @map("customer_id") @db.Uuid
+  staffId            String       @map("staff_id") @db.Uuid
+  appointmentId      String?      @map("appointment_id") @db.Uuid
+  recordingSessionId String?      @unique @map("recording_session_id") @db.Uuid
+  status             KaruteStatus @default(DRAFT)
+  aiSummary          String?      @map("ai_summary")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+
+  entries          KaruteEntry[]
+  recordingSession RecordingSession? @relation(fields: [recordingSessionId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([customerId])
+  @@index([staffId])
+  @@map("karute_records")
+}
+
+// =============================================================================
+// KaruteEntry — categorized items inside a karute record
+// =============================================================================
+
+enum EntryCategory {
+  SYMPTOM
+  TREATMENT
+  BODY_AREA
+  PREFERENCE
+  LIFESTYLE
+  NEXT_VISIT
+  PRODUCT
+  OTHER
+}
+
+model KaruteEntry {
+  id             String        @id @default(uuid()) @db.Uuid
+  karuteRecordId String        @map("karute_record_id") @db.Uuid
+  category       EntryCategory
+  content        String
+  originalQuote  String?       @map("original_quote")
+  confidence     Float         @default(0)
+  tags           String[]      @default([])
+  sortOrder      Int           @default(0) @map("sort_order")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz()
+
+  karuteRecord KaruteRecord @relation(fields: [karuteRecordId], references: [id], onDelete: Cascade)
+
+  @@index([karuteRecordId, sortOrder])
+  @@map("karute_entries")
+}
+
+// =============================================================================
+// OrgSettings — per-tenant config bag (replaces karute's Organization.settings JSON)
+// =============================================================================
+
+model OrgSettings {
+  tenantId  String   @id @map("tenant_id") @db.Uuid
+  name      String?
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("org_settings")
+}

@@ -240,3 +240,198 @@ export interface SyncRunResult {
   unmatched_staff: string[]
   duration_ms: number
 }
+
+// ===========================================================================
+// Recordings
+// ===========================================================================
+
+export type RecordingStatus =
+  | 'RECORDING'
+  | 'UPLOADING'
+  | 'PROCESSING'
+  | 'COMPLETED'
+  | 'FAILED'
+
+export interface Recording {
+  id: string
+  tenant_id: string
+  customer_id: string | null
+  staff_id: string
+  appointment_id: string | null
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: RecordingStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateRecordingInput {
+  customer_id?: string | null
+  staff_id: string
+  appointment_id?: string | null
+  audio_storage_path?: string | null
+  duration_seconds?: number | null
+  status?: RecordingStatus
+  created_at?: string
+}
+
+export interface UpdateRecordingInput {
+  customer_id?: string | null
+  audio_storage_path?: string | null
+  duration_seconds?: number | null
+  status?: RecordingStatus
+}
+
+export interface ListRecordingsOptions {
+  from?: string
+  to?: string
+  date?: string
+  customer_id?: string
+  staff_id?: string
+  status?: RecordingStatus
+  page?: number
+  page_size?: number
+}
+
+export interface ListRecordingsResponse {
+  recordings: Recording[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface TranscriptionSegment {
+  id: string
+  recording_session_id: string
+  segment_index: number
+  text: string
+  start_time: number
+  end_time: number
+  speaker_label: string | null
+  confidence: number | null
+  created_at: string
+}
+
+export interface SegmentInput {
+  segment_index: number
+  text: string
+  start_time: number
+  end_time: number
+  speaker_label?: string | null
+  confidence?: number | null
+}
+
+// ===========================================================================
+// Karute records
+// ===========================================================================
+
+export type KaruteStatus = 'DRAFT' | 'REVIEW' | 'APPROVED'
+
+export type EntryCategory =
+  | 'SYMPTOM'
+  | 'TREATMENT'
+  | 'BODY_AREA'
+  | 'PREFERENCE'
+  | 'LIFESTYLE'
+  | 'NEXT_VISIT'
+  | 'PRODUCT'
+  | 'OTHER'
+
+export interface KaruteEntry {
+  id: string
+  karute_record_id: string
+  category: EntryCategory
+  content: string
+  original_quote: string | null
+  confidence: number
+  tags: string[]
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface KaruteEntryInput {
+  category: EntryCategory
+  content: string
+  original_quote?: string | null
+  confidence?: number
+  tags?: string[]
+  sort_order?: number
+}
+
+export interface KaruteRecord {
+  id: string
+  tenant_id: string
+  customer_id: string | null
+  staff_id: string
+  appointment_id: string | null
+  recording_session_id: string | null
+  status: KaruteStatus
+  ai_summary: string | null
+  created_at: string
+  updated_at: string
+  entries?: KaruteEntry[]
+  entry_count?: number
+  recording_session?: {
+    id: string
+    segments: Array<{
+      id: string
+      segment_index: number
+      text: string
+      start_time: number
+      end_time: number
+      speaker_label: string | null
+      confidence: number | null
+    }>
+  }
+}
+
+export interface CreateKaruteRecordInput {
+  customer_id?: string | null
+  staff_id: string
+  appointment_id?: string | null
+  recording_session_id?: string | null
+  status?: KaruteStatus
+  ai_summary?: string | null
+  entries?: KaruteEntryInput[]
+}
+
+export interface UpdateKaruteRecordInput {
+  customer_id?: string | null
+  status?: KaruteStatus
+  ai_summary?: string | null
+  entries?: KaruteEntryInput[]
+}
+
+export interface ListKaruteRecordsOptions {
+  customer_id?: string
+  staff_id?: string
+  recording_session_id?: string
+  status?: KaruteStatus
+  page?: number
+  page_size?: number
+}
+
+export interface ListKaruteRecordsResponse {
+  karute_records: KaruteRecord[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// ===========================================================================
+// Org settings
+// ===========================================================================
+
+export interface OrgSettings {
+  tenant_id: string
+  name: string | null
+  settings: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface UpsertOrgSettingsInput {
+  name?: string | null
+  settings?: Record<string, unknown>
+}
