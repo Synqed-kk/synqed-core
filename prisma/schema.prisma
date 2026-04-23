@@ -57,6 +57,8 @@ model Staff {
   email     String?
   role      StaffRole @default(STYLIST)
   isActive  Boolean   @default(true) @map("is_active")
+  pinHash   String?   @map("pin_hash")
+  avatarUrl String?   @map("avatar_url")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -88,22 +90,22 @@ enum AppointmentSource {
 }
 
 model Appointment {
-  id              String             @id @default(uuid()) @db.Uuid
-  tenantId        String             @map("tenant_id") @db.Uuid
-  customerId      String             @map("customer_id") @db.Uuid
-  staffId         String             @map("staff_id") @db.Uuid
-  startsAt        DateTime           @map("starts_at") @db.Timestamptz()
-  endsAt          DateTime           @map("ends_at") @db.Timestamptz()
-  durationMinutes Int?               @map("duration_minutes")
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  customerId      String            @map("customer_id") @db.Uuid
+  staffId         String            @map("staff_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz()
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz()
+  durationMinutes Int?              @map("duration_minutes")
   title           String?
   notes           String?
-  status          AppointmentStatus  @default(SCHEDULED)
-  source          AppointmentSource  @default(MANUAL)
+  status          AppointmentStatus @default(SCHEDULED)
+  source          AppointmentSource @default(MANUAL)
   // External system references. Shape: { quickreserve: { reservationId: 12345, rid: "abc" } }
-  externalRefs    Json               @default("{}") @map("external_refs")
-  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz()
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+  externalRefs    Json              @default("{}") @map("external_refs")
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz()
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz()
 
   customer Customer @relation(fields: [customerId], references: [id])
   staff    Staff    @relation(fields: [staffId], references: [id])
@@ -134,31 +136,31 @@ enum SyncStatus {
 }
 
 model SyncConfig {
-  id                  String       @id @default(uuid()) @db.Uuid
-  tenantId            String       @map("tenant_id") @db.Uuid
-  provider            SyncProvider
+  id                   String       @id @default(uuid()) @db.Uuid
+  tenantId             String       @map("tenant_id") @db.Uuid
+  provider             SyncProvider
   // Encrypted credentials (AES-256-GCM). Shape of decrypted payload depends on provider.
   // For QUICKRESERVE: { username, password, storeSlug, storeId }
-  credentialsEncrypted Bytes?      @map("credentials_encrypted")
+  credentialsEncrypted Bytes?       @map("credentials_encrypted")
   // Non-secret config that the UI displays / edits
-  username            String?
-  storeSlug           String?      @map("store_slug")
-  storeId             Int?         @map("store_id")
+  username             String?
+  storeSlug            String?      @map("store_slug")
+  storeId              Int?         @map("store_id")
   // Scheduling
-  enabled             Boolean      @default(false)
-  intervalMinutes     Int          @default(15) @map("interval_minutes")
-  businessHoursStart  Int          @default(8) @map("business_hours_start") // hour 0-23
-  businessHoursEnd    Int          @default(22) @map("business_hours_end") // hour 0-23
-  timezone            String       @default("Asia/Tokyo")
+  enabled              Boolean      @default(false)
+  intervalMinutes      Int          @default(15) @map("interval_minutes")
+  businessHoursStart   Int          @default(8) @map("business_hours_start") // hour 0-23
+  businessHoursEnd     Int          @default(22) @map("business_hours_end") // hour 0-23
+  timezone             String       @default("Asia/Tokyo")
   // Date window: how many days forward to sync (today = 0, tomorrow = 1, ...)
-  lookaheadDays       Int          @default(7) @map("lookahead_days")
+  lookaheadDays        Int          @default(7) @map("lookahead_days")
   // Status
-  lastRunAt           DateTime?    @map("last_run_at") @db.Timestamptz()
-  lastRunStatus       SyncStatus?  @map("last_run_status")
-  lastRunError        String?      @map("last_run_error")
-  lastRunStats        Json         @default("{}") @map("last_run_stats") // { created, updated, cancelled, skipped, unmatchedStaff[] }
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt           DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
+  lastRunAt            DateTime?    @map("last_run_at") @db.Timestamptz()
+  lastRunStatus        SyncStatus?  @map("last_run_status")
+  lastRunError         String?      @map("last_run_error")
+  lastRunStats         Json         @default("{}") @map("last_run_stats") // { created, updated, cancelled, skipped, unmatchedStaff[] }
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@unique([tenantId, provider])
   @@index([enabled, lastRunAt])
@@ -203,15 +205,15 @@ model RecordingSession {
 // =============================================================================
 
 model TranscriptionSegment {
-  id                 String           @id @default(uuid()) @db.Uuid
-  recordingSessionId String           @map("recording_session_id") @db.Uuid
-  segmentIndex       Int              @map("segment_index")
+  id                 String   @id @default(uuid()) @db.Uuid
+  recordingSessionId String   @map("recording_session_id") @db.Uuid
+  segmentIndex       Int      @map("segment_index")
   text               String
-  startTime          Float            @map("start_time")
-  endTime            Float            @map("end_time")
-  speakerLabel       String?          @map("speaker_label")
+  startTime          Float    @map("start_time")
+  endTime            Float    @map("end_time")
+  speakerLabel       String?  @map("speaker_label")
   confidence         Float?
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   recordingSession RecordingSession @relation(fields: [recordingSessionId], references: [id], onDelete: Cascade)
 
@@ -238,6 +240,7 @@ model KaruteRecord {
   recordingSessionId String?      @unique @map("recording_session_id") @db.Uuid
   status             KaruteStatus @default(DRAFT)
   aiSummary          String?      @map("ai_summary")
+  transcript         String?
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -274,6 +277,7 @@ model KaruteEntry {
   confidence     Float         @default(0)
   tags           String[]      @default([])
   sortOrder      Int           @default(0) @map("sort_order")
+  isManual       Boolean       @default(false) @map("is_manual")
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz()
 
