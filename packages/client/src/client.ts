@@ -3,6 +3,9 @@ import { CustomerClient } from './customers.js'
 import { StaffClient } from './staff.js'
 import { AppointmentClient } from './appointments.js'
 import { SyncClient } from './sync.js'
+import { RecordingClient } from './recordings.js'
+import { KaruteRecordClient } from './karute.js'
+import { OrgSettingsClient } from './org-settings.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -13,6 +16,9 @@ export class SynqedClient {
   public staff: StaffClient
   public appointments: AppointmentClient
   public sync: SyncClient
+  public recordings: RecordingClient
+  public karuteRecords: KaruteRecordClient
+  public orgSettings: OrgSettingsClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -22,6 +28,9 @@ export class SynqedClient {
     this.staff = new StaffClient(this)
     this.appointments = new AppointmentClient(this)
     this.sync = new SyncClient(this)
+    this.recordings = new RecordingClient(this)
+    this.karuteRecords = new KaruteRecordClient(this)
+    this.orgSettings = new OrgSettingsClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {

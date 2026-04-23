@@ -3,6 +3,9 @@ export { CustomerClient } from './customers.js'
 export { StaffClient } from './staff.js'
 export { AppointmentClient } from './appointments.js'
 export { SyncClient } from './sync.js'
+export { RecordingClient } from './recordings.js'
+export { KaruteRecordClient } from './karute.js'
+export { OrgSettingsClient } from './org-settings.js'
 
 export type {
   // Shared
@@ -39,4 +42,29 @@ export type {
   SyncStatus,
   UpsertSyncConfigInput,
   SyncRunResult,
+
+  // Recordings
+  Recording,
+  RecordingStatus,
+  CreateRecordingInput,
+  UpdateRecordingInput,
+  ListRecordingsOptions,
+  ListRecordingsResponse,
+  TranscriptionSegment,
+  SegmentInput,
+
+  // Karute
+  KaruteRecord,
+  KaruteStatus,
+  KaruteEntry,
+  KaruteEntryInput,
+  EntryCategory,
+  CreateKaruteRecordInput,
+  UpdateKaruteRecordInput,
+  ListKaruteRecordsOptions,
+  ListKaruteRecordsResponse,
+
+  // Org settings
+  OrgSettings,
+  UpsertOrgSettingsInput,
 } from './types.js'
