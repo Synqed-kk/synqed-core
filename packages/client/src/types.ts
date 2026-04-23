@@ -408,6 +408,8 @@ export interface ListKaruteRecordsOptions {
   staff_id?: string
   recording_session_id?: string
   status?: KaruteStatus
+  from?: string
+  to?: string
   page?: number
   page_size?: number
 }

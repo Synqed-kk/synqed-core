@@ -44,6 +44,8 @@ export const listKaruteRecordsSchema = z.object({
   staff_id: z.string().uuid().optional(),
   recording_session_id: z.string().uuid().optional(),
   status: karuteStatusSchema.optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
   page: z.coerce.number().int().min(1).optional(),
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })
