@@ -23,6 +23,7 @@ export class KaruteRecordClient {
     if (options?.staff_id) params.set('staff_id', options.staff_id)
     if (options?.recording_session_id)
       params.set('recording_session_id', options.recording_session_id)
+    if (options?.appointment_id) params.set('appointment_id', options.appointment_id)
     if (options?.status) params.set('status', options.status)
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)

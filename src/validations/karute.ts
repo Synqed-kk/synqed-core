@@ -30,19 +30,23 @@ export const createKaruteRecordSchema = z.object({
   recording_session_id: z.string().uuid().nullable().optional(),
   status: karuteStatusSchema.optional(),
   ai_summary: z.string().nullable().optional(),
+  transcript: z.string().nullable().optional(),
   entries: z.array(entryInputSchema).optional(),
 })
 
 export const updateKaruteRecordSchema = z.object({
   customer_id: z.string().uuid().nullable().optional(),
+  appointment_id: z.string().uuid().nullable().optional(),
   status: karuteStatusSchema.optional(),
   ai_summary: z.string().nullable().optional(),
+  transcript: z.string().nullable().optional(),
   entries: z.array(entryInputSchema).optional(), // if present, replaces all
 })
 
 export const listKaruteRecordsSchema = z.object({
   customer_id: z.string().uuid().optional(),
   staff_id: z.string().uuid().optional(),
+  appointment_id: z.string().uuid().optional(),
   recording_session_id: z.string().uuid().optional(),
   status: karuteStatusSchema.optional(),
   from: z.string().datetime().optional(),

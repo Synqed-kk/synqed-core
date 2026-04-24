@@ -29,6 +29,7 @@ export interface KaruteRecordPublic {
   recording_session_id: string | null
   status: KaruteStatus
   ai_summary: string | null
+  transcript: string | null
   created_at: string
   updated_at: string
   entries?: EntryPublic[]
@@ -44,6 +45,7 @@ function toPublic(
     recordingSessionId: string | null
     status: KaruteStatus
     aiSummary: string | null
+    transcript: string | null
     createdAt: Date
     updatedAt: Date
   },
@@ -58,6 +60,7 @@ function toPublic(
     recording_session_id: row.recordingSessionId,
     status: row.status,
     ai_summary: row.aiSummary,
+    transcript: row.transcript,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
     ...(entries !== undefined ? { entries } : {}),
@@ -98,6 +101,7 @@ export async function listKaruteRecords(
     customer_id?: string
     staff_id?: string
     recording_session_id?: string
+    appointment_id?: string
     status?: KaruteStatus
     from?: string
     to?: string
@@ -118,6 +122,7 @@ export async function listKaruteRecords(
   if (options.customer_id) where.customerId = options.customer_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
+  if (options.appointment_id) where.appointmentId = options.appointment_id
   if (options.status) where.status = options.status
   if (options.from || options.to) {
     const createdAt: Record<string, Date> = {}
@@ -218,6 +223,7 @@ export async function createKaruteRecord(
       recordingSessionId: input.recording_session_id ?? null,
       status: input.status ?? 'DRAFT',
       aiSummary: input.ai_summary ?? null,
+      transcript: input.transcript ?? null,
       entries: input.entries
         ? {
             create: input.entries.map((e, i) => ({
@@ -227,6 +233,7 @@ export async function createKaruteRecord(
               confidence: e.confidence ?? 0,
               tags: e.tags ?? [],
               sortOrder: e.sort_order ?? i,
+              isManual: e.is_manual ?? false,
             })),
           }
         : undefined,
@@ -246,8 +253,10 @@ export async function updateKaruteRecord(
 
   const data: Record<string, unknown> = {}
   if (input.customer_id !== undefined) data.customerId = input.customer_id
+  if (input.appointment_id !== undefined) data.appointmentId = input.appointment_id
   if (input.status !== undefined) data.status = input.status
   if (input.ai_summary !== undefined) data.aiSummary = input.ai_summary
+  if (input.transcript !== undefined) data.transcript = input.transcript
 
   if (input.entries !== undefined) {
     // Full replace of entries
@@ -260,6 +269,7 @@ export async function updateKaruteRecord(
         confidence: e.confidence ?? 0,
         tags: e.tags ?? [],
         sortOrder: e.sort_order ?? i,
+        isManual: e.is_manual ?? false,
       })),
     }
   }

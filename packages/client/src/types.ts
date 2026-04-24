@@ -371,6 +371,7 @@ export interface KaruteRecord {
   recording_session_id: string | null
   status: KaruteStatus
   ai_summary: string | null
+  transcript: string | null
   created_at: string
   updated_at: string
   entries?: KaruteEntry[]
@@ -396,13 +397,16 @@ export interface CreateKaruteRecordInput {
   recording_session_id?: string | null
   status?: KaruteStatus
   ai_summary?: string | null
+  transcript?: string | null
   entries?: KaruteEntryInput[]
 }
 
 export interface UpdateKaruteRecordInput {
   customer_id?: string | null
+  appointment_id?: string | null
   status?: KaruteStatus
   ai_summary?: string | null
+  transcript?: string | null
   entries?: KaruteEntryInput[]
 }
 
@@ -410,6 +414,7 @@ export interface ListKaruteRecordsOptions {
   customer_id?: string
   staff_id?: string
   recording_session_id?: string
+  appointment_id?: string
   status?: KaruteStatus
   from?: string
   to?: string
