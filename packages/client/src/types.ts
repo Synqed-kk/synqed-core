@@ -346,6 +346,7 @@ export interface KaruteEntry {
   confidence: number
   tags: string[]
   sort_order: number
+  is_manual: boolean
   created_at: string
   updated_at: string
 }
@@ -354,9 +355,10 @@ export interface KaruteEntryInput {
   category: EntryCategory
   content: string
   original_quote?: string | null
-  confidence?: number
+  confidence?: number | null
   tags?: string[]
   sort_order?: number
+  is_manual?: boolean
 }
 
 export interface KaruteRecord {

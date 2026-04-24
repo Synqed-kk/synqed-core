@@ -15,6 +15,7 @@ export interface EntryPublic {
   confidence: number
   tags: string[]
   sort_order: number
+  is_manual: boolean
   created_at: string
   updated_at: string
 }
@@ -72,6 +73,7 @@ function entryToPublic(row: {
   confidence: number
   tags: string[]
   sortOrder: number
+  isManual: boolean
   createdAt: Date
   updatedAt: Date
 }): EntryPublic {
@@ -84,6 +86,7 @@ function entryToPublic(row: {
     confidence: row.confidence,
     tags: row.tags,
     sort_order: row.sortOrder,
+    is_manual: row.isManual,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -273,4 +276,60 @@ export async function deleteKaruteRecord(tenantId: string, id: string): Promise<
   const existing = await prisma.karuteRecord.findFirst({ where: { id, tenantId } })
   if (!existing) throw new Error('Karute record not found')
   await prisma.karuteRecord.delete({ where: { id } })
+}
+
+export async function addEntry(
+  tenantId: string,
+  karuteRecordId: string,
+  input: EntryInput,
+): Promise<EntryPublic> {
+  // Verify karute record belongs to tenant
+  const record = await prisma.karuteRecord.findFirst({
+    where: { id: karuteRecordId, tenantId },
+    select: { id: true },
+  })
+  if (!record) throw new Error('Karute record not found')
+
+  // Determine next sort order
+  const lastEntry = await prisma.karuteEntry.findFirst({
+    where: { karuteRecordId },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
+  const nextSortOrder = (lastEntry?.sortOrder ?? -1) + 1
+
+  const row = await prisma.karuteEntry.create({
+    data: {
+      karuteRecordId,
+      category: input.category,
+      content: input.content,
+      originalQuote: input.original_quote ?? null,
+      confidence: input.confidence ?? 0,
+      tags: input.tags ?? [],
+      sortOrder: input.sort_order ?? nextSortOrder,
+      isManual: input.is_manual ?? false,
+    },
+  })
+  return entryToPublic(row)
+}
+
+export async function deleteEntry(
+  tenantId: string,
+  karuteRecordId: string,
+  entryId: string,
+): Promise<void> {
+  // Verify karute record belongs to tenant (enforces tenant isolation for entry)
+  const record = await prisma.karuteRecord.findFirst({
+    where: { id: karuteRecordId, tenantId },
+    select: { id: true },
+  })
+  if (!record) throw new Error('Karute record not found')
+
+  const entry = await prisma.karuteEntry.findFirst({
+    where: { id: entryId, karuteRecordId },
+    select: { id: true },
+  })
+  if (!entry) throw new Error('Entry not found')
+
+  await prisma.karuteEntry.delete({ where: { id: entryId } })
 }
