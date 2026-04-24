@@ -5,6 +5,13 @@ import type {
   UpdateAppointmentInput,
 } from '../validations/appointment.js'
 
+export class AppointmentOverlapError extends Error {
+  constructor(message = 'This time slot overlaps with an existing booking.') {
+    super(message)
+    this.name = 'AppointmentOverlapError'
+  }
+}
+
 export interface AppointmentPublic {
   id: string
   tenant_id: string
@@ -117,13 +124,29 @@ export async function createAppointment(
   tenantId: string,
   input: CreateAppointmentInput,
 ): Promise<AppointmentPublic> {
+  const startsAt = new Date(input.starts_at)
+  const endsAt = new Date(input.ends_at)
+
+  const overlapping = await prisma.appointment.findFirst({
+    where: {
+      tenantId,
+      staffId: input.staff_id,
+      status: { not: 'CANCELLED' },
+      startsAt: { lt: endsAt },
+      endsAt: { gt: startsAt },
+    },
+    select: { id: true },
+  })
+
+  if (overlapping) throw new AppointmentOverlapError()
+
   const row = await prisma.appointment.create({
     data: {
       tenantId,
       customerId: input.customer_id,
       staffId: input.staff_id,
-      startsAt: new Date(input.starts_at),
-      endsAt: new Date(input.ends_at),
+      startsAt,
+      endsAt,
       durationMinutes: input.duration_minutes ?? null,
       title: input.title ?? null,
       notes: input.notes ?? null,

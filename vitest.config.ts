@@ -10,6 +10,7 @@ export default defineConfig({
     testTimeout: 15000,
     fileParallelism: false,
     exclude: ['**/node_modules/**', '**/.worktrees/**'],
+    fileParallelism: false,
   },
   resolve: {
     alias: {
