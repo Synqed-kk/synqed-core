@@ -2,6 +2,7 @@ import { prisma } from '../db/client.js'
 import type { StaffRole } from '@prisma/client'
 import type { CreateStaffInput, UpdateStaffInput } from '../validations/staff.js'
 import { hashPin } from './crypto.js'
+import { getStorage } from './storage.js'
 
 export class StaffLastMemberError extends Error {
   constructor() {
@@ -26,6 +27,7 @@ export interface StaffPublic {
   email: string | null
   role: StaffRole
   is_active: boolean
+  avatar_url: string | null
   created_at: string
   updated_at: string
 }
@@ -39,6 +41,7 @@ function toPublic(row: {
   email: string | null
   role: StaffRole
   isActive: boolean
+  avatarUrl?: string | null
   createdAt: Date
   updatedAt: Date
 }): StaffPublic {
@@ -51,6 +54,7 @@ function toPublic(row: {
     email: row.email,
     role: row.role,
     is_active: row.isActive,
+    avatar_url: row.avatarUrl ?? null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -177,4 +181,34 @@ export async function hasPin(tenantId: string, staffId: string): Promise<{ has_p
   })
   if (!staff) throw new Error('Staff not found')
   return { has_pin: !!staff.pinHash }
+}
+
+export async function uploadAvatar(
+  tenantId: string,
+  staffId: string,
+  file: File,
+): Promise<{ avatar_url: string }> {
+  const staff = await prisma.staff.findFirst({
+    where: { id: staffId, tenantId },
+    select: { id: true },
+  })
+  if (!staff) throw new Error('Staff not found')
+
+  const ext = file.name.split('.').pop() ?? 'jpg'
+  const path = `${tenantId}/${staffId}.${ext}`
+
+  const storage = getStorage()
+  const { error: uploadError } = await storage
+    .from('avatars')
+    .upload(path, file, { upsert: true })
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = storage.from('avatars').getPublicUrl(path)
+
+  await prisma.staff.update({
+    where: { id: staffId },
+    data: { avatarUrl: publicUrl },
+  })
+
+  return { avatar_url: publicUrl }
 }

@@ -18,6 +18,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.3",
     "@prisma/client": "^6.6.0",
+    "@supabase/supabase-js": "^2.104.1",
     "hono": "^4.8.3",
     "zod": "^3.24.5"
   },

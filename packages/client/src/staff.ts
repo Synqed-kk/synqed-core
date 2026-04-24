@@ -63,4 +63,13 @@ export class StaffClient {
   async hasPin(id: string): Promise<{ has_pin: boolean }> {
     return this.client.fetch<{ has_pin: boolean }>(`/staff/${id}/pin`)
   }
+
+  async uploadAvatar(id: string, file: File): Promise<{ avatar_url: string }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    return this.client.fetchMultipart<{ avatar_url: string }>(
+      `/staff/${id}/avatar`,
+      formData,
+    )
+  }
 }

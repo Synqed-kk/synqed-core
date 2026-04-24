@@ -131,3 +131,21 @@ staffRoutes.get('/:id/pin', async (c) => {
     throw err
   }
 })
+
+staffRoutes.post('/:id/avatar', async (c) => {
+  const tenantId = c.get('tenantId')
+  const id = c.req.param('id')
+  const formData = await c.req.formData()
+  const file = formData.get('file')
+  if (!(file instanceof File)) return c.json({ error: 'No file provided' }, 400)
+
+  try {
+    const result = await staffService.uploadAvatar(tenantId, id, file)
+    return c.json(result)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: err.message }, 404)
+    }
+    throw err
+  }
+})

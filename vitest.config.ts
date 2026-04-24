@@ -9,8 +9,10 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 30000,
     hookTimeout: 30000,
-    exclude: ['**/node_modules/**', '**/.worktrees/**'],
+    // Run test files serially to prevent shared test-DB state from
+    // causing cross-file interference (all tests share TEST_TENANT_ID).
     fileParallelism: false,
+    exclude: ['**/node_modules/**', '**/.worktrees/**'],
   },
   resolve: {
     alias: {
