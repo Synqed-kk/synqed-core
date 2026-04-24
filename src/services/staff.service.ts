@@ -1,6 +1,7 @@
 import { prisma } from '../db/client.js'
 import type { StaffRole } from '@prisma/client'
 import type { CreateStaffInput, UpdateStaffInput } from '../validations/staff.js'
+import { hashPin } from './crypto.js'
 
 export interface StaffPublic {
   id: string
@@ -114,4 +115,43 @@ export async function deleteStaff(tenantId: string, id: string): Promise<void> {
   const existing = await prisma.staff.findFirst({ where: { id, tenantId } })
   if (!existing) throw new Error('Staff not found')
   await prisma.staff.delete({ where: { id } })
+}
+
+export async function setPin(tenantId: string, staffId: string, pin: string): Promise<void> {
+  const result = await prisma.staff.updateMany({
+    where: { id: staffId, tenantId },
+    data: { pinHash: hashPin(pin) },
+  })
+  if (result.count === 0) throw new Error('Staff not found')
+}
+
+export async function removePin(tenantId: string, staffId: string): Promise<void> {
+  const result = await prisma.staff.updateMany({
+    where: { id: staffId, tenantId },
+    data: { pinHash: null },
+  })
+  if (result.count === 0) throw new Error('Staff not found')
+}
+
+export async function verifyPin(
+  tenantId: string,
+  staffId: string,
+  pin: string,
+): Promise<{ valid: boolean; no_pin?: boolean }> {
+  const staff = await prisma.staff.findFirst({
+    where: { id: staffId, tenantId },
+    select: { pinHash: true },
+  })
+  if (!staff) throw new Error('Staff not found')
+  if (!staff.pinHash) return { valid: true, no_pin: true }
+  return { valid: hashPin(pin) === staff.pinHash }
+}
+
+export async function hasPin(tenantId: string, staffId: string): Promise<{ has_pin: boolean }> {
+  const staff = await prisma.staff.findFirst({
+    where: { id: staffId, tenantId },
+    select: { pinHash: true },
+  })
+  if (!staff) throw new Error('Staff not found')
+  return { has_pin: !!staff.pinHash }
 }

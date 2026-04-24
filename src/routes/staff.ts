@@ -4,6 +4,8 @@ import {
   createStaffSchema,
   updateStaffSchema,
   listStaffSchema,
+  setPinSchema,
+  verifyPinSchema,
 } from '../validations/staff.js'
 import * as staffService from '../services/staff.service.js'
 
@@ -56,6 +58,68 @@ staffRoutes.delete('/:id', async (c) => {
   try {
     await staffService.deleteStaff(tenantId, c.req.param('id'))
     return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
+
+staffRoutes.put('/:id/pin', async (c) => {
+  const tenantId = c.get('tenantId')
+  const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = setPinSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  try {
+    await staffService.setPin(tenantId, id, parsed.data.pin)
+    return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
+
+staffRoutes.delete('/:id/pin', async (c) => {
+  const tenantId = c.get('tenantId')
+  const id = c.req.param('id')
+  try {
+    await staffService.removePin(tenantId, id)
+    return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
+
+staffRoutes.post('/:id/pin/verify', async (c) => {
+  const tenantId = c.get('tenantId')
+  const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = verifyPinSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  try {
+    const result = await staffService.verifyPin(tenantId, id, parsed.data.pin)
+    return c.json(result)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Staff not found') {
+      return c.json({ error: 'Staff not found' }, 404)
+    }
+    throw err
+  }
+})
+
+staffRoutes.get('/:id/pin', async (c) => {
+  const tenantId = c.get('tenantId')
+  const id = c.req.param('id')
+  try {
+    const result = await staffService.hasPin(tenantId, id)
+    return c.json(result)
   } catch (err) {
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)

@@ -20,5 +20,14 @@ export const listStaffSchema = z.object({
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })
 
+export const setPinSchema = z.object({
+  pin: z.string().regex(/^\d{4}$/, 'PIN must be exactly 4 digits'),
+})
+
+export const verifyPinSchema = z.object({
+  pin: z.string(),
+})
+
 export type CreateStaffInput = z.infer<typeof createStaffSchema>
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>
+export type SetPinInput = z.infer<typeof setPinSchema>
