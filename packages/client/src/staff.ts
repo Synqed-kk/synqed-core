@@ -41,4 +41,26 @@ export class StaffClient {
   async delete(id: string): Promise<void> {
     await this.client.fetch(`/staff/${id}`, { method: 'DELETE' })
   }
+
+  async setPin(id: string, pin: string): Promise<void> {
+    await this.client.fetch(`/staff/${id}/pin`, {
+      method: 'PUT',
+      body: JSON.stringify({ pin }),
+    })
+  }
+
+  async removePin(id: string): Promise<void> {
+    await this.client.fetch(`/staff/${id}/pin`, { method: 'DELETE' })
+  }
+
+  async verifyPin(id: string, pin: string): Promise<{ valid: boolean; no_pin?: boolean }> {
+    return this.client.fetch<{ valid: boolean; no_pin?: boolean }>(
+      `/staff/${id}/pin/verify`,
+      { method: 'POST', body: JSON.stringify({ pin }) },
+    )
+  }
+
+  async hasPin(id: string): Promise<{ has_pin: boolean }> {
+    return this.client.fetch<{ has_pin: boolean }>(`/staff/${id}/pin`)
+  }
 }

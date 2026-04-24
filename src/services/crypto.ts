@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 // AES-256-GCM envelope: [12-byte IV][16-byte auth tag][ciphertext]
 const IV_BYTES = 12
@@ -27,6 +27,10 @@ export function encryptJson(payload: unknown): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(new ArrayBuffer(concat.length))
   out.set(concat)
   return out
+}
+
+export function hashPin(pin: string): string {
+  return createHash('sha256').update(pin).digest('hex')
 }
 
 export function decryptJson<T = unknown>(envelope: Uint8Array): T {
