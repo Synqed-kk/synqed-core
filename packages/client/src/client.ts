@@ -51,6 +51,24 @@ export class SynqedClient {
 
     return res.json() as Promise<T>
   }
+
+  async fetchMultipart<T>(path: string, formData: FormData): Promise<T> {
+    const url = `${this.baseUrl}/v1${path}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.apiKey,
+        'x-tenant-id': this.tenantId,
+        // NO Content-Type — fetch sets multipart boundary automatically
+      },
+      body: formData,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }))
+      throw new SynqedError(res.status, body.error ?? 'Request failed')
+    }
+    return res.json() as Promise<T>
+  }
 }
 
 export class SynqedError extends Error {
