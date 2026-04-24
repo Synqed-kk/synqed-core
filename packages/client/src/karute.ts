@@ -22,6 +22,8 @@ export class KaruteRecordClient {
     if (options?.recording_session_id)
       params.set('recording_session_id', options.recording_session_id)
     if (options?.status) params.set('status', options.status)
+    if (options?.from) params.set('from', options.from)
+    if (options?.to) params.set('to', options.to)
     if (options?.page) params.set('page', String(options.page))
     if (options?.page_size) params.set('page_size', String(options.page_size))
     const qs = params.toString()

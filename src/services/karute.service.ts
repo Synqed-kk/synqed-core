@@ -96,6 +96,8 @@ export async function listKaruteRecords(
     staff_id?: string
     recording_session_id?: string
     status?: KaruteStatus
+    from?: string
+    to?: string
     page?: number
     page_size?: number
   },
@@ -114,6 +116,12 @@ export async function listKaruteRecords(
   if (options.staff_id) where.staffId = options.staff_id
   if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
   if (options.status) where.status = options.status
+  if (options.from || options.to) {
+    const createdAt: Record<string, Date> = {}
+    if (options.from) createdAt.gte = new Date(options.from)
+    if (options.to) createdAt.lte = new Date(options.to)
+    where.createdAt = createdAt
+  }
 
   const [rows, total] = await Promise.all([
     prisma.karuteRecord.findMany({
