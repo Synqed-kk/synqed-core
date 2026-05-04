@@ -5,7 +5,7 @@ import {
   seedTestCustomer,
   seedTestStaff,
   seedTestKaruteRecord,
-  TEST_TENANT_ID,
+  TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
 
@@ -13,7 +13,7 @@ process.env.API_KEYS = TEST_API_KEY
 
 const headers = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TEST_TENANT_ID,
+  'x-business-id': TEST_BUSINESS_ID,
   'Content-Type': 'application/json',
 }
 
@@ -23,7 +23,7 @@ function req(method: string, path: string, body?: unknown) {
   return app.request(`/v1${path}`, init)
 }
 
-const OTHER_TENANT_ID = '00000000-0000-0000-0000-000000000002'
+const OTHER_BUSINESS_ID = '00000000-0000-0000-0000-000000000002'
 
 describe('Karute Entry add/delete endpoints', () => {
   beforeEach(async () => {
@@ -107,7 +107,7 @@ describe('Karute Entry add/delete endpoints', () => {
       // Request with a different tenant header
       const otherHeaders = {
         'x-api-key': TEST_API_KEY,
-        'x-tenant-id': OTHER_TENANT_ID,
+        'x-business-id': OTHER_BUSINESS_ID,
         'Content-Type': 'application/json',
       }
       const res = await app.request(`/v1/karute-records/${record.id}/entries`, {
@@ -176,7 +176,7 @@ describe('Karute Entry add/delete endpoints', () => {
       const staff = await seedTestStaff()
       const record = await seedTestKaruteRecord({ staffId: staff.id })
 
-      // Add entry under TEST_TENANT_ID
+      // Add entry under TEST_BUSINESS_ID
       const addRes = await req('POST', `/karute-records/${record.id}/entries`, {
         category: 'OTHER',
         content: 'to be deleted',
@@ -186,7 +186,7 @@ describe('Karute Entry add/delete endpoints', () => {
       // Attempt delete with a different tenant
       const otherHeaders = {
         'x-api-key': TEST_API_KEY,
-        'x-tenant-id': OTHER_TENANT_ID,
+        'x-business-id': OTHER_BUSINESS_ID,
         'Content-Type': 'application/json',
       }
       const delRes = await app.request(

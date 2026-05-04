@@ -20,7 +20,7 @@ import {
   cleanupTestData,
   seedTestStaff,
   testPrisma,
-  TEST_TENANT_ID,
+  TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
 
@@ -28,10 +28,10 @@ process.env.API_KEYS = TEST_API_KEY
 
 const headers = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TEST_TENANT_ID,
+  'x-business-id': TEST_BUSINESS_ID,
 }
 
-const DIFFERENT_TENANT_ID = '00000000-0000-0000-0000-000000000099'
+const DIFFERENT_BUSINESS_ID = '00000000-0000-0000-0000-000000000099'
 
 afterEach(async () => {
   vi.clearAllMocks()
@@ -86,7 +86,7 @@ describe('Staff Avatar Upload — POST /v1/staff/:id/avatar', () => {
       method: 'POST',
       headers: {
         'x-api-key': TEST_API_KEY,
-        'x-tenant-id': DIFFERENT_TENANT_ID,
+        'x-business-id': DIFFERENT_BUSINESS_ID,
       },
       body: formData,
     })

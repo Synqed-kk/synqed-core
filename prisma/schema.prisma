@@ -9,12 +9,12 @@ datasource db {
 }
 
 // =============================================================================
-// Customer — core tenant-scoped entity
+// Customer — core business-scoped entity
 // =============================================================================
 
 model Customer {
   id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
   name            String
   furigana        String?
   email           String?
@@ -29,16 +29,66 @@ model Customer {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz()
 
   appointments Appointment[]
+  photos       CustomerPhoto[]
+  consents     RecordingConsent[]
 
-  @@unique([tenantId, email])
-  @@index([tenantId])
-  @@index([tenantId, name])
-  @@index([tenantId, email])
+  @@unique([businessId, email])
+  @@index([businessId])
+  @@index([businessId, name])
+  @@index([businessId, email])
   @@map("customers")
 }
 
 // =============================================================================
-// Staff — tenant members who take bookings / do karute
+// RecordingConsent — per-customer recording consent for APPI / privacy compliance.
+// One active row per customer (revoked rows preserved for audit).
+// =============================================================================
+
+enum ConsentMethod {
+  VERBAL
+  WRITTEN
+}
+
+model RecordingConsent {
+  id                 String        @id @default(uuid()) @db.Uuid
+  businessId         String        @map("business_id") @db.Uuid
+  customerId         String        @map("customer_id") @db.Uuid
+  grantedByStaffId   String        @map("granted_by_staff_id") @db.Uuid
+  grantedAt          DateTime      @default(now()) @map("granted_at") @db.Timestamptz()
+  method             ConsentMethod @default(VERBAL)
+  policyVersion      String        @map("policy_version")
+  revokedAt          DateTime?     @map("revoked_at") @db.Timestamptz()
+  revokedByStaffId   String?       @map("revoked_by_staff_id") @db.Uuid
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerId, revokedAt])
+  @@map("recording_consents")
+}
+
+// =============================================================================
+// CustomerPhoto — per-customer photo metadata; bytes live in Supabase Storage
+// =============================================================================
+
+model CustomerPhoto {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  customerId  String   @map("customer_id") @db.Uuid
+  storagePath String   @map("storage_path")
+  category    String   @default("general")
+  caption     String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerId, createdAt])
+  @@map("customer_photos")
+}
+
+// =============================================================================
+// Staff — business members who take bookings / do karute
 // =============================================================================
 
 enum StaffRole {
@@ -49,23 +99,23 @@ enum StaffRole {
 }
 
 model Staff {
-  id        String    @id @default(uuid()) @db.Uuid
-  tenantId  String    @map("tenant_id") @db.Uuid
-  userId    String?   @unique @map("user_id") @db.Uuid
-  name      String
-  nameKana  String?   @map("name_kana")
-  email     String?
-  role      StaffRole @default(STYLIST)
-  isActive  Boolean   @default(true) @map("is_active")
-  pinHash   String?   @map("pin_hash")
-  avatarUrl String?   @map("avatar_url")
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  userId     String?   @unique @map("user_id") @db.Uuid
+  name       String
+  nameKana   String?   @map("name_kana")
+  email      String?
+  role       StaffRole @default(STYLIST)
+  isActive   Boolean   @default(true) @map("is_active")
+  pinHash    String?   @map("pin_hash")
+  avatarUrl  String?   @map("avatar_url")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
 
   appointments Appointment[]
 
-  @@index([tenantId])
-  @@index([tenantId, name])
+  @@index([businessId])
+  @@index([businessId, name])
   @@map("staff")
 }
 
@@ -91,7 +141,7 @@ enum AppointmentSource {
 
 model Appointment {
   id              String            @id @default(uuid()) @db.Uuid
-  tenantId        String            @map("tenant_id") @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
   customerId      String            @map("customer_id") @db.Uuid
   staffId         String            @map("staff_id") @db.Uuid
   startsAt        DateTime          @map("starts_at") @db.Timestamptz()
@@ -110,16 +160,16 @@ model Appointment {
   customer Customer @relation(fields: [customerId], references: [id])
   staff    Staff    @relation(fields: [staffId], references: [id])
 
-  @@index([tenantId, startsAt])
+  @@index([businessId, startsAt])
   @@index([customerId, startsAt])
   @@index([staffId, startsAt])
   // External-ref-based dedup for upserts
-  @@index([tenantId, source])
+  @@index([businessId, source])
   @@map("appointments")
 }
 
 // =============================================================================
-// SyncConfig — per-tenant external booking system integration config
+// SyncConfig — per-business external booking system integration config
 // =============================================================================
 
 enum SyncProvider {
@@ -137,7 +187,7 @@ enum SyncStatus {
 
 model SyncConfig {
   id                   String       @id @default(uuid()) @db.Uuid
-  tenantId             String       @map("tenant_id") @db.Uuid
+  businessId           String       @map("business_id") @db.Uuid
   provider             SyncProvider
   // Encrypted credentials (AES-256-GCM). Shape of decrypted payload depends on provider.
   // For QUICKRESERVE: { username, password, storeSlug, storeId }
@@ -162,7 +212,7 @@ model SyncConfig {
   createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
-  @@unique([tenantId, provider])
+  @@unique([businessId, provider])
   @@index([enabled, lastRunAt])
   @@map("sync_configs")
 }
@@ -181,7 +231,7 @@ enum RecordingStatus {
 
 model RecordingSession {
   id               String          @id @default(uuid()) @db.Uuid
-  tenantId         String          @map("tenant_id") @db.Uuid
+  businessId       String          @map("business_id") @db.Uuid
   customerId       String?         @map("customer_id") @db.Uuid
   staffId          String          @map("staff_id") @db.Uuid
   appointmentId    String?         @map("appointment_id") @db.Uuid
@@ -194,7 +244,7 @@ model RecordingSession {
   segments     TranscriptionSegment[]
   karuteRecord KaruteRecord?
 
-  @@index([tenantId, createdAt])
+  @@index([businessId, createdAt])
   @@index([customerId])
   @@index([staffId])
   @@map("recording_sessions")
@@ -233,9 +283,10 @@ enum KaruteStatus {
 
 model KaruteRecord {
   id                 String       @id @default(uuid()) @db.Uuid
-  tenantId           String       @map("tenant_id") @db.Uuid
+  businessId         String       @map("business_id") @db.Uuid
   customerId         String?      @map("customer_id") @db.Uuid
   staffId            String       @map("staff_id") @db.Uuid
+  lastEditedByStaffId String?     @map("last_edited_by_staff_id") @db.Uuid
   appointmentId      String?      @map("appointment_id") @db.Uuid
   recordingSessionId String?      @unique @map("recording_session_id") @db.Uuid
   status             KaruteStatus @default(DRAFT)
@@ -247,7 +298,7 @@ model KaruteRecord {
   entries          KaruteEntry[]
   recordingSession RecordingSession? @relation(fields: [recordingSessionId], references: [id])
 
-  @@index([tenantId, createdAt])
+  @@index([businessId, createdAt])
   @@index([customerId])
   @@index([staffId])
   @@map("karute_records")
@@ -288,15 +339,15 @@ model KaruteEntry {
 }
 
 // =============================================================================
-// OrgSettings — per-tenant config bag (replaces karute's Organization.settings JSON)
+// OrgSettings — per-business config bag (replaces karute's Organization.settings JSON)
 // =============================================================================
 
 model OrgSettings {
-  tenantId  String   @id @map("tenant_id") @db.Uuid
-  name      String?
-  settings  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  businessId String   @id @map("business_id") @db.Uuid
+  name       String?
+  settings   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@map("org_settings")
 }

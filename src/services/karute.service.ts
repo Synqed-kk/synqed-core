@@ -22,7 +22,7 @@ export interface EntryPublic {
 
 export interface KaruteRecordPublic {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string | null
   staff_id: string
   appointment_id: string | null
@@ -38,7 +38,7 @@ export interface KaruteRecordPublic {
 function toPublic(
   row: {
     id: string
-    tenantId: string
+    businessId: string
     customerId: string | null
     staffId: string
     appointmentId: string | null
@@ -53,7 +53,7 @@ function toPublic(
 ): KaruteRecordPublic {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
     appointment_id: row.appointmentId,
@@ -96,7 +96,7 @@ function entryToPublic(row: {
 }
 
 export async function listKaruteRecords(
-  tenantId: string,
+  businessId: string,
   options: {
     customer_id?: string
     staff_id?: string
@@ -118,7 +118,7 @@ export async function listKaruteRecords(
   const pageSize = options.page_size ?? 100
   const offset = (page - 1) * pageSize
 
-  const where: Record<string, unknown> = { tenantId }
+  const where: Record<string, unknown> = { businessId }
   if (options.customer_id) where.customerId = options.customer_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
@@ -151,12 +151,12 @@ export async function listKaruteRecords(
 }
 
 export async function getKaruteRecord(
-  tenantId: string,
+  businessId: string,
   id: string,
   opts?: { includeEntries?: boolean; includeSegments?: boolean },
 ): Promise<KaruteRecordPublic | null> {
   const row = await prisma.karuteRecord.findFirst({
-    where: { id, tenantId },
+    where: { id, businessId },
     include: {
       entries: opts?.includeEntries ? { orderBy: { sortOrder: 'asc' } } : false,
       recordingSession: opts?.includeSegments
@@ -198,25 +198,25 @@ export async function getKaruteRecord(
 }
 
 export async function getByRecordingSession(
-  tenantId: string,
+  businessId: string,
   recordingSessionId: string,
   opts?: { includeEntries?: boolean; includeSegments?: boolean },
 ): Promise<KaruteRecordPublic | null> {
   const row = await prisma.karuteRecord.findFirst({
-    where: { recordingSessionId, tenantId },
+    where: { recordingSessionId, businessId },
     select: { id: true },
   })
   if (!row) return null
-  return getKaruteRecord(tenantId, row.id, opts)
+  return getKaruteRecord(businessId, row.id, opts)
 }
 
 export async function createKaruteRecord(
-  tenantId: string,
+  businessId: string,
   input: CreateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
   const row = await prisma.karuteRecord.create({
     data: {
-      tenantId,
+      businessId,
       customerId: input.customer_id ?? null,
       staffId: input.staff_id,
       appointmentId: input.appointment_id ?? null,
@@ -244,11 +244,11 @@ export async function createKaruteRecord(
 }
 
 export async function updateKaruteRecord(
-  tenantId: string,
+  businessId: string,
   id: string,
   input: UpdateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
-  const existing = await prisma.karuteRecord.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.karuteRecord.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Karute record not found')
 
   const data: Record<string, unknown> = {}
@@ -282,20 +282,20 @@ export async function updateKaruteRecord(
   return toPublic(row, row.entries.map(entryToPublic))
 }
 
-export async function deleteKaruteRecord(tenantId: string, id: string): Promise<void> {
-  const existing = await prisma.karuteRecord.findFirst({ where: { id, tenantId } })
+export async function deleteKaruteRecord(businessId: string, id: string): Promise<void> {
+  const existing = await prisma.karuteRecord.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Karute record not found')
   await prisma.karuteRecord.delete({ where: { id } })
 }
 
 export async function addEntry(
-  tenantId: string,
+  businessId: string,
   karuteRecordId: string,
   input: EntryInput,
 ): Promise<EntryPublic> {
   // Verify karute record belongs to tenant
   const record = await prisma.karuteRecord.findFirst({
-    where: { id: karuteRecordId, tenantId },
+    where: { id: karuteRecordId, businessId },
     select: { id: true },
   })
   if (!record) throw new Error('Karute record not found')
@@ -324,13 +324,13 @@ export async function addEntry(
 }
 
 export async function deleteEntry(
-  tenantId: string,
+  businessId: string,
   karuteRecordId: string,
   entryId: string,
 ): Promise<void> {
   // Verify karute record belongs to tenant (enforces tenant isolation for entry)
   const record = await prisma.karuteRecord.findFirst({
-    where: { id: karuteRecordId, tenantId },
+    where: { id: karuteRecordId, businessId },
     select: { id: true },
   })
   if (!record) throw new Error('Karute record not found')

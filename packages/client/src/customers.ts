@@ -6,6 +6,9 @@ import type {
   ListCustomersOptions,
   ListCustomersResponse,
   CheckDuplicateResponse,
+  CustomerPhoto,
+  RecordingConsent,
+  GrantRecordingConsentInput,
 } from './types.js'
 
 export class CustomerClient {
@@ -51,5 +54,55 @@ export class CustomerClient {
     return this.client.fetch<CheckDuplicateResponse>(
       `/customers/check-duplicate?name=${encodeURIComponent(name)}`
     )
+  }
+
+  async listPhotos(id: string): Promise<{ photos: CustomerPhoto[] }> {
+    return this.client.fetch<{ photos: CustomerPhoto[] }>(
+      `/customers/${id}/photos`,
+    )
+  }
+
+  async uploadPhoto(
+    id: string,
+    file: File,
+    options: { category?: string; caption?: string } = {},
+  ): Promise<CustomerPhoto> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (options.category) formData.append('category', options.category)
+    if (options.caption) formData.append('caption', options.caption)
+    return this.client.fetchMultipart<CustomerPhoto>(
+      `/customers/${id}/photos`,
+      formData,
+    )
+  }
+
+  async deletePhoto(id: string, photoId: string): Promise<void> {
+    await this.client.fetch(`/customers/${id}/photos/${photoId}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async getConsent(id: string): Promise<{ consent: RecordingConsent | null }> {
+    return this.client.fetch<{ consent: RecordingConsent | null }>(
+      `/customers/${id}/consent`,
+    )
+  }
+
+  async grantConsent(
+    id: string,
+    input: GrantRecordingConsentInput,
+  ): Promise<RecordingConsent> {
+    return this.client.fetch<RecordingConsent>(`/customers/${id}/consent`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+
+  async revokeConsent(id: string, revokedByStaffId: string): Promise<void> {
+    await this.client.fetch(`/customers/${id}/consent`, {
+      method: 'DELETE',
+      body: JSON.stringify({ revoked_by_staff_id: revokedByStaffId }),
+    })
   }
 }

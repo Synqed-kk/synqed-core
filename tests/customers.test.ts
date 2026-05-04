@@ -3,7 +3,7 @@ import app from '../src/index.js'
 import {
   cleanupTestData,
   seedTestCustomer,
-  TEST_TENANT_ID,
+  TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
 
@@ -12,7 +12,7 @@ process.env.API_KEYS = TEST_API_KEY
 
 const headers = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TEST_TENANT_ID,
+  'x-business-id': TEST_BUSINESS_ID,
   'Content-Type': 'application/json',
 }
 
@@ -30,7 +30,7 @@ describe('Customer API', () => {
   describe('Auth', () => {
     it('rejects requests without API key', async () => {
       const res = await app.request('/v1/customers', {
-        headers: { 'x-tenant-id': TEST_TENANT_ID },
+        headers: { 'x-business-id': TEST_BUSINESS_ID },
       })
       expect(res.status).toBe(401)
     })
@@ -56,7 +56,7 @@ describe('Customer API', () => {
       expect(customer.name).toBe('山田花子')
       expect(customer.furigana).toBe('ヤマダハナコ')
       expect(customer.email).toBe('hanako@example.com')
-      expect(customer.tenant_id).toBe(TEST_TENANT_ID)
+      expect(customer.business_id).toBe(TEST_BUSINESS_ID)
       expect(customer.id).toBeDefined()
     })
 

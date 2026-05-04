@@ -5,7 +5,7 @@
 export interface SynqedClientConfig {
   baseUrl: string
   apiKey: string
-  tenantId: string
+  businessId: string
 }
 
 // ===========================================================================
@@ -14,7 +14,7 @@ export interface SynqedClientConfig {
 
 export interface Customer {
   id: string
-  tenant_id: string
+  business_id: string
   name: string
   furigana: string | null
   email: string | null
@@ -71,6 +71,35 @@ export interface CheckDuplicateResponse {
   existing_name?: string
 }
 
+export interface CustomerPhoto {
+  id: string
+  customer_id: string
+  storage_path: string
+  category: string
+  caption: string | null
+  created_at: string
+  signed_url: string | null
+}
+
+export type RecordingConsentMethod = 'VERBAL' | 'WRITTEN'
+
+export interface RecordingConsent {
+  id: string
+  customer_id: string
+  granted_by_staff_id: string
+  granted_at: string
+  method: RecordingConsentMethod
+  policy_version: string
+  revoked_at: string | null
+  revoked_by_staff_id: string | null
+}
+
+export interface GrantRecordingConsentInput {
+  granted_by_staff_id: string
+  policy_version: string
+  method?: RecordingConsentMethod
+}
+
 // ===========================================================================
 // Staff
 // ===========================================================================
@@ -79,7 +108,7 @@ export type StaffRole = 'OWNER' | 'ADMIN' | 'STYLIST' | 'ASSISTANT'
 
 export interface Staff {
   id: string
-  tenant_id: string
+  business_id: string
   user_id: string | null
   name: string
   name_kana: string | null
@@ -131,7 +160,7 @@ export type AppointmentSource =
 
 export interface Appointment {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string
   staff_id: string
   starts_at: string
@@ -197,7 +226,7 @@ export type SyncStatus = 'OK' | 'ERROR' | 'RUNNING'
 
 export interface SyncConfig {
   id: string
-  tenant_id: string
+  business_id: string
   provider: SyncProvider
   username: string | null
   store_slug: string | null
@@ -255,7 +284,7 @@ export type RecordingStatus =
 
 export interface Recording {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string | null
   staff_id: string
   appointment_id: string | null
@@ -364,7 +393,7 @@ export interface KaruteEntryInput {
 
 export interface KaruteRecord {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string | null
   staff_id: string
   appointment_id: string | null
@@ -434,7 +463,7 @@ export interface ListKaruteRecordsResponse {
 // ===========================================================================
 
 export interface OrgSettings {
-  tenant_id: string
+  business_id: string
   name: string | null
   settings: Record<string, unknown>
   created_at: string

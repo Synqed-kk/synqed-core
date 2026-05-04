@@ -20,7 +20,7 @@ export class StaffAttributedRecordsError extends Error {
 
 export interface StaffPublic {
   id: string
-  tenant_id: string
+  business_id: string
   user_id: string | null
   name: string
   name_kana: string | null
@@ -34,7 +34,7 @@ export interface StaffPublic {
 
 function toPublic(row: {
   id: string
-  tenantId: string
+  businessId: string
   userId: string | null
   name: string
   nameKana: string | null
@@ -47,7 +47,7 @@ function toPublic(row: {
 }): StaffPublic {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     user_id: row.userId,
     name: row.name,
     name_kana: row.nameKana,
@@ -61,14 +61,14 @@ function toPublic(row: {
 }
 
 export async function listStaff(
-  tenantId: string,
+  businessId: string,
   options: { search?: string; is_active?: 'true' | 'false'; page?: number; page_size?: number },
 ): Promise<{ staff: StaffPublic[]; total: number; page: number; page_size: number }> {
   const page = options.page ?? 1
   const pageSize = options.page_size ?? 100
   const offset = (page - 1) * pageSize
 
-  const where: Record<string, unknown> = { tenantId }
+  const where: Record<string, unknown> = { businessId }
   if (options.is_active === 'true') where.isActive = true
   if (options.is_active === 'false') where.isActive = false
   if (options.search) {
@@ -86,18 +86,18 @@ export async function listStaff(
   return { staff: rows.map(toPublic), total, page, page_size: pageSize }
 }
 
-export async function getStaff(tenantId: string, id: string): Promise<StaffPublic | null> {
-  const row = await prisma.staff.findFirst({ where: { id, tenantId } })
+export async function getStaff(businessId: string, id: string): Promise<StaffPublic | null> {
+  const row = await prisma.staff.findFirst({ where: { id, businessId } })
   return row ? toPublic(row) : null
 }
 
 export async function createStaff(
-  tenantId: string,
+  businessId: string,
   input: CreateStaffInput,
 ): Promise<StaffPublic> {
   const row = await prisma.staff.create({
     data: {
-      tenantId,
+      businessId,
       name: input.name,
       nameKana: input.name_kana ?? null,
       email: input.email ?? null,
@@ -110,11 +110,11 @@ export async function createStaff(
 }
 
 export async function updateStaff(
-  tenantId: string,
+  businessId: string,
   id: string,
   input: UpdateStaffInput,
 ): Promise<StaffPublic> {
-  const existing = await prisma.staff.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.staff.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Staff not found')
 
   const data: Record<string, unknown> = {}
@@ -129,13 +129,13 @@ export async function updateStaff(
   return toPublic(row)
 }
 
-export async function deleteStaff(tenantId: string, id: string): Promise<void> {
-  const existing = await prisma.staff.findFirst({ where: { id, tenantId } })
+export async function deleteStaff(businessId: string, id: string): Promise<void> {
+  const existing = await prisma.staff.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Staff not found')
 
   const [totalCount, recordCount] = await Promise.all([
-    prisma.staff.count({ where: { tenantId } }),
-    prisma.karuteRecord.count({ where: { tenantId, staffId: id } }),
+    prisma.staff.count({ where: { businessId } }),
+    prisma.karuteRecord.count({ where: { businessId, staffId: id } }),
   ])
 
   if (totalCount <= 1) throw new StaffLastMemberError()
@@ -144,29 +144,29 @@ export async function deleteStaff(tenantId: string, id: string): Promise<void> {
   await prisma.staff.delete({ where: { id } })
 }
 
-export async function setPin(tenantId: string, staffId: string, pin: string): Promise<void> {
+export async function setPin(businessId: string, staffId: string, pin: string): Promise<void> {
   const result = await prisma.staff.updateMany({
-    where: { id: staffId, tenantId },
+    where: { id: staffId, businessId },
     data: { pinHash: hashPin(pin) },
   })
   if (result.count === 0) throw new Error('Staff not found')
 }
 
-export async function removePin(tenantId: string, staffId: string): Promise<void> {
+export async function removePin(businessId: string, staffId: string): Promise<void> {
   const result = await prisma.staff.updateMany({
-    where: { id: staffId, tenantId },
+    where: { id: staffId, businessId },
     data: { pinHash: null },
   })
   if (result.count === 0) throw new Error('Staff not found')
 }
 
 export async function verifyPin(
-  tenantId: string,
+  businessId: string,
   staffId: string,
   pin: string,
 ): Promise<{ valid: boolean; no_pin?: boolean }> {
   const staff = await prisma.staff.findFirst({
-    where: { id: staffId, tenantId },
+    where: { id: staffId, businessId },
     select: { pinHash: true },
   })
   if (!staff) throw new Error('Staff not found')
@@ -174,9 +174,9 @@ export async function verifyPin(
   return { valid: hashPin(pin) === staff.pinHash }
 }
 
-export async function hasPin(tenantId: string, staffId: string): Promise<{ has_pin: boolean }> {
+export async function hasPin(businessId: string, staffId: string): Promise<{ has_pin: boolean }> {
   const staff = await prisma.staff.findFirst({
-    where: { id: staffId, tenantId },
+    where: { id: staffId, businessId },
     select: { pinHash: true },
   })
   if (!staff) throw new Error('Staff not found')
@@ -184,18 +184,18 @@ export async function hasPin(tenantId: string, staffId: string): Promise<{ has_p
 }
 
 export async function uploadAvatar(
-  tenantId: string,
+  businessId: string,
   staffId: string,
   file: File,
 ): Promise<{ avatar_url: string }> {
   const staff = await prisma.staff.findFirst({
-    where: { id: staffId, tenantId },
+    where: { id: staffId, businessId },
     select: { id: true },
   })
   if (!staff) throw new Error('Staff not found')
 
   const ext = file.name.split('.').pop() ?? 'jpg'
-  const path = `${tenantId}/${staffId}.${ext}`
+  const path = `${businessId}/${staffId}.${ext}`
 
   const storage = getStorage()
   const { error: uploadError } = await storage

@@ -10,7 +10,7 @@ import { OrgSettingsClient } from './org-settings.js'
 export class SynqedClient {
   private baseUrl: string
   private apiKey: string
-  private tenantId: string
+  private businessId: string
 
   public customers: CustomerClient
   public staff: StaffClient
@@ -23,7 +23,7 @@ export class SynqedClient {
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
     this.apiKey = config.apiKey
-    this.tenantId = config.tenantId
+    this.businessId = config.businessId
     this.customers = new CustomerClient(this)
     this.staff = new StaffClient(this)
     this.appointments = new AppointmentClient(this)
@@ -37,7 +37,7 @@ export class SynqedClient {
     const url = `${this.baseUrl}/v1${path}`
     const headers: Record<string, string> = {
       'x-api-key': this.apiKey,
-      'x-tenant-id': this.tenantId,
+      'x-business-id': this.businessId,
       'Content-Type': 'application/json',
       ...(init?.headers as Record<string, string>),
     }
@@ -58,7 +58,7 @@ export class SynqedClient {
       method: 'POST',
       headers: {
         'x-api-key': this.apiKey,
-        'x-tenant-id': this.tenantId,
+        'x-business-id': this.businessId,
         // NO Content-Type — fetch sets multipart boundary automatically
       },
       body: formData,

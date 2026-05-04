@@ -2,7 +2,7 @@ import { prisma } from '../db/client.js'
 import type { UpsertOrgSettingsInput } from '../validations/org-settings.js'
 
 export interface OrgSettingsPublic {
-  tenant_id: string
+  business_id: string
   name: string | null
   settings: Record<string, unknown>
   created_at: string
@@ -10,14 +10,14 @@ export interface OrgSettingsPublic {
 }
 
 function toPublic(row: {
-  tenantId: string
+  businessId: string
   name: string | null
   settings: unknown
   createdAt: Date
   updatedAt: Date
 }): OrgSettingsPublic {
   return {
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     name: row.name,
     settings: (row.settings as Record<string, unknown>) ?? {},
     created_at: row.createdAt.toISOString(),
@@ -26,20 +26,20 @@ function toPublic(row: {
 }
 
 export async function getOrgSettings(
-  tenantId: string,
+  businessId: string,
 ): Promise<OrgSettingsPublic | null> {
-  const row = await prisma.orgSettings.findUnique({ where: { tenantId } })
+  const row = await prisma.orgSettings.findUnique({ where: { businessId } })
   return row ? toPublic(row) : null
 }
 
 export async function upsertOrgSettings(
-  tenantId: string,
+  businessId: string,
   input: UpsertOrgSettingsInput,
 ): Promise<OrgSettingsPublic> {
   const row = await prisma.orgSettings.upsert({
-    where: { tenantId },
+    where: { businessId },
     create: {
-      tenantId,
+      businessId,
       name: input.name ?? null,
       settings: (input.settings ?? {}) as object,
     },

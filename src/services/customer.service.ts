@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { getStorage } from './storage.js'
 import type {
   Customer,
   CreateCustomerInput,
@@ -7,10 +8,13 @@ import type {
   CheckDuplicateResponse,
 } from '../types/api.js'
 
+const PHOTO_BUCKET = 'customer-photos'
+const PHOTO_SIGNED_URL_TTL_SECONDS = 3600
+
 function toCustomer(row: any): Customer {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     name: row.name,
     furigana: row.furigana,
     email: row.email,
@@ -25,7 +29,7 @@ function toCustomer(row: any): Customer {
 }
 
 export async function listCustomers(
-  tenantId: string,
+  businessId: string,
   options: {
     search?: string
     page?: number
@@ -47,7 +51,7 @@ export async function listCustomers(
   }
   const sortBy = sortByMap[options.sort_by ?? 'name'] ?? 'name'
 
-  const where: any = { tenantId }
+  const where: any = { businessId }
 
   if (options.search) {
     where.OR = [
@@ -78,23 +82,23 @@ export async function listCustomers(
 }
 
 export async function getCustomer(
-  tenantId: string,
+  businessId: string,
   id: string
 ): Promise<Customer | null> {
   const row = await prisma.customer.findFirst({
-    where: { id, tenantId },
+    where: { id, businessId },
   })
 
   return row ? toCustomer(row) : null
 }
 
 export async function createCustomer(
-  tenantId: string,
+  businessId: string,
   input: CreateCustomerInput
 ): Promise<Customer> {
   const row = await prisma.customer.create({
     data: {
-      tenantId,
+      businessId,
       name: input.name,
       furigana: input.furigana ?? null,
       email: input.email ?? null,
@@ -110,13 +114,13 @@ export async function createCustomer(
 }
 
 export async function updateCustomer(
-  tenantId: string,
+  businessId: string,
   id: string,
   input: UpdateCustomerInput
 ): Promise<Customer> {
   // Check existence first
   const existing = await prisma.customer.findFirst({
-    where: { id, tenantId },
+    where: { id, businessId },
   })
 
   if (!existing) throw new Error('Customer not found')
@@ -141,12 +145,12 @@ export async function updateCustomer(
 }
 
 export async function deleteCustomer(
-  tenantId: string,
+  businessId: string,
   id: string
 ): Promise<void> {
   // Verify tenant ownership before deleting
   const existing = await prisma.customer.findFirst({
-    where: { id, tenantId },
+    where: { id, businessId },
   })
 
   if (!existing) throw new Error('Customer not found')
@@ -155,12 +159,12 @@ export async function deleteCustomer(
 }
 
 export async function checkDuplicateName(
-  tenantId: string,
+  businessId: string,
   name: string
 ): Promise<CheckDuplicateResponse> {
   const existing = await prisma.customer.findFirst({
     where: {
-      tenantId,
+      businessId,
       name: { equals: name, mode: 'insensitive' },
     },
     select: { name: true },
@@ -171,4 +175,200 @@ export async function checkDuplicateName(
   }
 
   return { exists: false }
+}
+
+// =============================================================================
+// Customer photos
+// =============================================================================
+
+export interface CustomerPhotoDto {
+  id: string
+  customer_id: string
+  storage_path: string
+  category: string
+  caption: string | null
+  created_at: string
+  signed_url: string | null
+}
+
+async function toCustomerPhotoDto(row: {
+  id: string
+  customerId: string
+  storagePath: string
+  category: string
+  caption: string | null
+  createdAt: Date
+}): Promise<CustomerPhotoDto> {
+  const storage = getStorage()
+  const { data } = await storage
+    .from(PHOTO_BUCKET)
+    .createSignedUrl(row.storagePath, PHOTO_SIGNED_URL_TTL_SECONDS)
+  return {
+    id: row.id,
+    customer_id: row.customerId,
+    storage_path: row.storagePath,
+    category: row.category,
+    caption: row.caption,
+    created_at: row.createdAt.toISOString(),
+    signed_url: data?.signedUrl ?? null,
+  }
+}
+
+async function assertCustomer(businessId: string, customerId: string) {
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, businessId },
+    select: { id: true },
+  })
+  if (!customer) throw new Error('Customer not found')
+}
+
+export async function listPhotos(
+  businessId: string,
+  customerId: string,
+): Promise<{ photos: CustomerPhotoDto[] }> {
+  await assertCustomer(businessId, customerId)
+  const rows = await prisma.customerPhoto.findMany({
+    where: { businessId, customerId },
+    orderBy: { createdAt: 'desc' },
+  })
+  const photos = await Promise.all(rows.map(toCustomerPhotoDto))
+  return { photos }
+}
+
+export async function uploadPhoto(
+  businessId: string,
+  customerId: string,
+  file: File,
+  options: { category?: string; caption?: string | null } = {},
+): Promise<CustomerPhotoDto> {
+  await assertCustomer(businessId, customerId)
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const id = crypto.randomUUID()
+  const storagePath = `${businessId}/${customerId}/${id}.${ext}`
+
+  const storage = getStorage()
+  const { error: uploadError } = await storage
+    .from(PHOTO_BUCKET)
+    .upload(storagePath, file, { cacheControl: '3600', upsert: false })
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+  const row = await prisma.customerPhoto.create({
+    data: {
+      id,
+      businessId,
+      customerId,
+      storagePath,
+      category: options.category ?? 'general',
+      caption: options.caption ?? null,
+    },
+  })
+
+  return toCustomerPhotoDto(row)
+}
+
+export async function deletePhoto(
+  businessId: string,
+  customerId: string,
+  photoId: string,
+): Promise<void> {
+  const photo = await prisma.customerPhoto.findFirst({
+    where: { id: photoId, customerId, businessId },
+  })
+  if (!photo) throw new Error('Photo not found')
+
+  const storage = getStorage()
+  await storage.from(PHOTO_BUCKET).remove([photo.storagePath])
+  await prisma.customerPhoto.delete({ where: { id: photo.id } })
+}
+
+// =============================================================================
+// Recording consent (per-customer, persists across visits)
+// =============================================================================
+
+export interface RecordingConsentDto {
+  id: string
+  customer_id: string
+  granted_by_staff_id: string
+  granted_at: string
+  method: 'VERBAL' | 'WRITTEN'
+  policy_version: string
+  revoked_at: string | null
+  revoked_by_staff_id: string | null
+}
+
+function toConsentDto(row: {
+  id: string
+  customerId: string
+  grantedByStaffId: string
+  grantedAt: Date
+  method: 'VERBAL' | 'WRITTEN'
+  policyVersion: string
+  revokedAt: Date | null
+  revokedByStaffId: string | null
+}): RecordingConsentDto {
+  return {
+    id: row.id,
+    customer_id: row.customerId,
+    granted_by_staff_id: row.grantedByStaffId,
+    granted_at: row.grantedAt.toISOString(),
+    method: row.method,
+    policy_version: row.policyVersion,
+    revoked_at: row.revokedAt?.toISOString() ?? null,
+    revoked_by_staff_id: row.revokedByStaffId,
+  }
+}
+
+/** Returns the active (non-revoked) consent for a customer, or null. */
+export async function getConsent(
+  businessId: string,
+  customerId: string,
+): Promise<RecordingConsentDto | null> {
+  await assertCustomer(businessId, customerId)
+  const row = await prisma.recordingConsent.findFirst({
+    where: { businessId, customerId, revokedAt: null },
+    orderBy: { grantedAt: 'desc' },
+  })
+  return row ? toConsentDto(row) : null
+}
+
+export async function grantConsent(
+  businessId: string,
+  customerId: string,
+  input: {
+    grantedByStaffId: string
+    method?: 'VERBAL' | 'WRITTEN'
+    policyVersion: string
+  },
+): Promise<RecordingConsentDto> {
+  await assertCustomer(businessId, customerId)
+
+  // Revoke any prior active consent so there's only one active row.
+  await prisma.recordingConsent.updateMany({
+    where: { businessId, customerId, revokedAt: null },
+    data: { revokedAt: new Date(), revokedByStaffId: input.grantedByStaffId },
+  })
+
+  const row = await prisma.recordingConsent.create({
+    data: {
+      businessId,
+      customerId,
+      grantedByStaffId: input.grantedByStaffId,
+      method: input.method ?? 'VERBAL',
+      policyVersion: input.policyVersion,
+    },
+  })
+  return toConsentDto(row)
+}
+
+export async function revokeConsent(
+  businessId: string,
+  customerId: string,
+  revokedByStaffId: string,
+): Promise<void> {
+  await assertCustomer(businessId, customerId)
+  await prisma.recordingConsent.updateMany({
+    where: { businessId, customerId, revokedAt: null },
+    data: { revokedAt: new Date(), revokedByStaffId },
+  })
 }

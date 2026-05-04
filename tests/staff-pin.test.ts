@@ -4,23 +4,23 @@ import {
   cleanupTestData,
   seedTestStaff,
   testPrisma,
-  TEST_TENANT_ID,
+  TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
 
 process.env.API_KEYS = TEST_API_KEY
 
-const TENANT_B_ID = '00000000-0000-0000-0000-000000000002'
+const BUSINESS_B_ID = '00000000-0000-0000-0000-000000000002'
 
 const headers = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TEST_TENANT_ID,
+  'x-business-id': TEST_BUSINESS_ID,
   'Content-Type': 'application/json',
 }
 
 const headersB = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TENANT_B_ID,
+  'x-business-id': BUSINESS_B_ID,
   'Content-Type': 'application/json',
 }
 

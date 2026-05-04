@@ -20,7 +20,7 @@ export interface SegmentPublic {
 
 export interface RecordingPublic {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string | null
   staff_id: string
   appointment_id: string | null
@@ -33,7 +33,7 @@ export interface RecordingPublic {
 
 function toPublic(row: {
   id: string
-  tenantId: string
+  businessId: string
   customerId: string | null
   staffId: string
   appointmentId: string | null
@@ -45,7 +45,7 @@ function toPublic(row: {
 }): RecordingPublic {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
     appointment_id: row.appointmentId,
@@ -82,7 +82,7 @@ function segmentToPublic(row: {
 }
 
 export async function listRecordings(
-  tenantId: string,
+  businessId: string,
   options: {
     from?: string
     to?: string
@@ -103,7 +103,7 @@ export async function listRecordings(
   const pageSize = options.page_size ?? 100
   const offset = (page - 1) * pageSize
 
-  const where: Record<string, unknown> = { tenantId }
+  const where: Record<string, unknown> = { businessId }
   if (options.customer_id) where.customerId = options.customer_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.status) where.status = options.status
@@ -137,20 +137,20 @@ export async function listRecordings(
 }
 
 export async function getRecording(
-  tenantId: string,
+  businessId: string,
   id: string,
 ): Promise<RecordingPublic | null> {
-  const row = await prisma.recordingSession.findFirst({ where: { id, tenantId } })
+  const row = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   return row ? toPublic(row) : null
 }
 
 export async function createRecording(
-  tenantId: string,
+  businessId: string,
   input: CreateRecordingInput,
 ): Promise<RecordingPublic> {
   const row = await prisma.recordingSession.create({
     data: {
-      tenantId,
+      businessId,
       customerId: input.customer_id ?? null,
       staffId: input.staff_id,
       appointmentId: input.appointment_id ?? null,
@@ -164,11 +164,11 @@ export async function createRecording(
 }
 
 export async function updateRecording(
-  tenantId: string,
+  businessId: string,
   id: string,
   input: UpdateRecordingInput,
 ): Promise<RecordingPublic> {
-  const existing = await prisma.recordingSession.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Recording not found')
 
   const data: Record<string, unknown> = {}
@@ -181,18 +181,18 @@ export async function updateRecording(
   return toPublic(row)
 }
 
-export async function deleteRecording(tenantId: string, id: string): Promise<void> {
-  const existing = await prisma.recordingSession.findFirst({ where: { id, tenantId } })
+export async function deleteRecording(businessId: string, id: string): Promise<void> {
+  const existing = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Recording not found')
   await prisma.recordingSession.delete({ where: { id } })
 }
 
 export async function listSegments(
-  tenantId: string,
+  businessId: string,
   recordingId: string,
 ): Promise<SegmentPublic[]> {
   const rec = await prisma.recordingSession.findFirst({
-    where: { id: recordingId, tenantId },
+    where: { id: recordingId, businessId },
     select: { id: true },
   })
   if (!rec) throw new Error('Recording not found')
@@ -205,13 +205,13 @@ export async function listSegments(
 }
 
 export async function upsertSegments(
-  tenantId: string,
+  businessId: string,
   recordingId: string,
   segments: SegmentInput[],
   replace: boolean,
 ): Promise<SegmentPublic[]> {
   const rec = await prisma.recordingSession.findFirst({
-    where: { id: recordingId, tenantId },
+    where: { id: recordingId, businessId },
     select: { id: true },
   })
   if (!rec) throw new Error('Recording not found')

@@ -14,7 +14,7 @@ export class AppointmentOverlapError extends Error {
 
 export interface AppointmentPublic {
   id: string
-  tenant_id: string
+  business_id: string
   customer_id: string
   staff_id: string
   starts_at: string
@@ -32,7 +32,7 @@ export interface AppointmentPublic {
 
 function toPublic(row: {
   id: string
-  tenantId: string
+  businessId: string
   customerId: string
   staffId: string
   startsAt: Date
@@ -49,7 +49,7 @@ function toPublic(row: {
 }): AppointmentPublic {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
     starts_at: row.startsAt.toISOString(),
@@ -67,7 +67,7 @@ function toPublic(row: {
 }
 
 export async function listAppointments(
-  tenantId: string,
+  businessId: string,
   options: {
     from?: string
     to?: string
@@ -88,7 +88,7 @@ export async function listAppointments(
   const pageSize = options.page_size ?? 200
   const offset = (page - 1) * pageSize
 
-  const where: Record<string, unknown> = { tenantId }
+  const where: Record<string, unknown> = { businessId }
   if (options.staff_id) where.staffId = options.staff_id
   if (options.customer_id) where.customerId = options.customer_id
   if (options.status) where.status = options.status
@@ -113,15 +113,15 @@ export async function listAppointments(
 }
 
 export async function getAppointment(
-  tenantId: string,
+  businessId: string,
   id: string,
 ): Promise<AppointmentPublic | null> {
-  const row = await prisma.appointment.findFirst({ where: { id, tenantId } })
+  const row = await prisma.appointment.findFirst({ where: { id, businessId } })
   return row ? toPublic(row) : null
 }
 
 export async function createAppointment(
-  tenantId: string,
+  businessId: string,
   input: CreateAppointmentInput,
 ): Promise<AppointmentPublic> {
   const startsAt = new Date(input.starts_at)
@@ -129,7 +129,7 @@ export async function createAppointment(
 
   const overlapping = await prisma.appointment.findFirst({
     where: {
-      tenantId,
+      businessId,
       staffId: input.staff_id,
       status: { not: 'CANCELLED' },
       startsAt: { lt: endsAt },
@@ -142,7 +142,7 @@ export async function createAppointment(
 
   const row = await prisma.appointment.create({
     data: {
-      tenantId,
+      businessId,
       customerId: input.customer_id,
       staffId: input.staff_id,
       startsAt,
@@ -158,11 +158,11 @@ export async function createAppointment(
 }
 
 export async function updateAppointment(
-  tenantId: string,
+  businessId: string,
   id: string,
   input: UpdateAppointmentInput,
 ): Promise<AppointmentPublic> {
-  const existing = await prisma.appointment.findFirst({ where: { id, tenantId } })
+  const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Appointment not found')
 
   const data: Record<string, unknown> = {}
@@ -187,8 +187,8 @@ export async function updateAppointment(
   return toPublic(row)
 }
 
-export async function deleteAppointment(tenantId: string, id: string): Promise<void> {
-  const existing = await prisma.appointment.findFirst({ where: { id, tenantId } })
+export async function deleteAppointment(businessId: string, id: string): Promise<void> {
+  const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Appointment not found')
   await prisma.appointment.delete({ where: { id } })
 }

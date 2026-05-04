@@ -7,17 +7,17 @@ export const orgSettingsRoutes = new Hono<AppEnv>()
 
 // Per-tenant singleton — no list, no :id.
 orgSettingsRoutes.get('/', async (c) => {
-  const tenantId = c.get('tenantId')
-  const settings = await orgSettingsService.getOrgSettings(tenantId)
+  const businessId = c.get('businessId')
+  const settings = await orgSettingsService.getOrgSettings(businessId)
   if (!settings) return c.json({ error: 'Not configured' }, 404)
   return c.json(settings)
 })
 
 orgSettingsRoutes.put('/', async (c) => {
-  const tenantId = c.get('tenantId')
+  const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
   const parsed = upsertOrgSettingsSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const settings = await orgSettingsService.upsertOrgSettings(tenantId, parsed.data)
+  const settings = await orgSettingsService.upsertOrgSettings(businessId, parsed.data)
   return c.json(settings)
 })

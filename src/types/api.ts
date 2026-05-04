@@ -1,6 +1,6 @@
 export interface Customer {
   id: string
-  tenant_id: string
+  business_id: string
   name: string
   furigana: string | null
   email: string | null
@@ -60,9 +60,9 @@ export interface CheckDuplicateResponse {
   existing_name?: string
 }
 
-// Hono env bindings — available via c.get('tenantId')
+// Hono env bindings — available via c.get('businessId')
 export type AppEnv = {
   Variables: {
-    tenantId: string
+    businessId: string
   }
 }

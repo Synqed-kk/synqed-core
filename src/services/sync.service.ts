@@ -20,7 +20,7 @@ import type {
 
 export interface SyncConfigPublic {
   id: string
-  tenant_id: string
+  business_id: string
   provider: SyncProvider
   username: string | null
   store_slug: string | null
@@ -78,7 +78,7 @@ interface QRCredentials {
 
 function toPublic(row: {
   id: string
-  tenantId: string
+  businessId: string
   provider: SyncProvider
   username: string | null
   storeSlug: string | null
@@ -99,7 +99,7 @@ function toPublic(row: {
 }): SyncConfigPublic {
   return {
     id: row.id,
-    tenant_id: row.tenantId,
+    business_id: row.businessId,
     provider: row.provider,
     username: row.username,
     store_slug: row.storeSlug,
@@ -121,17 +121,17 @@ function toPublic(row: {
 }
 
 export async function getConfig(
-  tenantId: string,
+  businessId: string,
   provider: SyncProvider,
 ): Promise<SyncConfigPublic | null> {
   const row = await prisma.syncConfig.findUnique({
-    where: { tenantId_provider: { tenantId, provider } },
+    where: { businessId_provider: { businessId, provider } },
   })
   return row ? toPublic(row) : null
 }
 
 export async function upsertConfig(
-  tenantId: string,
+  businessId: string,
   provider: SyncProvider,
   input: SyncConfigInput,
 ): Promise<SyncConfigPublic> {
@@ -141,7 +141,7 @@ export async function upsertConfig(
   if (input.password !== undefined) {
     if (provider === 'QUICKRESERVE') {
       const existing = await prisma.syncConfig.findUnique({
-        where: { tenantId_provider: { tenantId, provider } },
+        where: { businessId_provider: { businessId, provider } },
       })
       const creds: QRCredentials = {
         username: input.username ?? existing?.username ?? '',
@@ -154,9 +154,9 @@ export async function upsertConfig(
   }
 
   const row = await prisma.syncConfig.upsert({
-    where: { tenantId_provider: { tenantId, provider } },
+    where: { businessId_provider: { businessId, provider } },
     create: {
-      tenantId,
+      businessId,
       provider,
       username: input.username,
       storeSlug: input.store_slug,
@@ -216,10 +216,10 @@ export async function dispatchCron(): Promise<{ dispatched: number; skipped: num
     // Fire-and-forget per tenant so one failure doesn't block the others.
     // Errors are captured into last_run_status inside runSyncForTenant.
     try {
-      await runSyncForTenant(config.tenantId, config.provider)
+      await runSyncForTenant(config.businessId, config.provider)
       dispatched++
     } catch (err) {
-      console.error(`[cron] sync failed for ${config.tenantId}/${config.provider}`, err)
+      console.error(`[cron] sync failed for ${config.businessId}/${config.provider}`, err)
       dispatched++ // still counts as dispatched; status row written in runSyncForTenant
     }
   }
@@ -264,11 +264,11 @@ function getHourInTimezone(date: Date, timezone: string): number {
 // =============================================================================
 
 export async function runSyncForTenant(
-  tenantId: string,
+  businessId: string,
   provider: SyncProvider,
 ): Promise<SyncRunResult> {
   const config = await prisma.syncConfig.findUnique({
-    where: { tenantId_provider: { tenantId, provider } },
+    where: { businessId_provider: { businessId, provider } },
   })
   if (!config) throw new Error('Sync config not found')
   if (!config.credentialsEncrypted) throw new Error('No credentials set for this provider')
@@ -284,7 +284,7 @@ export async function runSyncForTenant(
     let result: SyncRunResult
     if (provider === 'QUICKRESERVE') {
       const creds = decryptJson<QRCredentials>(config.credentialsEncrypted)
-      result = await runQuickReserveSync(tenantId, config, creds)
+      result = await runQuickReserveSync(businessId, config, creds)
     } else {
       throw new Error(`Provider not implemented: ${provider}`)
     }
@@ -319,7 +319,7 @@ export async function runSyncForTenant(
 // =============================================================================
 
 interface QRSyncConfig {
-  tenantId: string
+  businessId: string
   storeSlug: string | null
   storeId: number | null
   lookaheadDays: number
@@ -327,7 +327,7 @@ interface QRSyncConfig {
 }
 
 async function runQuickReserveSync(
-  tenantId: string,
+  businessId: string,
   config: QRSyncConfig,
   creds: QRCredentials,
 ): Promise<SyncRunResult> {
@@ -355,7 +355,7 @@ async function runQuickReserveSync(
 
   // Load staff for this tenant (for name matching)
   const tenantStaff = await prisma.staff.findMany({
-    where: { tenantId, isActive: true },
+    where: { businessId, isActive: true },
     select: { id: true, name: true, nameKana: true },
   })
 
@@ -383,10 +383,10 @@ async function runQuickReserveSync(
     }
 
     // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
-    const customerId = await findOrCreateCustomer(tenantId, r)
+    const customerId = await findOrCreateCustomer(businessId, r)
 
     // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
-    const existing = await findAppointmentByQrId(tenantId, r.qrReservationId)
+    const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
     if (existing) {
       await prisma.appointment.update({
         where: { id: existing.id },
@@ -408,7 +408,7 @@ async function runQuickReserveSync(
     } else {
       const row = await prisma.appointment.create({
         data: {
-          tenantId,
+          businessId,
           customerId,
           staffId,
           startsAt: r.startsAt,
@@ -437,7 +437,7 @@ async function runQuickReserveSync(
   // --- Cancellation detection: find QR appointments in the window that we
   //     have locally but that DIDN'T come back from QR → mark cancelled ---
   cancelled = await markOrphanedCancelled(
-    tenantId,
+    businessId,
     windowStart,
     windowEnd,
     seenAppointmentIds,
@@ -479,13 +479,13 @@ function matchStaff(
 }
 
 async function findOrCreateCustomer(
-  tenantId: string,
+  businessId: string,
   r: MappedQRReservation,
 ): Promise<string> {
   // 1. Try by externalRefs.quickreserve.customerId (most reliable)
   const byQrId = await prisma.customer.findFirst({
     where: {
-      tenantId,
+      businessId,
       externalRefs: { path: ['quickreserve', 'customerId'], equals: r.qrCustomerId },
     },
     select: { id: true },
@@ -494,7 +494,7 @@ async function findOrCreateCustomer(
 
   // 2. Fall back to name match (best-effort — may create duplicates if names drift)
   const byName = await prisma.customer.findFirst({
-    where: { tenantId, name: r.customerName },
+    where: { businessId, name: r.customerName },
     select: { id: true, externalRefs: true },
   })
   if (byName) {
@@ -515,7 +515,7 @@ async function findOrCreateCustomer(
   // 3. Create new
   const created = await prisma.customer.create({
     data: {
-      tenantId,
+      businessId,
       name: r.customerName,
       furigana: r.customerKana || null,
       phone: r.customerPhone || null,
@@ -529,12 +529,12 @@ async function findOrCreateCustomer(
 }
 
 async function findAppointmentByQrId(
-  tenantId: string,
+  businessId: string,
   qrReservationId: number,
 ): Promise<{ id: string } | null> {
   return prisma.appointment.findFirst({
     where: {
-      tenantId,
+      businessId,
       source: 'QUICKRESERVE' as AppointmentSource,
       externalRefs: { path: ['quickreserve', 'reservationId'], equals: qrReservationId },
     },
@@ -543,14 +543,14 @@ async function findAppointmentByQrId(
 }
 
 async function markOrphanedCancelled(
-  tenantId: string,
+  businessId: string,
   windowStart: Date,
   windowEnd: Date,
   seenIds: string[],
 ): Promise<number> {
   const result = await prisma.appointment.updateMany({
     where: {
-      tenantId,
+      businessId,
       source: 'QUICKRESERVE' as AppointmentSource,
       startsAt: { gte: windowStart, lt: windowEnd },
       cancelledAt: null,

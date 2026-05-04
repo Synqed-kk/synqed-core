@@ -2,9 +2,9 @@
 //
 // Mapping (old → new):
 //   customers     → customers      (pass-through + external_refs: {})
-//   profiles      → staff          (full_name → name, customer_id → tenant_id, role mapped)
+//   profiles      → staff          (full_name → name, customer_id → business_id, role mapped)
 //   appointments  → appointments   (time/id columns renamed, source/external_refs derived,
-//                                   ends_at computed, tenant_id looked up via customer)
+//                                   ends_at computed, business_id looked up via customer)
 //   sync_config   → sync_configs   (shape transformed, plaintext password re-encrypted via crypto.ts)
 //
 // Skipped (not synqed-core's concern — these belong in karute's DB):
@@ -21,7 +21,7 @@ const inPath = process.argv.find((a) => a.startsWith('--in='))?.split('=')[1] ??
 
 interface OldCustomer {
   id: string
-  tenant_id: string
+  business_id: string
   name: string
   furigana: string | null
   email: string | null
@@ -36,7 +36,7 @@ interface OldCustomer {
 
 interface OldProfile {
   id: string
-  customer_id: string // actually tenant_id
+  customer_id: string // actually business_id
   full_name: string | null
   role: string | null
   display_role: string | null
@@ -63,7 +63,7 @@ interface OldAppointment {
 
 interface OldSyncConfig {
   id: string
-  tenant_id: string
+  business_id: string
   provider: string
   base_url: string | null
   username: string | null
@@ -120,7 +120,7 @@ async function main() {
       await prisma.customer.createMany({
         data: customers.map((c) => ({
           id: c.id,
-          tenantId: c.tenant_id,
+          businessId: c.business_id,
           name: c.name,
           furigana: c.furigana,
           email: c.email,
@@ -144,7 +144,7 @@ async function main() {
       await prisma.staff.createMany({
         data: profiles.map((p) => ({
           id: p.id,
-          tenantId: p.customer_id, // old name for tenant
+          businessId: p.customer_id, // old name for tenant
           name: p.full_name ?? 'Unnamed',
           email: p.email,
           role: mapStaffRole(p.role),
@@ -162,13 +162,13 @@ async function main() {
     if (appointments.length > 0) {
       // Build customer → tenant map
       const customerTenants = new Map<string, string>(
-        customers.map((c) => [c.id, c.tenant_id]),
+        customers.map((c) => [c.id, c.business_id]),
       )
 
       let skipped = 0
       const rows = appointments.flatMap((a) => {
-        const tenantId = customerTenants.get(a.client_id)
-        if (!tenantId) {
+        const businessId = customerTenants.get(a.client_id)
+        if (!businessId) {
           skipped++
           return []
         }
@@ -179,7 +179,7 @@ async function main() {
         return [
           {
             id: a.id,
-            tenantId,
+            businessId,
             customerId: a.client_id,
             staffId: a.staff_profile_id,
             startsAt,
@@ -228,10 +228,10 @@ async function main() {
         const credentialsEncrypted = encryptJson(creds)
 
         await prisma.syncConfig.upsert({
-          where: { tenantId_provider: { tenantId: s.tenant_id, provider } },
+          where: { businessId_provider: { businessId: s.business_id, provider } },
           create: {
             id: s.id,
-            tenantId: s.tenant_id,
+            businessId: s.business_id,
             provider,
             username: s.username,
             storeSlug: s.base_url,

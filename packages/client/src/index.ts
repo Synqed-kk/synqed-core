@@ -18,6 +18,10 @@ export type {
   ListCustomersOptions,
   ListCustomersResponse,
   CheckDuplicateResponse,
+  CustomerPhoto,
+  RecordingConsent,
+  RecordingConsentMethod,
+  GrantRecordingConsentInput,
 
   // Staff
   Staff,

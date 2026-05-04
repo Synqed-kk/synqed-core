@@ -4,7 +4,7 @@ import {
   cleanupTestData,
   seedTestStaff,
   seedTestKaruteRecord,
-  TEST_TENANT_ID,
+  TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
 
@@ -12,7 +12,7 @@ process.env.API_KEYS = TEST_API_KEY
 
 const headers = {
   'x-api-key': TEST_API_KEY,
-  'x-tenant-id': TEST_TENANT_ID,
+  'x-business-id': TEST_BUSINESS_ID,
   'Content-Type': 'application/json',
 }
 
