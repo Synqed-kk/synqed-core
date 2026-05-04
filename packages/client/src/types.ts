@@ -474,3 +474,15 @@ export interface UpsertOrgSettingsInput {
   name?: string | null
   settings?: Record<string, unknown>
 }
+
+// ===========================================================================
+// AI rate limit
+// ===========================================================================
+
+export interface AiRateLimitResult {
+  allowed: boolean
+  cap: number
+  used: number
+  remaining: number
+  resetAt: string
+}

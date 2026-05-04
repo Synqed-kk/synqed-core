@@ -351,3 +351,17 @@ model OrgSettings {
 
   @@map("org_settings")
 }
+
+// =============================================================================
+// AiRequestLog — append-only log of AI API calls for per-business rate limiting
+// =============================================================================
+
+model AiRequestLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  route      String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, createdAt])
+  @@map("ai_request_log")
+}

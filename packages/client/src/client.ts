@@ -6,6 +6,7 @@ import { SyncClient } from './sync.js'
 import { RecordingClient } from './recordings.js'
 import { KaruteRecordClient } from './karute.js'
 import { OrgSettingsClient } from './org-settings.js'
+import { AiRateLimitClient } from './ai-rate-limit.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -19,6 +20,7 @@ export class SynqedClient {
   public recordings: RecordingClient
   public karuteRecords: KaruteRecordClient
   public orgSettings: OrgSettingsClient
+  public aiRateLimit: AiRateLimitClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -31,6 +33,7 @@ export class SynqedClient {
     this.recordings = new RecordingClient(this)
     this.karuteRecords = new KaruteRecordClient(this)
     this.orgSettings = new OrgSettingsClient(this)
+    this.aiRateLimit = new AiRateLimitClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {

@@ -6,6 +6,7 @@ export { SyncClient } from './sync.js'
 export { RecordingClient } from './recordings.js'
 export { KaruteRecordClient } from './karute.js'
 export { OrgSettingsClient } from './org-settings.js'
+export { AiRateLimitClient } from './ai-rate-limit.js'
 
 export type {
   // Shared
@@ -71,4 +72,7 @@ export type {
   // Org settings
   OrgSettings,
   UpsertOrgSettingsInput,
+
+  // AI rate limit
+  AiRateLimitResult,
 } from './types.js'
