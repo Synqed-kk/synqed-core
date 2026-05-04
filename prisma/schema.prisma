@@ -361,6 +361,9 @@ model AiRequestLog {
   businessId String   @map("business_id") @db.Uuid
   route      String
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  tokensIn   Int?     @map("tokens_in")
+  tokensOut  Int?     @map("tokens_out")
+  costCents  Int?     @map("cost_cents")
 
   @@index([businessId, createdAt])
   @@map("ai_request_log")

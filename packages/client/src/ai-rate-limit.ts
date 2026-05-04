@@ -10,4 +10,21 @@ export class AiRateLimitClient {
       body: JSON.stringify({ route }),
     })
   }
+
+  async recordUsage(
+    route: string,
+    tokensIn: number | null,
+    tokensOut: number | null,
+    costCents: number | null,
+  ): Promise<void> {
+    await this.client.fetch<{ ok: true }>('/ai-rate-limit/record-usage', {
+      method: 'POST',
+      body: JSON.stringify({
+        route,
+        tokens_in: tokensIn,
+        tokens_out: tokensOut,
+        cost_cents: costCents,
+      }),
+    })
+  }
 }

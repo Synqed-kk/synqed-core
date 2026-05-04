@@ -481,8 +481,11 @@ export interface UpsertOrgSettingsInput {
 
 export interface AiRateLimitResult {
   allowed: boolean
+  reason: 'ok' | 'hourly_count' | 'daily_cost'
   cap: number
   used: number
   remaining: number
+  costCap: number
+  costUsed: number
   resetAt: string
 }
