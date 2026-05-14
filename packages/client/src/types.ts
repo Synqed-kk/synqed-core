@@ -52,6 +52,10 @@ export interface UpdateCustomerInput {
 
 export interface ListCustomersOptions {
   search?: string
+  // When set, the server returns only the requested customers in one call
+  // and skips search + pagination. Useful for resolving N customer names
+  // without N round-trips.
+  ids?: string[]
   page?: number
   page_size?: number
   sort_by?: 'name' | 'created_at' | 'updated_at'

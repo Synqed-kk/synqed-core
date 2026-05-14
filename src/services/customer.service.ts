@@ -32,6 +32,7 @@ export async function listCustomers(
   businessId: string,
   options: {
     search?: string
+    ids?: string[]
     page?: number
     page_size?: number
     sort_by?: string
@@ -52,6 +53,23 @@ export async function listCustomers(
   const sortBy = sortByMap[options.sort_by ?? 'name'] ?? 'name'
 
   const where: any = { businessId }
+
+  // Batch-by-id mode: returns only the requested customers in a single shot.
+  // Bypasses search/pagination because the caller already knows the exact set.
+  if (options.ids && options.ids.length > 0) {
+    where.id = { in: options.ids }
+    const rows = await prisma.customer.findMany({
+      where,
+      orderBy: { [sortBy]: sortOrder },
+    })
+    return {
+      customers: rows.map(toCustomer),
+      total: rows.length,
+      page: 1,
+      page_size: rows.length,
+      total_pages: 1,
+    }
+  }
 
   if (options.search) {
     where.OR = [

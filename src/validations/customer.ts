@@ -24,8 +24,16 @@ export const updateCustomerSchema = z.object({
 
 export const listCustomersSchema = z.object({
   search: z.string().max(100).optional(),
+  // ids: comma-separated list of customer ids; when set the server returns only
+  // those customers (no search, no pagination). Used for batch-lookup callers
+  // that want to resolve N customer names in a single request instead of N.
+  ids: z
+    .string()
+    .max(5_000)
+    .optional()
+    .transform((s) => (s ? s.split(',').filter(Boolean) : undefined)),
   page: z.coerce.number().int().min(1).default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
+  page_size: z.coerce.number().int().min(1).max(500).default(20),
   sort_by: z.enum(['name', 'created_at', 'updated_at']).default('name'),
   sort_order: z.enum(['asc', 'desc']).default('asc'),
 })

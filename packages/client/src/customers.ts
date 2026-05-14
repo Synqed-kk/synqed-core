@@ -17,6 +17,9 @@ export class CustomerClient {
   async list(options?: ListCustomersOptions): Promise<ListCustomersResponse> {
     const params = new URLSearchParams()
     if (options?.search) params.set('search', options.search)
+    if (options?.ids && options.ids.length > 0) {
+      params.set('ids', options.ids.join(','))
+    }
     if (options?.page) params.set('page', String(options.page))
     if (options?.page_size) params.set('page_size', String(options.page_size))
     if (options?.sort_by) params.set('sort_by', options.sort_by)
