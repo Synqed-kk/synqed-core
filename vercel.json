@@ -1,7 +1,6 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "regions": ["sin1"],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.js" }
   ]
