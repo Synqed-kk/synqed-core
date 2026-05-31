@@ -23,6 +23,8 @@ function toCustomer(row: any): Customer {
     notes: row.notes,
     contact_info: row.contactInfo,
     assigned_staff_id: row.assignedStaffId,
+    is_existing_customer: row.isExistingCustomer,
+    visit_count: row.visitCount,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -125,6 +127,8 @@ export async function createCustomer(
       notes: input.notes ?? null,
       contactInfo: input.contact_info ?? null,
       assignedStaffId: input.assigned_staff_id ?? null,
+      isExistingCustomer: input.is_existing_customer ?? false,
+      visitCount: input.visit_count ?? 0,
     },
   })
 
@@ -153,6 +157,8 @@ export async function updateCustomer(
   if (input.notes !== undefined) data.notes = input.notes
   if (input.contact_info !== undefined) data.contactInfo = input.contact_info
   if (input.assigned_staff_id !== undefined) data.assignedStaffId = input.assigned_staff_id
+  if (input.is_existing_customer !== undefined) data.isExistingCustomer = input.is_existing_customer
+  if (input.visit_count !== undefined) data.visitCount = input.visit_count
 
   const row = await prisma.customer.update({
     where: { id },
