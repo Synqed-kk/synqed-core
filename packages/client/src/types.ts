@@ -23,6 +23,8 @@ export interface Customer {
   notes: string | null
   contact_info: string | null
   assigned_staff_id: string | null
+  is_existing_customer: boolean
+  visit_count: number
   external_refs?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -37,6 +39,8 @@ export interface CreateCustomerInput {
   notes?: string | null
   contact_info?: string | null
   assigned_staff_id?: string | null
+  is_existing_customer?: boolean
+  visit_count?: number
 }
 
 export interface UpdateCustomerInput {
@@ -48,6 +52,8 @@ export interface UpdateCustomerInput {
   notes?: string | null
   contact_info?: string | null
   assigned_staff_id?: string | null
+  is_existing_customer?: boolean
+  visit_count?: number
 }
 
 export interface ListCustomersOptions {
