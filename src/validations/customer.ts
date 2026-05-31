@@ -9,6 +9,8 @@ export const createCustomerSchema = z.object({
   notes: z.string().max(5000).nullish(),
   contact_info: z.string().max(1000).nullish(),
   assigned_staff_id: z.string().uuid().nullish(),
+  is_existing_customer: z.boolean().optional(),
+  visit_count: z.number().int().min(0).optional(),
 })
 
 export const updateCustomerSchema = z.object({
@@ -20,6 +22,8 @@ export const updateCustomerSchema = z.object({
   notes: z.string().max(5000).nullish(),
   contact_info: z.string().max(1000).nullish(),
   assigned_staff_id: z.string().uuid().nullish(),
+  is_existing_customer: z.boolean().optional(),
+  visit_count: z.number().int().min(0).optional(),
 })
 
 export const listCustomersSchema = z.object({
