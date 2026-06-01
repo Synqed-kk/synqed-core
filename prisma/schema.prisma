@@ -19,10 +19,17 @@ model Customer {
   furigana        String?
   email           String?
   phone           String?
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  gender          String?
   locale          String   @default("ja")
   notes           String?
   contactInfo     String?  @map("contact_info")
   assignedStaffId String?  @map("assigned_staff_id") @db.Uuid
+  // Returning-customer signal + lifetime visit count. Populated by external
+  // syncs (e.g. QuickReserve's is_existing_customer / visits_number_cache);
+  // default to first-time / 0 for customers created in-app.
+  isExistingCustomer Boolean @default(false) @map("is_existing_customer")
+  visitCount         Int     @default(0) @map("visit_count")
   // External system references (e.g. { quickreserve: { customerId: 12345 } })
   externalRefs    Json     @default("{}") @map("external_refs")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()

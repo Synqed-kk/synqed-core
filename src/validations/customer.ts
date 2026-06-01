@@ -5,10 +5,14 @@ export const createCustomerSchema = z.object({
   furigana: z.string().max(100).nullish(),
   email: z.string().email('Invalid email').max(255).nullish(),
   phone: z.string().max(20).nullish(),
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').nullish(),
+  gender: z.enum(['female', 'male', 'other']).nullish(),
   locale: z.string().max(5).default('ja'),
   notes: z.string().max(5000).nullish(),
   contact_info: z.string().max(1000).nullish(),
   assigned_staff_id: z.string().uuid().nullish(),
+  is_existing_customer: z.boolean().optional(),
+  visit_count: z.number().int().min(0).optional(),
 })
 
 export const updateCustomerSchema = z.object({
@@ -16,10 +20,14 @@ export const updateCustomerSchema = z.object({
   furigana: z.string().max(100).nullish(),
   email: z.string().email('Invalid email').max(255).nullish(),
   phone: z.string().max(20).nullish(),
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').nullish(),
+  gender: z.enum(['female', 'male', 'other']).nullish(),
   locale: z.string().max(5).optional(),
   notes: z.string().max(5000).nullish(),
   contact_info: z.string().max(1000).nullish(),
   assigned_staff_id: z.string().uuid().nullish(),
+  is_existing_customer: z.boolean().optional(),
+  visit_count: z.number().int().min(0).optional(),
 })
 
 export const listCustomersSchema = z.object({

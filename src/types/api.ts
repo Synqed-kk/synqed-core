@@ -5,10 +5,14 @@ export interface Customer {
   furigana: string | null
   email: string | null
   phone: string | null
+  date_of_birth: string | null
+  gender: string | null
   locale: string
   notes: string | null
   contact_info: string | null
   assigned_staff_id: string | null
+  is_existing_customer: boolean
+  visit_count: number
   created_at: string
   updated_at: string
 }
@@ -18,10 +22,14 @@ export interface CreateCustomerInput {
   furigana?: string | null
   email?: string | null
   phone?: string | null
+  date_of_birth?: string | null
+  gender?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
   assigned_staff_id?: string | null
+  is_existing_customer?: boolean
+  visit_count?: number
 }
 
 export interface UpdateCustomerInput {
@@ -29,10 +37,14 @@ export interface UpdateCustomerInput {
   furigana?: string | null
   email?: string | null
   phone?: string | null
+  date_of_birth?: string | null
+  gender?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
   assigned_staff_id?: string | null
+  is_existing_customer?: boolean
+  visit_count?: number
 }
 
 export interface ListCustomersQuery {
