@@ -4,6 +4,7 @@ import {
   createCustomerSchema,
   updateCustomerSchema,
   listCustomersSchema,
+  upsertVisitsSchema,
 } from '../validations/customer.js'
 import * as customerService from '../services/customer.service.js'
 
@@ -93,6 +94,16 @@ customerRoutes.delete('/:id', async (c) => {
 
   await customerService.deleteCustomer(businessId, id)
   return c.json({ success: true })
+})
+
+// PUT /v1/customers/:id/visits  (bulk idempotent upsert of crawled visits)
+customerRoutes.put('/:id/visits', async (c) => {
+  const businessId = c.get('businessId')
+  const id = c.req.param('id')
+  const parsed = upsertVisitsSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  const result = await customerService.upsertVisits(businessId, id, parsed.data.visits)
+  return c.json(result)
 })
 
 // GET /v1/customers/:id/photos

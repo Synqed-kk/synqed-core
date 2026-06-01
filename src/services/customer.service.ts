@@ -6,6 +6,7 @@ import type {
   UpdateCustomerInput,
   ListCustomersResponse,
   CheckDuplicateResponse,
+  UpsertVisitInput,
 } from '../types/api.js'
 
 const PHOTO_BUCKET = 'customer-photos'
@@ -22,6 +23,20 @@ function toCustomer(row: any): Customer {
     // @db.Date column → date-only string (no time component to leak).
     date_of_birth: row.dateOfBirth ? row.dateOfBirth.toISOString().slice(0, 10) : null,
     gender: row.gender,
+    occupation: row.occupation,
+    member_number: row.memberNumber,
+    postal_code: row.postalCode,
+    prefecture: row.prefecture,
+    address: row.address,
+    phone2: row.phone2,
+    dm_opt_in: row.dmOptIn,
+    comment: row.comment,
+    remarks2: row.remarks2,
+    total_sales: row.totalSales,
+    installment_outstanding: row.installmentOutstanding,
+    has_ticket_pack: row.hasTicketPack,
+    first_visit_at: row.firstVisitAt?.toISOString() ?? null,
+    last_visit_at: row.lastVisitAt?.toISOString() ?? null,
     locale: row.locale,
     notes: row.notes,
     contact_info: row.contactInfo,
@@ -128,6 +143,20 @@ export async function createCustomer(
       phone: input.phone ?? null,
       dateOfBirth: input.date_of_birth ? new Date(input.date_of_birth) : null,
       gender: input.gender ?? null,
+      occupation: input.occupation ?? null,
+      memberNumber: input.member_number ?? null,
+      postalCode: input.postal_code ?? null,
+      prefecture: input.prefecture ?? null,
+      address: input.address ?? null,
+      phone2: input.phone2 ?? null,
+      dmOptIn: input.dm_opt_in ?? false,
+      comment: input.comment ?? null,
+      remarks2: input.remarks2 ?? null,
+      totalSales: input.total_sales ?? 0,
+      installmentOutstanding: input.installment_outstanding ?? 0,
+      hasTicketPack: input.has_ticket_pack ?? false,
+      firstVisitAt: input.first_visit_at ? new Date(input.first_visit_at) : null,
+      lastVisitAt: input.last_visit_at ? new Date(input.last_visit_at) : null,
       locale: input.locale ?? 'ja',
       notes: input.notes ?? null,
       contactInfo: input.contact_info ?? null,
@@ -161,6 +190,23 @@ export async function updateCustomer(
   if (input.date_of_birth !== undefined)
     data.dateOfBirth = input.date_of_birth ? new Date(input.date_of_birth) : null
   if (input.gender !== undefined) data.gender = input.gender
+  if (input.occupation !== undefined) data.occupation = input.occupation
+  if (input.member_number !== undefined) data.memberNumber = input.member_number
+  if (input.postal_code !== undefined) data.postalCode = input.postal_code
+  if (input.prefecture !== undefined) data.prefecture = input.prefecture
+  if (input.address !== undefined) data.address = input.address
+  if (input.phone2 !== undefined) data.phone2 = input.phone2
+  if (input.dm_opt_in !== undefined) data.dmOptIn = input.dm_opt_in
+  if (input.comment !== undefined) data.comment = input.comment
+  if (input.remarks2 !== undefined) data.remarks2 = input.remarks2
+  if (input.total_sales !== undefined) data.totalSales = input.total_sales
+  if (input.installment_outstanding !== undefined)
+    data.installmentOutstanding = input.installment_outstanding
+  if (input.has_ticket_pack !== undefined) data.hasTicketPack = input.has_ticket_pack
+  if (input.first_visit_at !== undefined)
+    data.firstVisitAt = input.first_visit_at ? new Date(input.first_visit_at) : null
+  if (input.last_visit_at !== undefined)
+    data.lastVisitAt = input.last_visit_at ? new Date(input.last_visit_at) : null
   if (input.locale !== undefined) data.locale = input.locale
   if (input.notes !== undefined) data.notes = input.notes
   if (input.contact_info !== undefined) data.contactInfo = input.contact_info
@@ -207,6 +253,42 @@ export async function checkDuplicateName(
   }
 
   return { exists: false }
+}
+
+// =============================================================================
+// Customer visits — crawled from QuickReserve (one row per reservation).
+// Idempotent upsert keyed by (businessId, qrReservationId).
+// =============================================================================
+
+export async function upsertVisits(
+  businessId: string,
+  customerId: string,
+  visits: UpsertVisitInput[]
+) {
+  await Promise.all(visits.map((v) =>
+    prisma.customerVisit.upsert({
+      where: { businessId_qrReservationId: { businessId, qrReservationId: v.qr_reservation_id } },
+      create: {
+        businessId,
+        customerId,
+        qrReservationId: v.qr_reservation_id,
+        usedAt: new Date(v.used_at),
+        status: v.status,
+        courseName: v.course_name ?? null,
+        salesAmount: v.sales_amount ?? 0,
+        staffName: v.staff_name ?? null,
+        treatmentComment: v.treatment_comment ?? null,
+      },
+      update: {
+        usedAt: new Date(v.used_at),
+        status: v.status,
+        courseName: v.course_name ?? null,
+        salesAmount: v.sales_amount ?? 0,
+        staffName: v.staff_name ?? null,
+        treatmentComment: v.treatment_comment ?? null,
+      },
+    })))
+  return { upserted: visits.length }
 }
 
 // =============================================================================

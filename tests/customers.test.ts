@@ -3,6 +3,7 @@ import app from '../src/index.js'
 import {
   cleanupTestData,
   seedTestCustomer,
+  testPrisma,
   TEST_BUSINESS_ID,
   TEST_API_KEY,
 } from './setup.js'
@@ -167,6 +168,61 @@ describe('Customer API', () => {
 
       const getRes = await req('GET', `/customers/${seeded.id}`)
       expect(getRes.status).toBe(404)
+    })
+  })
+
+  describe('PUT /v1/customers/:id/visits', () => {
+    it('upserts visits idempotently by qr_reservation_id', async () => {
+      const seeded = await seedTestCustomer()
+
+      const body = {
+        visits: [
+          {
+            qr_reservation_id: 137401,
+            used_at: '2026-05-01T03:00:00.000Z',
+            status: 'settled',
+            course_name: '6回券',
+            sales_amount: 10450,
+            staff_name: '篠原 夢果',
+          },
+          {
+            qr_reservation_id: 137402,
+            used_at: '2026-05-15T03:00:00.000Z',
+            status: 'booked',
+            sales_amount: 0,
+          },
+        ],
+      }
+
+      const res = await req('PUT', `/customers/${seeded.id}/visits`, body)
+      expect(res.status).toBe(200)
+      expect((await res.json()).upserted).toBe(2)
+
+      // Re-PUT the same payload: still two rows (no duplicates), values updated.
+      const res2 = await req('PUT', `/customers/${seeded.id}/visits`, {
+        visits: [
+          { ...body.visits[0], sales_amount: 12000 },
+          body.visits[1],
+        ],
+      })
+      expect(res2.status).toBe(200)
+
+      const rows = await testPrisma.customerVisit.findMany({
+        where: { customerId: seeded.id },
+        orderBy: { qrReservationId: 'asc' },
+      })
+      expect(rows).toHaveLength(2)
+      expect(rows[0].qrReservationId).toBe(137401)
+      expect(rows[0].salesAmount).toBe(12000)
+      expect(rows[1].status).toBe('booked')
+    })
+
+    it('rejects an invalid visit payload', async () => {
+      const seeded = await seedTestCustomer()
+      const res = await req('PUT', `/customers/${seeded.id}/visits`, {
+        visits: [{ qr_reservation_id: 1, used_at: 'not-a-date', status: 'settled' }],
+      })
+      expect(res.status).toBe(400)
     })
   })
 
