@@ -19,6 +19,8 @@ model Customer {
   furigana        String?
   email           String?
   phone           String?
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  gender          String?
   locale          String   @default("ja")
   notes           String?
   contactInfo     String?  @map("contact_info")

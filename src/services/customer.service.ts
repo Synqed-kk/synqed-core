@@ -19,6 +19,9 @@ function toCustomer(row: any): Customer {
     furigana: row.furigana,
     email: row.email,
     phone: row.phone,
+    // @db.Date column → date-only string (no time component to leak).
+    date_of_birth: row.dateOfBirth ? row.dateOfBirth.toISOString().slice(0, 10) : null,
+    gender: row.gender,
     locale: row.locale,
     notes: row.notes,
     contact_info: row.contactInfo,
@@ -123,6 +126,8 @@ export async function createCustomer(
       furigana: input.furigana ?? null,
       email: input.email ?? null,
       phone: input.phone ?? null,
+      dateOfBirth: input.date_of_birth ? new Date(input.date_of_birth) : null,
+      gender: input.gender ?? null,
       locale: input.locale ?? 'ja',
       notes: input.notes ?? null,
       contactInfo: input.contact_info ?? null,
@@ -153,6 +158,9 @@ export async function updateCustomer(
   if (input.furigana !== undefined) data.furigana = input.furigana
   if (input.email !== undefined) data.email = input.email
   if (input.phone !== undefined) data.phone = input.phone
+  if (input.date_of_birth !== undefined)
+    data.dateOfBirth = input.date_of_birth ? new Date(input.date_of_birth) : null
+  if (input.gender !== undefined) data.gender = input.gender
   if (input.locale !== undefined) data.locale = input.locale
   if (input.notes !== undefined) data.notes = input.notes
   if (input.contact_info !== undefined) data.contactInfo = input.contact_info

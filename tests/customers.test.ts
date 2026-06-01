@@ -60,6 +60,29 @@ describe('Customer API', () => {
       expect(customer.id).toBeDefined()
     })
 
+    it('persists date_of_birth and gender', async () => {
+      const res = await req('POST', '/customers', {
+        name: '誕生日太郎',
+        date_of_birth: '1990-04-15',
+        gender: 'male',
+      })
+      expect(res.status).toBe(201)
+      const customer = await res.json()
+      expect(customer.date_of_birth).toBe('1990-04-15')
+      expect(customer.gender).toBe('male')
+
+      // round-trips on read
+      const read = await req('GET', `/customers/${customer.id}`)
+      const fetched = await read.json()
+      expect(fetched.date_of_birth).toBe('1990-04-15')
+      expect(fetched.gender).toBe('male')
+    })
+
+    it('rejects an invalid gender', async () => {
+      const res = await req('POST', '/customers', { name: 'X', gender: 'nope' })
+      expect(res.status).toBe(400)
+    })
+
     it('rejects empty name', async () => {
       const res = await req('POST', '/customers', { name: '' })
       expect(res.status).toBe(400)

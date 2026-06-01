@@ -5,6 +5,8 @@ export interface Customer {
   furigana: string | null
   email: string | null
   phone: string | null
+  date_of_birth: string | null
+  gender: string | null
   locale: string
   notes: string | null
   contact_info: string | null
@@ -20,6 +22,8 @@ export interface CreateCustomerInput {
   furigana?: string | null
   email?: string | null
   phone?: string | null
+  date_of_birth?: string | null
+  gender?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
@@ -33,6 +37,8 @@ export interface UpdateCustomerInput {
   furigana?: string | null
   email?: string | null
   phone?: string | null
+  date_of_birth?: string | null
+  gender?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
