@@ -21,6 +21,20 @@ model Customer {
   phone           String?
   dateOfBirth     DateTime? @map("date_of_birth") @db.Date
   gender          String?
+  occupation            String?  @map("occupation")
+  memberNumber          String?  @map("member_number")
+  postalCode            String?  @map("postal_code")
+  prefecture            String?
+  address               String?
+  phone2                String?
+  dmOptIn               Boolean  @default(false) @map("dm_opt_in")
+  comment               String?
+  remarks2              String?
+  totalSales            Int      @default(0) @map("total_sales")
+  installmentOutstanding Int     @default(0) @map("installment_outstanding")
+  hasTicketPack         Boolean  @default(false) @map("has_ticket_pack")
+  firstVisitAt          DateTime? @map("first_visit_at") @db.Timestamptz()
+  lastVisitAt           DateTime? @map("last_visit_at") @db.Timestamptz()
   locale          String   @default("ja")
   notes           String?
   contactInfo     String?  @map("contact_info")
@@ -38,12 +52,39 @@ model Customer {
   appointments Appointment[]
   photos       CustomerPhoto[]
   consents     RecordingConsent[]
+  visits       CustomerVisit[]
 
   @@unique([businessId, email])
   @@index([businessId])
   @@index([businessId, name])
   @@index([businessId, email])
   @@map("customers")
+}
+
+// =============================================================================
+// CustomerVisit — one row per QuickReserve reservation, crawled into synqed-core
+// to surface a customer's visit / treatment / sales history.
+// =============================================================================
+
+model CustomerVisit {
+  id               String   @id @default(uuid()) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  customerId       String   @map("customer_id") @db.Uuid
+  qrReservationId  Int      @map("qr_reservation_id")
+  usedAt           DateTime @map("used_at") @db.Timestamptz()
+  status           String   // 'settled' | 'booked' | 'cancelled'
+  courseName       String?  @map("course_name")
+  salesAmount      Int      @default(0) @map("sales_amount")
+  staffName        String?  @map("staff_name")
+  treatmentComment String?  @map("treatment_comment")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, qrReservationId])
+  @@index([customerId, usedAt])
+  @@map("customer_visits")
 }
 
 // =============================================================================

@@ -9,6 +9,7 @@ import type {
   CustomerPhoto,
   RecordingConsent,
   GrantRecordingConsentInput,
+  UpsertVisitInput,
 } from './types.js'
 
 export class CustomerClient {
@@ -51,6 +52,16 @@ export class CustomerClient {
 
   async delete(id: string): Promise<void> {
     await this.client.fetch(`/customers/${id}`, { method: 'DELETE' })
+  }
+
+  async upsertVisits(
+    id: string,
+    visits: UpsertVisitInput[],
+  ): Promise<{ upserted: number }> {
+    return this.client.fetch<{ upserted: number }>(`/customers/${id}/visits`, {
+      method: 'PUT',
+      body: JSON.stringify({ visits }),
+    })
   }
 
   async checkDuplicate(name: string): Promise<CheckDuplicateResponse> {

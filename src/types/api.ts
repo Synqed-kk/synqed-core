@@ -7,6 +7,20 @@ export interface Customer {
   phone: string | null
   date_of_birth: string | null
   gender: string | null
+  occupation: string | null
+  member_number: string | null
+  postal_code: string | null
+  prefecture: string | null
+  address: string | null
+  phone2: string | null
+  dm_opt_in: boolean
+  comment: string | null
+  remarks2: string | null
+  total_sales: number
+  installment_outstanding: number
+  has_ticket_pack: boolean
+  first_visit_at: string | null
+  last_visit_at: string | null
   locale: string
   notes: string | null
   contact_info: string | null
@@ -24,6 +38,20 @@ export interface CreateCustomerInput {
   phone?: string | null
   date_of_birth?: string | null
   gender?: string | null
+  occupation?: string | null
+  member_number?: string | null
+  postal_code?: string | null
+  prefecture?: string | null
+  address?: string | null
+  phone2?: string | null
+  dm_opt_in?: boolean
+  comment?: string | null
+  remarks2?: string | null
+  total_sales?: number
+  installment_outstanding?: number
+  has_ticket_pack?: boolean
+  first_visit_at?: string | null
+  last_visit_at?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
@@ -39,12 +67,48 @@ export interface UpdateCustomerInput {
   phone?: string | null
   date_of_birth?: string | null
   gender?: string | null
+  occupation?: string | null
+  member_number?: string | null
+  postal_code?: string | null
+  prefecture?: string | null
+  address?: string | null
+  phone2?: string | null
+  dm_opt_in?: boolean
+  comment?: string | null
+  remarks2?: string | null
+  total_sales?: number
+  installment_outstanding?: number
+  has_ticket_pack?: boolean
+  first_visit_at?: string | null
+  last_visit_at?: string | null
   locale?: string
   notes?: string | null
   contact_info?: string | null
   assigned_staff_id?: string | null
   is_existing_customer?: boolean
   visit_count?: number
+}
+
+export interface CustomerVisit {
+  id: string
+  customer_id: string
+  qr_reservation_id: number
+  used_at: string
+  status: string
+  course_name: string | null
+  sales_amount: number
+  staff_name: string | null
+  treatment_comment: string | null
+}
+
+export interface UpsertVisitInput {
+  qr_reservation_id: number
+  used_at: string
+  status: string
+  course_name?: string | null
+  sales_amount?: number
+  staff_name?: string | null
+  treatment_comment?: string | null
 }
 
 export interface ListCustomersQuery {
