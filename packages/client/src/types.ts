@@ -41,6 +41,7 @@ export interface Customer {
   assigned_staff_id: string | null
   is_existing_customer: boolean
   visit_count: number
+  karute_number: number | null
   external_refs?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -481,6 +482,10 @@ export interface KaruteRecord {
   status: KaruteStatus
   ai_summary: string | null
   transcript: string | null
+  service: string | null
+  duration_minutes: number | null
+  /** YYYY-MM-DD — the actual session day (backdating); created_at is insert time. */
+  session_date: string | null
   created_at: string
   updated_at: string
   entries?: KaruteEntry[]
@@ -508,6 +513,9 @@ export interface CreateKaruteRecordInput {
   ai_summary?: string | null
   transcript?: string | null
   entries?: KaruteEntryInput[]
+  service?: string | null
+  duration_minutes?: number | null
+  session_date?: string | null
 }
 
 export interface UpdateKaruteRecordInput {
@@ -517,6 +525,9 @@ export interface UpdateKaruteRecordInput {
   ai_summary?: string | null
   transcript?: string | null
   entries?: KaruteEntryInput[]
+  service?: string | null
+  duration_minutes?: number | null
+  session_date?: string | null
 }
 
 export interface ListKaruteRecordsOptions {

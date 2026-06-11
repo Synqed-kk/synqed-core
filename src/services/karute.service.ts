@@ -30,6 +30,9 @@ export interface KaruteRecordPublic {
   status: KaruteStatus
   ai_summary: string | null
   transcript: string | null
+  service: string | null
+  duration_minutes: number | null
+  session_date: string | null
   created_at: string
   updated_at: string
   entries?: EntryPublic[]
@@ -46,6 +49,9 @@ function toPublic(
     status: KaruteStatus
     aiSummary: string | null
     transcript: string | null
+    service: string | null
+    durationMinutes: number | null
+    sessionDate: Date | null
     createdAt: Date
     updatedAt: Date
   },
@@ -61,6 +67,9 @@ function toPublic(
     status: row.status,
     ai_summary: row.aiSummary,
     transcript: row.transcript,
+    service: row.service,
+    duration_minutes: row.durationMinutes,
+    session_date: row.sessionDate ? row.sessionDate.toISOString().slice(0, 10) : null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
     ...(entries !== undefined ? { entries } : {}),
@@ -224,6 +233,9 @@ export async function createKaruteRecord(
       status: input.status ?? 'DRAFT',
       aiSummary: input.ai_summary ?? null,
       transcript: input.transcript ?? null,
+      service: input.service ?? null,
+      durationMinutes: input.duration_minutes ?? null,
+      sessionDate: input.session_date ? new Date(input.session_date) : null,
       entries: input.entries
         ? {
             create: input.entries.map((e, i) => ({
@@ -257,6 +269,10 @@ export async function updateKaruteRecord(
   if (input.status !== undefined) data.status = input.status
   if (input.ai_summary !== undefined) data.aiSummary = input.ai_summary
   if (input.transcript !== undefined) data.transcript = input.transcript
+  if (input.service !== undefined) data.service = input.service
+  if (input.duration_minutes !== undefined) data.durationMinutes = input.duration_minutes
+  if (input.session_date !== undefined)
+    data.sessionDate = input.session_date ? new Date(input.session_date) : null
 
   if (input.entries !== undefined) {
     // Full replace of entries
