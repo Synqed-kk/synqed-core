@@ -27,6 +27,7 @@ export interface Customer {
   assigned_staff_id: string | null
   is_existing_customer: boolean
   visit_count: number
+  karute_number: number | null
   created_at: string
   updated_at: string
 }

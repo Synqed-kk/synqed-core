@@ -44,6 +44,10 @@ model Customer {
   // default to first-time / 0 for customers created in-app.
   isExistingCustomer Boolean @default(false) @map("is_existing_customer")
   visitCount         Int     @default(0) @map("visit_count")
+  // Per-business sequential chart number (カルテNo). Assigned at create
+  // (max+1 within the business); the manual migration backfills existing
+  // rows by created_at. Display formatting (#00001) is the app's job.
+  karuteNumber       Int?    @map("karute_number")
   // External system references (e.g. { quickreserve: { customerId: 12345 } })
   externalRefs    Json     @default("{}") @map("external_refs")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
@@ -55,6 +59,7 @@ model Customer {
   visits       CustomerVisit[]
 
   @@unique([businessId, email])
+  @@unique([businessId, karuteNumber])
   @@index([businessId])
   @@index([businessId, name])
   @@index([businessId, email])
@@ -340,6 +345,12 @@ model KaruteRecord {
   status             KaruteStatus @default(DRAFT)
   aiSummary          String?      @map("ai_summary")
   transcript         String?
+  // Session metadata captured by the manual-create dialog (and later the
+  // recording flow): what was performed, how long, and the actual session
+  // day (backdating support — createdAt is the row insert time).
+  service            String?
+  durationMinutes    Int?         @map("duration_minutes")
+  sessionDate        DateTime?    @map("session_date") @db.Date
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 

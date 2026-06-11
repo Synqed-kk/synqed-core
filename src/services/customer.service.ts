@@ -43,6 +43,7 @@ function toCustomer(row: any): Customer {
     assigned_staff_id: row.assignedStaffId,
     is_existing_customer: row.isExistingCustomer,
     visit_count: row.visitCount,
+    karute_number: row.karuteNumber ?? null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -130,6 +131,19 @@ export async function getCustomer(
   return row ? toCustomer(row) : null
 }
 
+/**
+ * Next per-business chart number (カルテNo). max+1 over the business's
+ * customers; the partial-unique index (business_id, karute_number) backstops
+ * the rare concurrent-create race with a constraint error.
+ */
+export async function nextKaruteNumber(businessId: string): Promise<number> {
+  const agg = await prisma.customer.aggregate({
+    where: { businessId },
+    _max: { karuteNumber: true },
+  })
+  return (agg._max.karuteNumber ?? 0) + 1
+}
+
 export async function createCustomer(
   businessId: string,
   input: CreateCustomerInput
@@ -137,6 +151,7 @@ export async function createCustomer(
   const row = await prisma.customer.create({
     data: {
       businessId,
+      karuteNumber: await nextKaruteNumber(businessId),
       name: input.name,
       furigana: input.furigana ?? null,
       email: input.email ?? null,

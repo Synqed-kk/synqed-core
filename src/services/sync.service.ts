@@ -513,9 +513,11 @@ async function findOrCreateCustomer(
   }
 
   // 3. Create new
+  const { nextKaruteNumber } = await import('./customer.service.js')
   const created = await prisma.customer.create({
     data: {
       businessId,
+      karuteNumber: await nextKaruteNumber(businessId),
       name: r.customerName,
       furigana: r.customerKana || null,
       phone: r.customerPhone || null,

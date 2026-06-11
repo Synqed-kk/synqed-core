@@ -31,6 +31,13 @@ export const createKaruteRecordSchema = z.object({
   status: karuteStatusSchema.optional(),
   ai_summary: z.string().nullable().optional(),
   transcript: z.string().nullable().optional(),
+  service: z.string().nullable().optional(),
+  duration_minutes: z.number().int().min(0).nullable().optional(),
+  session_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD')
+    .nullable()
+    .optional(),
   entries: z.array(entryInputSchema).optional(),
 })
 
@@ -40,6 +47,13 @@ export const updateKaruteRecordSchema = z.object({
   status: karuteStatusSchema.optional(),
   ai_summary: z.string().nullable().optional(),
   transcript: z.string().nullable().optional(),
+  service: z.string().nullable().optional(),
+  duration_minutes: z.number().int().min(0).nullable().optional(),
+  session_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD')
+    .nullable()
+    .optional(),
   entries: z.array(entryInputSchema).optional(), // if present, replaces all
 })
 
