@@ -512,22 +512,70 @@ async function findOrCreateCustomer(
     return byName.id
   }
 
-  // 3. Create new
+  // 2.5 Fall back to email match. The unique key is (businessId, email), so a
+  // customer that already exists — imported, or synced before its QR id was
+  // stored — whose NAME has since drifted from QuickReserve's would otherwise
+  // fall through to create() and violate the constraint. This is the live 500
+  // hit when re-syncing over the imported Kitano customers. Email is nullable
+  // and the QR mapper sends '' when absent, so the truthy guard keeps
+  // null/empty emails out of this match (they never collide). Backfill the QR
+  // id, same as the name branch.
+  if (r.customerEmail) {
+    const byEmail = await prisma.customer.findFirst({
+      where: { businessId, email: r.customerEmail },
+      select: { id: true, externalRefs: true },
+    })
+    if (byEmail) {
+      const existingRefs = (byEmail.externalRefs as Record<string, unknown> | null) ?? {}
+      await prisma.customer.update({
+        where: { id: byEmail.id },
+        data: {
+          externalRefs: {
+            ...existingRefs,
+            quickreserve: { customerId: r.qrCustomerId },
+          },
+        },
+      })
+      return byEmail.id
+    }
+  }
+
+  // 3. Create new — guarded against the (businessId, email) unique race: a
+  // concurrent sync, or the same email twice in one batch, can insert between
+  // the checks above and this create. On P2002 the row now exists, so
+  // re-resolve by email instead of crashing — the sync stays idempotent.
   const { nextKaruteNumber } = await import('./customer.service.js')
-  const created = await prisma.customer.create({
-    data: {
-      businessId,
-      karuteNumber: await nextKaruteNumber(businessId),
-      name: r.customerName,
-      furigana: r.customerKana || null,
-      phone: r.customerPhone || null,
-      email: r.customerEmail || null,
-      notes: r.customerNotes || null,
-      externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
-    },
-    select: { id: true },
-  })
-  return created.id
+  try {
+    const created = await prisma.customer.create({
+      data: {
+        businessId,
+        karuteNumber: await nextKaruteNumber(businessId),
+        name: r.customerName,
+        furigana: r.customerKana || null,
+        phone: r.customerPhone || null,
+        email: r.customerEmail || null,
+        notes: r.customerNotes || null,
+        externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
+      },
+      select: { id: true },
+    })
+    return created.id
+  } catch (e) {
+    if (
+      r.customerEmail &&
+      e !== null &&
+      typeof e === 'object' &&
+      'code' in e &&
+      (e as { code?: unknown }).code === 'P2002'
+    ) {
+      const raced = await prisma.customer.findFirst({
+        where: { businessId, email: r.customerEmail },
+        select: { id: true },
+      })
+      if (raced) return raced.id
+    }
+    throw e
+  }
 }
 
 async function findAppointmentByQrId(
