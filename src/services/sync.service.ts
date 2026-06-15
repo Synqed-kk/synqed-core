@@ -61,6 +61,7 @@ export interface SyncRunResult {
   cancelled: number
   skipped_no_staff: number
   skipped_deleted: number
+  skipped_error: number
   unmatched_staff: string[]
   duration_ms: number
 }
@@ -364,6 +365,15 @@ async function runQuickReserveSync(
   let cancelled = 0
   let skippedNoStaff = 0
   let skippedDeleted = 0
+  let skippedError = 0
+  // Orphan-cancellation infers "cancelled" from "not in seenAppointmentIds".
+  // That inference is only trustworthy if we could account for every record.
+  // If a per-record error AND its best-effort appointment re-lookup both fail
+  // (a systemic DB fault — pool exhaustion, outage), the seen-set is missing
+  // live appointments, and cancelling on its absence would mass-cancel real
+  // bookings. This flag goes false the moment that happens → we skip the
+  // cancellation pass rather than risk nuking the tenant's schedule.
+  let cancellationSafe = true
   const unmatchedStaff = new Set<string>()
 
   const seenAppointmentIds: string[] = []
@@ -382,66 +392,110 @@ async function runQuickReserveSync(
       continue
     }
 
-    // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
-    const customerId = await findOrCreateCustomer(businessId, r)
+    // Per-record resilience: a single reservation that throws (e.g. a
+    // karuteNumber race the retry loop couldn't win, or a transient DB error)
+    // must NOT abort the rest of the tenant's batch. Log it, count it, and
+    // move on — the record gets picked up on the next sync (idempotent).
+    try {
+      // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
+      const customerId = await findOrCreateCustomer(businessId, r)
 
-    // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
-    const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
-    if (existing) {
-      await prisma.appointment.update({
-        where: { id: existing.id },
-        data: {
-          customerId,
-          staffId,
-          startsAt: r.startsAt,
-          endsAt: r.endsAt,
-          durationMinutes: r.durationMinutes,
-          title: r.treatmentName,
-          notes: buildNotes(r),
-          status: 'SCHEDULED' as AppointmentStatus,
-          source: 'QUICKRESERVE' as AppointmentSource,
-          cancelledAt: null,
-        },
-      })
-      seenAppointmentIds.push(existing.id)
-      updated++
-    } else {
-      const row = await prisma.appointment.create({
-        data: {
-          businessId,
-          customerId,
-          staffId,
-          startsAt: r.startsAt,
-          endsAt: r.endsAt,
-          durationMinutes: r.durationMinutes,
-          title: r.treatmentName,
-          notes: buildNotes(r),
-          status: 'SCHEDULED' as AppointmentStatus,
-          source: 'QUICKRESERVE' as AppointmentSource,
-          externalRefs: {
-            quickreserve: {
-              reservationId: r.qrReservationId,
-              rid: r.qrRid,
-              customerId: r.qrCustomerId,
-              staffId: r.qrStaffId,
-              treatmentId: r.treatmentId,
+      // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
+      const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
+      if (existing) {
+        await prisma.appointment.update({
+          where: { id: existing.id },
+          data: {
+            customerId,
+            staffId,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            durationMinutes: r.durationMinutes,
+            title: r.treatmentName,
+            notes: buildNotes(r),
+            status: 'SCHEDULED' as AppointmentStatus,
+            source: 'QUICKRESERVE' as AppointmentSource,
+            cancelledAt: null,
+          },
+        })
+        seenAppointmentIds.push(existing.id)
+        updated++
+      } else {
+        const row = await prisma.appointment.create({
+          data: {
+            businessId,
+            customerId,
+            staffId,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            durationMinutes: r.durationMinutes,
+            title: r.treatmentName,
+            notes: buildNotes(r),
+            status: 'SCHEDULED' as AppointmentStatus,
+            source: 'QUICKRESERVE' as AppointmentSource,
+            externalRefs: {
+              quickreserve: {
+                reservationId: r.qrReservationId,
+                rid: r.qrRid,
+                customerId: r.qrCustomerId,
+                staffId: r.qrStaffId,
+                treatmentId: r.treatmentId,
+              },
             },
           },
-        },
-      })
-      seenAppointmentIds.push(row.id)
-      created++
+        })
+        seenAppointmentIds.push(row.id)
+        created++
+      }
+    } catch (err) {
+      skippedError++
+      console.error(
+        `[sync] skipped reservation ${r.qrReservationId} (QR customer ${r.qrCustomerId}):`,
+        err,
+      )
+      // This reservation IS still in the QR feed — we just failed to process
+      // it this run. Keep its existing appointment (if any) in the seen set so
+      // the cancellation pass below does NOT mistake it for an orphan and mark
+      // a live booking CANCELLED. Best-effort: if even this lookup fails, the
+      // next sync re-evaluates.
+      try {
+        const stillThere = await findAppointmentByQrId(businessId, r.qrReservationId)
+        if (stillThere) seenAppointmentIds.push(stillThere.id)
+      } catch {
+        // Couldn't even confirm this errored record's appointment — the
+        // seen-set is now incomplete, so the orphan-cancellation pass can no
+        // longer be trusted for this run.
+        cancellationSafe = false
+      }
+      continue
     }
   }
 
   // --- Cancellation detection: find QR appointments in the window that we
-  //     have locally but that DIDN'T come back from QR → mark cancelled ---
-  cancelled = await markOrphanedCancelled(
-    businessId,
-    windowStart,
-    windowEnd,
-    seenAppointmentIds,
-  )
+  //     have locally but that DIDN'T come back from QR → mark cancelled.
+  //     Two guards make this safe-by-default:
+  //       • cancellationSafe — a systemic fault left the seen-set incomplete;
+  //       • length > 0 — the QR feed returned ZERO reservations this run. An
+  //         empty feed can be a real outage / soft-failed 200 (qrGetReservations
+  //         returns [] on a non-array body), and cancelling on an empty seen-set
+  //         would mark the tenant's ENTIRE window CANCELLED. Refuse it.
+  //     A failed/empty run never cancels live bookings — next sync re-evaluates. ---
+  if (cancellationSafe && seenAppointmentIds.length > 0) {
+    cancelled = await markOrphanedCancelled(
+      businessId,
+      windowStart,
+      windowEnd,
+      seenAppointmentIds,
+    )
+  } else {
+    cancelled = 0
+    console.warn(
+      `[sync] orphan-cancellation SKIPPED for business ${businessId}: ` +
+        (seenAppointmentIds.length === 0
+          ? 'QR returned zero reservations this run — refusing to cancel the whole window on a possibly empty/soft-failed response.'
+          : `a per-record lookup failed; seen-set may be incomplete (${skippedError} record(s) errored).`),
+    )
+  }
 
   return {
     date_window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
@@ -451,6 +505,7 @@ async function runQuickReserveSync(
     cancelled,
     skipped_no_staff: skippedNoStaff,
     skipped_deleted: skippedDeleted,
+    skipped_error: skippedError,
     unmatched_staff: Array.from(unmatchedStaff),
     duration_ms: 0, // filled by caller
   }
@@ -478,56 +533,169 @@ function matchStaff(
   return substring?.id ?? null
 }
 
+// True when `e` is a Prisma P2002 unique-constraint violation whose target
+// includes `field`. meta.target is either an array of field names or the
+// constraint-name string, so we match against the stringified form.
+function isUniqueViolation(e: unknown, field: string): boolean {
+  if (e === null || typeof e !== 'object' || !('code' in e)) return false
+  if ((e as { code?: unknown }).code !== 'P2002') return false
+  const target = (e as { meta?: { target?: unknown } }).meta?.target
+  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '')
+  return asStr.includes(field)
+}
+
 async function findOrCreateCustomer(
   businessId: string,
   r: MappedQRReservation,
 ): Promise<string> {
-  // 1. Try by externalRefs.quickreserve.customerId (most reliable)
+  // Match an existing customer before creating one — order from most reliable
+  // to least: stored QR id → phone → email → name. Every match runs through
+  // reconcileExisting (backfills the QR id + fills ONLY empty profile fields),
+  // so we never create duplicates and never overwrite richer existing data.
+  const select = {
+    id: true,
+    phone: true,
+    email: true,
+    furigana: true,
+    externalRefs: true,
+  } as const
+
+  // 1. Stored QuickReserve id — exact, written on a prior sync. Most reliable.
   const byQrId = await prisma.customer.findFirst({
     where: {
       businessId,
       externalRefs: { path: ['quickreserve', 'customerId'], equals: r.qrCustomerId },
     },
-    select: { id: true },
+    select,
   })
-  if (byQrId) return byQrId.id
+  if (byQrId) return reconcileExisting(byQrId, r)
 
-  // 2. Fall back to name match (best-effort — may create duplicates if names drift)
-  const byName = await prisma.customer.findFirst({
-    where: { businessId, name: r.customerName },
-    select: { id: true, externalRefs: true },
-  })
-  if (byName) {
-    // Backfill the QR customer id so future matches are reliable
-    const existingRefs = (byName.externalRefs as Record<string, unknown> | null) ?? {}
-    await prisma.customer.update({
-      where: { id: byName.id },
-      data: {
-        externalRefs: {
-          ...existingRefs,
-          quickreserve: { customerId: r.qrCustomerId },
-        },
-      },
+  // 2. Phone — the real personal identifier (携帯). It is NOT a DB-unique key,
+  //    so only trust it when it points to EXACTLY ONE customer; 0 or >1 (e.g.
+  //    a shared/placeholder number) is ambiguous → fall through.
+  if (r.customerPhone) {
+    const byPhone = await prisma.customer.findMany({
+      where: { businessId, phone: r.customerPhone },
+      select,
+      take: 2,
     })
-    return byName.id
+    if (byPhone.length === 1) {
+      // Identity-conflict guard: if a present email points at a DIFFERENT
+      // customer, don't silently fuse two people — log for review and proceed
+      // with phone (phone-first policy).
+      if (r.customerEmail) {
+        const byEmail = await prisma.customer.findFirst({
+          where: { businessId, email: r.customerEmail },
+          select: { id: true },
+        })
+        if (byEmail && byEmail.id !== byPhone[0].id) {
+          console.warn(
+            `[sync] identity conflict for QR customer ${r.qrCustomerId}: ` +
+              `phone→${byPhone[0].id} email→${byEmail.id}. Using phone; please review.`,
+          )
+        }
+      }
+      return reconcileExisting(byPhone[0], r)
+    }
   }
 
-  // 3. Create new
-  const { nextKaruteNumber } = await import('./customer.service.js')
-  const created = await prisma.customer.create({
-    data: {
-      businessId,
-      karuteNumber: await nextKaruteNumber(businessId),
-      name: r.customerName,
-      furigana: r.customerKana || null,
-      phone: r.customerPhone || null,
-      email: r.customerEmail || null,
-      notes: r.customerNotes || null,
-      externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
-    },
-    select: { id: true },
+  // 3. Email — DB-unique (businessId, email), so a match is exactly one
+  //    customer. Catches records that have no phone.
+  if (r.customerEmail) {
+    const byEmail = await prisma.customer.findFirst({
+      where: { businessId, email: r.customerEmail },
+      select,
+    })
+    if (byEmail) return reconcileExisting(byEmail, r)
+  }
+
+  // 4. Name — last resort (names drift / collide), but still beats creating a
+  //    duplicate.
+  const byName = await prisma.customer.findFirst({
+    where: { businessId, name: r.customerName },
+    select,
   })
-  return created.id
+  if (byName) return reconcileExisting(byName, r)
+
+  // 5. Create new — guarded against the (businessId, email) unique race: a
+  // concurrent sync, or the same email twice in one batch, can insert between
+  // the checks above and this create. On P2002 the row now exists, so
+  // re-resolve by email instead of crashing — the sync stays idempotent.
+  // nextKaruteNumber is max+1, so two concurrent syncs can race on
+  // (businessId, karuteNumber); the email may also already exist. Resolve each
+  // by the VIOLATED constraint (P2002 meta.target), never by guessing:
+  //   - karuteNumber race  → someone took our number; recompute and retry.
+  //   - email already taken → re-resolve to that customer and backfill the QR
+  //     id onto them (so step 1 hits next sync), rather than returning a row
+  //     that merely happens to share the email.
+  const { nextKaruteNumber } = await import('./customer.service.js')
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const created = await prisma.customer.create({
+        data: {
+          businessId,
+          karuteNumber: await nextKaruteNumber(businessId),
+          name: r.customerName,
+          furigana: r.customerKana || null,
+          phone: r.customerPhone || null,
+          email: r.customerEmail || null,
+          notes: r.customerNotes || null,
+          externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
+        },
+        select: { id: true },
+      })
+      return created.id
+    } catch (e) {
+      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
+      if (r.customerEmail && isUniqueViolation(e, 'email')) {
+        const raced = await prisma.customer.findFirst({
+          where: { businessId, email: r.customerEmail },
+          select,
+        })
+        if (raced) return reconcileExisting(raced, r)
+      }
+      throw e
+    }
+  }
+  throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
+}
+
+// Attach the QuickReserve id + fill ONLY empty profile fields from the QR
+// record onto an already-matched customer. Never overwrites an existing
+// value, and never touches name, notes, karute, or payment data.
+async function reconcileExisting(
+  existing: {
+    id: string
+    phone: string | null
+    email: string | null
+    furigana: string | null
+    externalRefs: unknown
+  },
+  r: MappedQRReservation,
+): Promise<string> {
+  const refs = (existing.externalRefs as Record<string, unknown> | null) ?? {}
+  const safe = {
+    externalRefs: { ...refs, quickreserve: { customerId: r.qrCustomerId } },
+    ...(!existing.phone && r.customerPhone ? { phone: r.customerPhone } : {}),
+    ...(!existing.furigana && r.customerKana ? { furigana: r.customerKana } : {}),
+  }
+  // Email is the one backfilled field under a unique constraint: when we
+  // matched on phone or name, r.customerEmail can already belong to a
+  // DIFFERENT customer (the phone→A / email→B conflict). Try with the email,
+  // and on a unique violation retry without it — never steal another
+  // customer's address, and never crash.
+  const wantEmail = !existing.email && !!r.customerEmail
+  try {
+    await prisma.customer.update({
+      where: { id: existing.id },
+      data: { ...safe, ...(wantEmail ? { email: r.customerEmail } : {}) },
+    })
+  } catch (e) {
+    if (wantEmail && isUniqueViolation(e, 'email')) {
+      await prisma.customer.update({ where: { id: existing.id }, data: safe })
+    } else throw e
+  }
+  return existing.id
 }
 
 async function findAppointmentByQrId(
