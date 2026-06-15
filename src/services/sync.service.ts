@@ -61,6 +61,7 @@ export interface SyncRunResult {
   cancelled: number
   skipped_no_staff: number
   skipped_deleted: number
+  skipped_error: number
   unmatched_staff: string[]
   duration_ms: number
 }
@@ -364,6 +365,7 @@ async function runQuickReserveSync(
   let cancelled = 0
   let skippedNoStaff = 0
   let skippedDeleted = 0
+  let skippedError = 0
   const unmatchedStaff = new Set<string>()
 
   const seenAppointmentIds: string[] = []
@@ -382,55 +384,79 @@ async function runQuickReserveSync(
       continue
     }
 
-    // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
-    const customerId = await findOrCreateCustomer(businessId, r)
+    // Per-record resilience: a single reservation that throws (e.g. a
+    // karuteNumber race the retry loop couldn't win, or a transient DB error)
+    // must NOT abort the rest of the tenant's batch. Log it, count it, and
+    // move on — the record gets picked up on the next sync (idempotent).
+    try {
+      // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
+      const customerId = await findOrCreateCustomer(businessId, r)
 
-    // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
-    const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
-    if (existing) {
-      await prisma.appointment.update({
-        where: { id: existing.id },
-        data: {
-          customerId,
-          staffId,
-          startsAt: r.startsAt,
-          endsAt: r.endsAt,
-          durationMinutes: r.durationMinutes,
-          title: r.treatmentName,
-          notes: buildNotes(r),
-          status: 'SCHEDULED' as AppointmentStatus,
-          source: 'QUICKRESERVE' as AppointmentSource,
-          cancelledAt: null,
-        },
-      })
-      seenAppointmentIds.push(existing.id)
-      updated++
-    } else {
-      const row = await prisma.appointment.create({
-        data: {
-          businessId,
-          customerId,
-          staffId,
-          startsAt: r.startsAt,
-          endsAt: r.endsAt,
-          durationMinutes: r.durationMinutes,
-          title: r.treatmentName,
-          notes: buildNotes(r),
-          status: 'SCHEDULED' as AppointmentStatus,
-          source: 'QUICKRESERVE' as AppointmentSource,
-          externalRefs: {
-            quickreserve: {
-              reservationId: r.qrReservationId,
-              rid: r.qrRid,
-              customerId: r.qrCustomerId,
-              staffId: r.qrStaffId,
-              treatmentId: r.treatmentId,
+      // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
+      const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
+      if (existing) {
+        await prisma.appointment.update({
+          where: { id: existing.id },
+          data: {
+            customerId,
+            staffId,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            durationMinutes: r.durationMinutes,
+            title: r.treatmentName,
+            notes: buildNotes(r),
+            status: 'SCHEDULED' as AppointmentStatus,
+            source: 'QUICKRESERVE' as AppointmentSource,
+            cancelledAt: null,
+          },
+        })
+        seenAppointmentIds.push(existing.id)
+        updated++
+      } else {
+        const row = await prisma.appointment.create({
+          data: {
+            businessId,
+            customerId,
+            staffId,
+            startsAt: r.startsAt,
+            endsAt: r.endsAt,
+            durationMinutes: r.durationMinutes,
+            title: r.treatmentName,
+            notes: buildNotes(r),
+            status: 'SCHEDULED' as AppointmentStatus,
+            source: 'QUICKRESERVE' as AppointmentSource,
+            externalRefs: {
+              quickreserve: {
+                reservationId: r.qrReservationId,
+                rid: r.qrRid,
+                customerId: r.qrCustomerId,
+                staffId: r.qrStaffId,
+                treatmentId: r.treatmentId,
+              },
             },
           },
-        },
-      })
-      seenAppointmentIds.push(row.id)
-      created++
+        })
+        seenAppointmentIds.push(row.id)
+        created++
+      }
+    } catch (err) {
+      skippedError++
+      console.error(
+        `[sync] skipped reservation ${r.qrReservationId} (QR customer ${r.qrCustomerId}):`,
+        err,
+      )
+      // This reservation IS still in the QR feed — we just failed to process
+      // it this run. Keep its existing appointment (if any) in the seen set so
+      // the cancellation pass below does NOT mistake it for an orphan and mark
+      // a live booking CANCELLED. Best-effort: if even this lookup fails, the
+      // next sync re-evaluates.
+      try {
+        const stillThere = await findAppointmentByQrId(businessId, r.qrReservationId)
+        if (stillThere) seenAppointmentIds.push(stillThere.id)
+      } catch {
+        /* ignore — next sync corrects */
+      }
+      continue
     }
   }
 
@@ -451,6 +477,7 @@ async function runQuickReserveSync(
     cancelled,
     skipped_no_staff: skippedNoStaff,
     skipped_deleted: skippedDeleted,
+    skipped_error: skippedError,
     unmatched_staff: Array.from(unmatchedStaff),
     duration_ms: 0, // filled by caller
   }
@@ -574,7 +601,7 @@ async function findOrCreateCustomer(
   //     id onto them (so step 1 hits next sync), rather than returning a row
   //     that merely happens to share the email.
   const { nextKaruteNumber } = await import('./customer.service.js')
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const created = await prisma.customer.create({
         data: {
@@ -591,7 +618,7 @@ async function findOrCreateCustomer(
       })
       return created.id
     } catch (e) {
-      if (isUniqueViolation(e, 'karuteNumber') && attempt < 2) continue
+      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
       if (r.customerEmail && isUniqueViolation(e, 'email')) {
         const raced = await prisma.customer.findFirst({
           where: { businessId, email: r.customerEmail },
