@@ -473,9 +473,14 @@ async function runQuickReserveSync(
 
   // --- Cancellation detection: find QR appointments in the window that we
   //     have locally but that DIDN'T come back from QR → mark cancelled.
-  //     Skipped entirely when the seen-set can't be trusted (systemic fault),
-  //     so a failed run never cancels live bookings — next sync re-evaluates. ---
-  if (cancellationSafe) {
+  //     Two guards make this safe-by-default:
+  //       • cancellationSafe — a systemic fault left the seen-set incomplete;
+  //       • length > 0 — the QR feed returned ZERO reservations this run. An
+  //         empty feed can be a real outage / soft-failed 200 (qrGetReservations
+  //         returns [] on a non-array body), and cancelling on an empty seen-set
+  //         would mark the tenant's ENTIRE window CANCELLED. Refuse it.
+  //     A failed/empty run never cancels live bookings — next sync re-evaluates. ---
+  if (cancellationSafe && seenAppointmentIds.length > 0) {
     cancelled = await markOrphanedCancelled(
       businessId,
       windowStart,
@@ -485,7 +490,10 @@ async function runQuickReserveSync(
   } else {
     cancelled = 0
     console.warn(
-      `[sync] orphan-cancellation SKIPPED for business ${businessId}: a per-record lookup failed, seen-set may be incomplete (${skippedError} record(s) errored).`,
+      `[sync] orphan-cancellation SKIPPED for business ${businessId}: ` +
+        (seenAppointmentIds.length === 0
+          ? 'QR returned zero reservations this run — refusing to cancel the whole window on a possibly empty/soft-failed response.'
+          : `a per-record lookup failed; seen-set may be incomplete (${skippedError} record(s) errored).`),
     )
   }
 

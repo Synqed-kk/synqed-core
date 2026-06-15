@@ -97,7 +97,15 @@ export async function qrGetReservations(
 
   if (res.ok) {
     const data = await res.json()
-    return Array.isArray(data) ? (data as QRReservation[]) : []
+    // A valid array (even empty []) is a real answer — return it. A 200 OK
+    // whose body is NOT an array is a soft-failure (error envelope, HTML
+    // interstitial, null): THROW so the sync treats it as a failed fetch, not
+    // as "zero reservations" — otherwise an empty feed would trip orphan
+    // cancellation and wipe the day's bookings.
+    if (Array.isArray(data)) return data as QRReservation[]
+    throw new Error(
+      `QR get-reservations: 200 OK but body was not an array (got ${typeof data}) — treating as a failed fetch, not an empty day.`,
+    )
   }
 
   const dayStartMs = new Date(`${date}T00:00:00+09:00`).getTime()
@@ -109,7 +117,15 @@ export async function qrGetReservations(
 
   if (res2.ok) {
     const data = await res2.json()
-    return Array.isArray(data) ? (data as QRReservation[]) : []
+    // A valid array (even empty []) is a real answer — return it. A 200 OK
+    // whose body is NOT an array is a soft-failure (error envelope, HTML
+    // interstitial, null): THROW so the sync treats it as a failed fetch, not
+    // as "zero reservations" — otherwise an empty feed would trip orphan
+    // cancellation and wipe the day's bookings.
+    if (Array.isArray(data)) return data as QRReservation[]
+    throw new Error(
+      `QR get-reservations: 200 OK but body was not an array (got ${typeof data}) — treating as a failed fetch, not an empty day.`,
+    )
   }
 
   const body = await res2.text().catch(() => '')
