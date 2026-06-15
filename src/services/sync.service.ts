@@ -478,6 +478,17 @@ function matchStaff(
   return substring?.id ?? null
 }
 
+// True when `e` is a Prisma P2002 unique-constraint violation whose target
+// includes `field`. meta.target is either an array of field names or the
+// constraint-name string, so we match against the stringified form.
+function isUniqueViolation(e: unknown, field: string): boolean {
+  if (e === null || typeof e !== 'object' || !('code' in e)) return false
+  if ((e as { code?: unknown }).code !== 'P2002') return false
+  const target = (e as { meta?: { target?: unknown } }).meta?.target
+  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '')
+  return asStr.includes(field)
+}
+
 async function findOrCreateCustomer(
   businessId: string,
   r: MappedQRReservation,
@@ -555,38 +566,43 @@ async function findOrCreateCustomer(
   // concurrent sync, or the same email twice in one batch, can insert between
   // the checks above and this create. On P2002 the row now exists, so
   // re-resolve by email instead of crashing — the sync stays idempotent.
+  // nextKaruteNumber is max+1, so two concurrent syncs can race on
+  // (businessId, karuteNumber); the email may also already exist. Resolve each
+  // by the VIOLATED constraint (P2002 meta.target), never by guessing:
+  //   - karuteNumber race  → someone took our number; recompute and retry.
+  //   - email already taken → re-resolve to that customer and backfill the QR
+  //     id onto them (so step 1 hits next sync), rather than returning a row
+  //     that merely happens to share the email.
   const { nextKaruteNumber } = await import('./customer.service.js')
-  try {
-    const created = await prisma.customer.create({
-      data: {
-        businessId,
-        karuteNumber: await nextKaruteNumber(businessId),
-        name: r.customerName,
-        furigana: r.customerKana || null,
-        phone: r.customerPhone || null,
-        email: r.customerEmail || null,
-        notes: r.customerNotes || null,
-        externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
-      },
-      select: { id: true },
-    })
-    return created.id
-  } catch (e) {
-    if (
-      r.customerEmail &&
-      e !== null &&
-      typeof e === 'object' &&
-      'code' in e &&
-      (e as { code?: unknown }).code === 'P2002'
-    ) {
-      const raced = await prisma.customer.findFirst({
-        where: { businessId, email: r.customerEmail },
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const created = await prisma.customer.create({
+        data: {
+          businessId,
+          karuteNumber: await nextKaruteNumber(businessId),
+          name: r.customerName,
+          furigana: r.customerKana || null,
+          phone: r.customerPhone || null,
+          email: r.customerEmail || null,
+          notes: r.customerNotes || null,
+          externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
+        },
         select: { id: true },
       })
-      if (raced) return raced.id
+      return created.id
+    } catch (e) {
+      if (isUniqueViolation(e, 'karuteNumber') && attempt < 2) continue
+      if (r.customerEmail && isUniqueViolation(e, 'email')) {
+        const raced = await prisma.customer.findFirst({
+          where: { businessId, email: r.customerEmail },
+          select,
+        })
+        if (raced) return reconcileExisting(raced, r)
+      }
+      throw e
     }
-    throw e
   }
+  throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
 }
 
 // Attach the QuickReserve id + fill ONLY empty profile fields from the QR
@@ -603,15 +619,27 @@ async function reconcileExisting(
   r: MappedQRReservation,
 ): Promise<string> {
   const refs = (existing.externalRefs as Record<string, unknown> | null) ?? {}
-  await prisma.customer.update({
-    where: { id: existing.id },
-    data: {
-      externalRefs: { ...refs, quickreserve: { customerId: r.qrCustomerId } },
-      ...(!existing.phone && r.customerPhone ? { phone: r.customerPhone } : {}),
-      ...(!existing.email && r.customerEmail ? { email: r.customerEmail } : {}),
-      ...(!existing.furigana && r.customerKana ? { furigana: r.customerKana } : {}),
-    },
-  })
+  const safe = {
+    externalRefs: { ...refs, quickreserve: { customerId: r.qrCustomerId } },
+    ...(!existing.phone && r.customerPhone ? { phone: r.customerPhone } : {}),
+    ...(!existing.furigana && r.customerKana ? { furigana: r.customerKana } : {}),
+  }
+  // Email is the one backfilled field under a unique constraint: when we
+  // matched on phone or name, r.customerEmail can already belong to a
+  // DIFFERENT customer (the phone→A / email→B conflict). Try with the email,
+  // and on a unique violation retry without it — never steal another
+  // customer's address, and never crash.
+  const wantEmail = !existing.email && !!r.customerEmail
+  try {
+    await prisma.customer.update({
+      where: { id: existing.id },
+      data: { ...safe, ...(wantEmail ? { email: r.customerEmail } : {}) },
+    })
+  } catch (e) {
+    if (wantEmail && isUniqueViolation(e, 'email')) {
+      await prisma.customer.update({ where: { id: existing.id }, data: safe })
+    } else throw e
+  }
   return existing.id
 }
 
