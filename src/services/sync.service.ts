@@ -366,6 +366,14 @@ async function runQuickReserveSync(
   let skippedNoStaff = 0
   let skippedDeleted = 0
   let skippedError = 0
+  // Orphan-cancellation infers "cancelled" from "not in seenAppointmentIds".
+  // That inference is only trustworthy if we could account for every record.
+  // If a per-record error AND its best-effort appointment re-lookup both fail
+  // (a systemic DB fault — pool exhaustion, outage), the seen-set is missing
+  // live appointments, and cancelling on its absence would mass-cancel real
+  // bookings. This flag goes false the moment that happens → we skip the
+  // cancellation pass rather than risk nuking the tenant's schedule.
+  let cancellationSafe = true
   const unmatchedStaff = new Set<string>()
 
   const seenAppointmentIds: string[] = []
@@ -454,20 +462,32 @@ async function runQuickReserveSync(
         const stillThere = await findAppointmentByQrId(businessId, r.qrReservationId)
         if (stillThere) seenAppointmentIds.push(stillThere.id)
       } catch {
-        /* ignore — next sync corrects */
+        // Couldn't even confirm this errored record's appointment — the
+        // seen-set is now incomplete, so the orphan-cancellation pass can no
+        // longer be trusted for this run.
+        cancellationSafe = false
       }
       continue
     }
   }
 
   // --- Cancellation detection: find QR appointments in the window that we
-  //     have locally but that DIDN'T come back from QR → mark cancelled ---
-  cancelled = await markOrphanedCancelled(
-    businessId,
-    windowStart,
-    windowEnd,
-    seenAppointmentIds,
-  )
+  //     have locally but that DIDN'T come back from QR → mark cancelled.
+  //     Skipped entirely when the seen-set can't be trusted (systemic fault),
+  //     so a failed run never cancels live bookings — next sync re-evaluates. ---
+  if (cancellationSafe) {
+    cancelled = await markOrphanedCancelled(
+      businessId,
+      windowStart,
+      windowEnd,
+      seenAppointmentIds,
+    )
+  } else {
+    cancelled = 0
+    console.warn(
+      `[sync] orphan-cancellation SKIPPED for business ${businessId}: a per-record lookup failed, seen-set may be incomplete (${skippedError} record(s) errored).`,
+    )
+  }
 
   return {
     date_window: { start: windowStart.toISOString(), end: windowEnd.toISOString() },
