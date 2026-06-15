@@ -482,65 +482,76 @@ async function findOrCreateCustomer(
   businessId: string,
   r: MappedQRReservation,
 ): Promise<string> {
-  // 1. Try by externalRefs.quickreserve.customerId (most reliable)
+  // Match an existing customer before creating one — order from most reliable
+  // to least: stored QR id → phone → email → name. Every match runs through
+  // reconcileExisting (backfills the QR id + fills ONLY empty profile fields),
+  // so we never create duplicates and never overwrite richer existing data.
+  const select = {
+    id: true,
+    phone: true,
+    email: true,
+    furigana: true,
+    externalRefs: true,
+  } as const
+
+  // 1. Stored QuickReserve id — exact, written on a prior sync. Most reliable.
   const byQrId = await prisma.customer.findFirst({
     where: {
       businessId,
       externalRefs: { path: ['quickreserve', 'customerId'], equals: r.qrCustomerId },
     },
-    select: { id: true },
+    select,
   })
-  if (byQrId) return byQrId.id
+  if (byQrId) return reconcileExisting(byQrId, r)
 
-  // 2. Fall back to name match (best-effort — may create duplicates if names drift)
-  const byName = await prisma.customer.findFirst({
-    where: { businessId, name: r.customerName },
-    select: { id: true, externalRefs: true },
-  })
-  if (byName) {
-    // Backfill the QR customer id so future matches are reliable
-    const existingRefs = (byName.externalRefs as Record<string, unknown> | null) ?? {}
-    await prisma.customer.update({
-      where: { id: byName.id },
-      data: {
-        externalRefs: {
-          ...existingRefs,
-          quickreserve: { customerId: r.qrCustomerId },
-        },
-      },
+  // 2. Phone — the real personal identifier (携帯). It is NOT a DB-unique key,
+  //    so only trust it when it points to EXACTLY ONE customer; 0 or >1 (e.g.
+  //    a shared/placeholder number) is ambiguous → fall through.
+  if (r.customerPhone) {
+    const byPhone = await prisma.customer.findMany({
+      where: { businessId, phone: r.customerPhone },
+      select,
+      take: 2,
     })
-    return byName.id
-  }
-
-  // 2.5 Fall back to email match. The unique key is (businessId, email), so a
-  // customer that already exists — imported, or synced before its QR id was
-  // stored — whose NAME has since drifted from QuickReserve's would otherwise
-  // fall through to create() and violate the constraint. This is the live 500
-  // hit when re-syncing over the imported Kitano customers. Email is nullable
-  // and the QR mapper sends '' when absent, so the truthy guard keeps
-  // null/empty emails out of this match (they never collide). Backfill the QR
-  // id, same as the name branch.
-  if (r.customerEmail) {
-    const byEmail = await prisma.customer.findFirst({
-      where: { businessId, email: r.customerEmail },
-      select: { id: true, externalRefs: true },
-    })
-    if (byEmail) {
-      const existingRefs = (byEmail.externalRefs as Record<string, unknown> | null) ?? {}
-      await prisma.customer.update({
-        where: { id: byEmail.id },
-        data: {
-          externalRefs: {
-            ...existingRefs,
-            quickreserve: { customerId: r.qrCustomerId },
-          },
-        },
-      })
-      return byEmail.id
+    if (byPhone.length === 1) {
+      // Identity-conflict guard: if a present email points at a DIFFERENT
+      // customer, don't silently fuse two people — log for review and proceed
+      // with phone (phone-first policy).
+      if (r.customerEmail) {
+        const byEmail = await prisma.customer.findFirst({
+          where: { businessId, email: r.customerEmail },
+          select: { id: true },
+        })
+        if (byEmail && byEmail.id !== byPhone[0].id) {
+          console.warn(
+            `[sync] identity conflict for QR customer ${r.qrCustomerId}: ` +
+              `phone→${byPhone[0].id} email→${byEmail.id}. Using phone; please review.`,
+          )
+        }
+      }
+      return reconcileExisting(byPhone[0], r)
     }
   }
 
-  // 3. Create new — guarded against the (businessId, email) unique race: a
+  // 3. Email — DB-unique (businessId, email), so a match is exactly one
+  //    customer. Catches records that have no phone.
+  if (r.customerEmail) {
+    const byEmail = await prisma.customer.findFirst({
+      where: { businessId, email: r.customerEmail },
+      select,
+    })
+    if (byEmail) return reconcileExisting(byEmail, r)
+  }
+
+  // 4. Name — last resort (names drift / collide), but still beats creating a
+  //    duplicate.
+  const byName = await prisma.customer.findFirst({
+    where: { businessId, name: r.customerName },
+    select,
+  })
+  if (byName) return reconcileExisting(byName, r)
+
+  // 5. Create new — guarded against the (businessId, email) unique race: a
   // concurrent sync, or the same email twice in one batch, can insert between
   // the checks above and this create. On P2002 the row now exists, so
   // re-resolve by email instead of crashing — the sync stays idempotent.
@@ -576,6 +587,32 @@ async function findOrCreateCustomer(
     }
     throw e
   }
+}
+
+// Attach the QuickReserve id + fill ONLY empty profile fields from the QR
+// record onto an already-matched customer. Never overwrites an existing
+// value, and never touches name, notes, karute, or payment data.
+async function reconcileExisting(
+  existing: {
+    id: string
+    phone: string | null
+    email: string | null
+    furigana: string | null
+    externalRefs: unknown
+  },
+  r: MappedQRReservation,
+): Promise<string> {
+  const refs = (existing.externalRefs as Record<string, unknown> | null) ?? {}
+  await prisma.customer.update({
+    where: { id: existing.id },
+    data: {
+      externalRefs: { ...refs, quickreserve: { customerId: r.qrCustomerId } },
+      ...(!existing.phone && r.customerPhone ? { phone: r.customerPhone } : {}),
+      ...(!existing.email && r.customerEmail ? { email: r.customerEmail } : {}),
+      ...(!existing.furigana && r.customerKana ? { furigana: r.customerKana } : {}),
+    },
+  })
+  return existing.id
 }
 
 async function findAppointmentByQrId(
