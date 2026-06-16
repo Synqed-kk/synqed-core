@@ -196,7 +196,7 @@ export async function createCustomer(
     })
     if (existing) return toCustomer(existing)
   }
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     try {
       const row = await prisma.customer.create({
         data: { ...data, karuteNumber: await nextKaruteNumber(businessId) },
@@ -209,11 +209,15 @@ export async function createCustomer(
         })
         if (existing) return toCustomer(existing)
       }
-      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
+      // karuteNumber (max+1) races under concurrent creates: retry a few
+      // times, then surface the exhaustion clearly (reachable, not dead code).
+      if (isUniqueViolation(e, 'karuteNumber')) {
+        if (attempt < 4) continue
+        throw new Error('createCustomer: exhausted karuteNumber retries')
+      }
       throw e
     }
   }
-  throw new Error('createCustomer: exhausted karuteNumber retries')
 }
 
 export async function updateCustomer(

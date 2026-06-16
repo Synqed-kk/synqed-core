@@ -62,7 +62,7 @@ describe('Customer API', () => {
         name: 'ドリフトした名前',
         email: 'dup-guard@example.com',
       })
-      expect(second.status).not.toBe(500)
+      expect(second.status).toBe(201)
       const b = await second.json()
       expect(b.id).toBe(a.id) // same row, no duplicate created
       expect(b.name).toBe('佐藤一郎') // existing record returned, not overwritten

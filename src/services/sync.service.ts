@@ -619,7 +619,7 @@ async function findOrCreateCustomer(
   //     id onto them (so step 1 hits next sync), rather than returning a row
   //     that merely happens to share the email.
   const { nextKaruteNumber } = await import('./customer.service.js')
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     try {
       const created = await prisma.customer.create({
         data: {
@@ -636,7 +636,10 @@ async function findOrCreateCustomer(
       })
       return created.id
     } catch (e) {
-      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
+      if (isUniqueViolation(e, 'karuteNumber')) {
+        if (attempt < 4) continue
+        throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
+      }
       if (r.customerEmail && isUniqueViolation(e, 'email')) {
         const raced = await prisma.customer.findFirst({
           where: { businessId, email: r.customerEmail },
@@ -647,7 +650,6 @@ async function findOrCreateCustomer(
       throw e
     }
   }
-  throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
 }
 
 // Attach the QuickReserve id + fill ONLY empty profile fields from the QR
