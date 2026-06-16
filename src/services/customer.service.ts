@@ -1,5 +1,6 @@
 import { prisma } from '../db/client.js'
 import { getStorage } from './storage.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import type {
   Customer,
   CreateCustomerInput,
@@ -148,40 +149,71 @@ export async function createCustomer(
   businessId: string,
   input: CreateCustomerInput
 ): Promise<Customer> {
-  const row = await prisma.customer.create({
-    data: {
-      businessId,
-      karuteNumber: await nextKaruteNumber(businessId),
-      name: input.name,
-      furigana: input.furigana ?? null,
-      email: input.email ?? null,
-      phone: input.phone ?? null,
-      dateOfBirth: input.date_of_birth ? new Date(input.date_of_birth) : null,
-      gender: input.gender ?? null,
-      occupation: input.occupation ?? null,
-      memberNumber: input.member_number ?? null,
-      postalCode: input.postal_code ?? null,
-      prefecture: input.prefecture ?? null,
-      address: input.address ?? null,
-      phone2: input.phone2 ?? null,
-      dmOptIn: input.dm_opt_in ?? false,
-      comment: input.comment ?? null,
-      remarks2: input.remarks2 ?? null,
-      totalSales: input.total_sales ?? 0,
-      installmentOutstanding: input.installment_outstanding ?? 0,
-      hasTicketPack: input.has_ticket_pack ?? false,
-      firstVisitAt: input.first_visit_at ? new Date(input.first_visit_at) : null,
-      lastVisitAt: input.last_visit_at ? new Date(input.last_visit_at) : null,
-      locale: input.locale ?? 'ja',
-      notes: input.notes ?? null,
-      contactInfo: input.contact_info ?? null,
-      assignedStaffId: input.assigned_staff_id ?? null,
-      isExistingCustomer: input.is_existing_customer ?? false,
-      visitCount: input.visit_count ?? 0,
-    },
-  })
-
-  return toCustomer(row)
+  // Constraint-aware create — the SINGLE write point every caller funnels
+  // through (QR sync, importers, manual add). It must not 500 on the unique
+  // keys:
+  //  • email already exists → idempotent: return that customer. The QR sync
+  //    find-or-creates by NAME and collides on email for the SAME person under
+  //    a drifted/unlisted name — that is the live 500. Callers that need
+  //    "new only" (manual add) compare the returned name themselves.
+  //  • karuteNumber race (nextKaruteNumber is a non-atomic max+1) → retry.
+  const data = {
+    businessId,
+    name: input.name,
+    furigana: input.furigana ?? null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    dateOfBirth: input.date_of_birth ? new Date(input.date_of_birth) : null,
+    gender: input.gender ?? null,
+    occupation: input.occupation ?? null,
+    memberNumber: input.member_number ?? null,
+    postalCode: input.postal_code ?? null,
+    prefecture: input.prefecture ?? null,
+    address: input.address ?? null,
+    phone2: input.phone2 ?? null,
+    dmOptIn: input.dm_opt_in ?? false,
+    comment: input.comment ?? null,
+    remarks2: input.remarks2 ?? null,
+    totalSales: input.total_sales ?? 0,
+    installmentOutstanding: input.installment_outstanding ?? 0,
+    hasTicketPack: input.has_ticket_pack ?? false,
+    firstVisitAt: input.first_visit_at ? new Date(input.first_visit_at) : null,
+    lastVisitAt: input.last_visit_at ? new Date(input.last_visit_at) : null,
+    locale: input.locale ?? 'ja',
+    notes: input.notes ?? null,
+    contactInfo: input.contact_info ?? null,
+    assignedStaffId: input.assigned_staff_id ?? null,
+    isExistingCustomer: input.is_existing_customer ?? false,
+    visitCount: input.visit_count ?? 0,
+  }
+  // Look the email up FIRST so the constant QR-sync dedup (one collision per
+  // already-existing customer, every run) doesn't fire a doomed INSERT +
+  // prisma:error log each time. The create-time catch below stays as the race
+  // fallback (two concurrent creates of the same email).
+  if (input.email) {
+    const existing = await prisma.customer.findFirst({
+      where: { businessId, email: input.email },
+    })
+    if (existing) return toCustomer(existing)
+  }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const row = await prisma.customer.create({
+        data: { ...data, karuteNumber: await nextKaruteNumber(businessId) },
+      })
+      return toCustomer(row)
+    } catch (e) {
+      if (input.email && isUniqueViolation(e, 'email')) {
+        const existing = await prisma.customer.findFirst({
+          where: { businessId, email: input.email },
+        })
+        if (existing) return toCustomer(existing)
+      }
+      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
+      throw e
+    }
+  }
+  throw new Error('createCustomer: exhausted karuteNumber retries')
 }
 
 export async function updateCustomer(

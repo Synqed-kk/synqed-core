@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -531,17 +532,6 @@ function matchStaff(
       (s.nameKana && (s.nameKana.includes(qrStaffName) || qrStaffName.includes(s.nameKana))),
   )
   return substring?.id ?? null
-}
-
-// True when `e` is a Prisma P2002 unique-constraint violation whose target
-// includes `field`. meta.target is either an array of field names or the
-// constraint-name string, so we match against the stringified form.
-function isUniqueViolation(e: unknown, field: string): boolean {
-  if (e === null || typeof e !== 'object' || !('code' in e)) return false
-  if ((e as { code?: unknown }).code !== 'P2002') return false
-  const target = (e as { meta?: { target?: unknown } }).meta?.target
-  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '')
-  return asStr.includes(field)
 }
 
 async function findOrCreateCustomer(
