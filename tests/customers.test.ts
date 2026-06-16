@@ -45,6 +45,29 @@ describe('Customer API', () => {
   })
 
   describe('POST /v1/customers', () => {
+    // The live 500: the QR sync find-or-creates by NAME, so the same person
+    // under a drifted/unlisted name hits POST again with an email that already
+    // exists. createCustomer must be idempotent on (business_id, email) — return
+    // the existing customer instead of a unique-violation 500.
+    it('duplicate email → returns the existing customer, never 500', async () => {
+      const first = await req('POST', '/customers', {
+        name: '佐藤一郎',
+        email: 'dup-guard@example.com',
+      })
+      expect(first.status).toBe(201)
+      const a = await first.json()
+
+      // Same email, DIFFERENT name (the collision shape).
+      const second = await req('POST', '/customers', {
+        name: 'ドリフトした名前',
+        email: 'dup-guard@example.com',
+      })
+      expect(second.status).toBe(201)
+      const b = await second.json()
+      expect(b.id).toBe(a.id) // same row, no duplicate created
+      expect(b.name).toBe('佐藤一郎') // existing record returned, not overwritten
+    })
+
     it('creates a customer', async () => {
       const res = await req('POST', '/customers', {
         name: '山田花子',

@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -533,17 +534,6 @@ function matchStaff(
   return substring?.id ?? null
 }
 
-// True when `e` is a Prisma P2002 unique-constraint violation whose target
-// includes `field`. meta.target is either an array of field names or the
-// constraint-name string, so we match against the stringified form.
-function isUniqueViolation(e: unknown, field: string): boolean {
-  if (e === null || typeof e !== 'object' || !('code' in e)) return false
-  if ((e as { code?: unknown }).code !== 'P2002') return false
-  const target = (e as { meta?: { target?: unknown } }).meta?.target
-  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '')
-  return asStr.includes(field)
-}
-
 async function findOrCreateCustomer(
   businessId: string,
   r: MappedQRReservation,
@@ -629,7 +619,7 @@ async function findOrCreateCustomer(
   //     id onto them (so step 1 hits next sync), rather than returning a row
   //     that merely happens to share the email.
   const { nextKaruteNumber } = await import('./customer.service.js')
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     try {
       const created = await prisma.customer.create({
         data: {
@@ -646,7 +636,10 @@ async function findOrCreateCustomer(
       })
       return created.id
     } catch (e) {
-      if (isUniqueViolation(e, 'karuteNumber') && attempt < 4) continue
+      if (isUniqueViolation(e, 'karuteNumber')) {
+        if (attempt < 4) continue
+        throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
+      }
       if (r.customerEmail && isUniqueViolation(e, 'email')) {
         const raced = await prisma.customer.findFirst({
           where: { businessId, email: r.customerEmail },
@@ -657,7 +650,6 @@ async function findOrCreateCustomer(
       throw e
     }
   }
-  throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
 }
 
 // Attach the QuickReserve id + fill ONLY empty profile fields from the QR
