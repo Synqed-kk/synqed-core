@@ -74,6 +74,7 @@ model Customer {
 model CustomerVisit {
   id               String   @id @default(uuid()) @db.Uuid
   businessId       String   @map("business_id") @db.Uuid
+  storeId          String?  @map("store_id") @db.Uuid
   customerId       String   @map("customer_id") @db.Uuid
   qrReservationId  Int      @map("qr_reservation_id")
   usedAt           DateTime @map("used_at") @db.Timestamptz()
@@ -89,6 +90,7 @@ model CustomerVisit {
 
   @@unique([businessId, qrReservationId])
   @@index([customerId, usedAt])
+  @@index([businessId, storeId])
   @@map("customer_visits")
 }
 
@@ -195,6 +197,7 @@ enum AppointmentSource {
 model Appointment {
   id              String            @id @default(uuid()) @db.Uuid
   businessId      String            @map("business_id") @db.Uuid
+  storeId         String?           @map("store_id") @db.Uuid
   customerId      String            @map("customer_id") @db.Uuid
   staffId         String            @map("staff_id") @db.Uuid
   startsAt        DateTime          @map("starts_at") @db.Timestamptz()
@@ -218,6 +221,7 @@ model Appointment {
   @@index([staffId, startsAt])
   // External-ref-based dedup for upserts
   @@index([businessId, source])
+  @@index([businessId, storeId])
   @@map("appointments")
 }
 
@@ -285,6 +289,7 @@ enum RecordingStatus {
 model RecordingSession {
   id               String          @id @default(uuid()) @db.Uuid
   businessId       String          @map("business_id") @db.Uuid
+  storeId          String?         @map("store_id") @db.Uuid
   customerId       String?         @map("customer_id") @db.Uuid
   staffId          String          @map("staff_id") @db.Uuid
   appointmentId    String?         @map("appointment_id") @db.Uuid
@@ -300,6 +305,7 @@ model RecordingSession {
   @@index([businessId, createdAt])
   @@index([customerId])
   @@index([staffId])
+  @@index([businessId, storeId])
   @@map("recording_sessions")
 }
 
@@ -337,6 +343,7 @@ enum KaruteStatus {
 model KaruteRecord {
   id                 String       @id @default(uuid()) @db.Uuid
   businessId         String       @map("business_id") @db.Uuid
+  storeId            String?      @map("store_id") @db.Uuid
   customerId         String?      @map("customer_id") @db.Uuid
   staffId            String       @map("staff_id") @db.Uuid
   lastEditedByStaffId String?     @map("last_edited_by_staff_id") @db.Uuid
@@ -360,6 +367,7 @@ model KaruteRecord {
   @@index([businessId, createdAt])
   @@index([customerId])
   @@index([staffId])
+  @@index([businessId, storeId])
   @@map("karute_records")
 }
 
