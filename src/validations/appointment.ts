@@ -13,6 +13,7 @@ export const appointmentSourceSchema = z.enum([
 export const createAppointmentSchema = z.object({
   customer_id: z.string().uuid(),
   staff_id: z.string().uuid(),
+  store_id: z.string().uuid().nullish(),
   starts_at: z.string().datetime(),
   ends_at: z.string().datetime(),
   duration_minutes: z.number().int().min(1).max(1440).optional(),

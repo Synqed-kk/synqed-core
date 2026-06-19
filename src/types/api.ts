@@ -110,6 +110,7 @@ export interface UpsertVisitInput {
   sales_amount?: number
   staff_name?: string | null
   treatment_comment?: string | null
+  store_id?: string | null
 }
 
 export interface ListCustomersQuery {

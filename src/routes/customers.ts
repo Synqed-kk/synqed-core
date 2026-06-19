@@ -38,6 +38,11 @@ customerRoutes.get('/', async (c) => {
   return c.json(result)
 })
 
+// GET /v1/customers/counts-by-store  (MUST be before /:id)
+customerRoutes.get('/counts-by-store', async (c) =>
+  c.json(await customerService.countCustomersByStore(c.get('businessId'))),
+)
+
 // GET /v1/customers/:id
 customerRoutes.get('/:id', async (c) => {
   const businessId = c.get('businessId')

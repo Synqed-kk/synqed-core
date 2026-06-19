@@ -54,6 +54,7 @@ export async function listCustomers(
   businessId: string,
   options: {
     search?: string
+    store_id?: string
     ids?: string[]
     page?: number
     page_size?: number
@@ -102,6 +103,20 @@ export async function listCustomers(
     ]
   }
 
+  // Store scope: customers have no store_id (business-wide identity); a customer
+  // "belongs to" a store iff they have an event there. AND-ed within businessId.
+  if (options.store_id) {
+    where.AND = [
+      ...(where.AND ?? []),
+      {
+        OR: [
+          { visits: { some: { storeId: options.store_id } } },
+          { appointments: { some: { storeId: options.store_id } } },
+        ],
+      },
+    ]
+  }
+
   const [rows, total] = await Promise.all([
     prisma.customer.findMany({
       where,
@@ -119,6 +134,32 @@ export async function listCustomers(
     page_size: pageSize,
     total_pages: Math.ceil(total / pageSize),
   }
+}
+
+/**
+ * Distinct customers per store, derived from events (customers have no store_id).
+ * A customer with events in two stores counts in both — so sum(counts)+unassigned
+ * can exceed `total`, which is the true business-wide headcount.
+ */
+export async function countCustomersByStore(
+  businessId: string,
+): Promise<{ counts: Record<string, number>; unassigned: number; total: number }> {
+  const rows: Array<{ store_id: string | null; n: number }> = await prisma.$queryRaw`
+    SELECT store_id, COUNT(DISTINCT customer_id)::int AS n
+    FROM (
+      SELECT store_id, customer_id FROM customer_visits WHERE business_id = ${businessId}::uuid
+      UNION
+      SELECT store_id, customer_id FROM appointments    WHERE business_id = ${businessId}::uuid
+    ) e
+    GROUP BY store_id`
+  const counts: Record<string, number> = {}
+  let unassigned = 0
+  for (const r of rows) {
+    if (r.store_id) counts[r.store_id] = Number(r.n)
+    else unassigned += Number(r.n)
+  }
+  const total = await prisma.customer.count({ where: { businessId } })
+  return { counts, unassigned, total }
 }
 
 export async function getCustomer(
@@ -322,6 +363,7 @@ export async function upsertVisits(
       create: {
         businessId,
         customerId,
+        storeId: v.store_id ?? null,
         qrReservationId: v.qr_reservation_id,
         usedAt: new Date(v.used_at),
         status: v.status,
@@ -331,6 +373,7 @@ export async function upsertVisits(
         treatmentComment: v.treatment_comment ?? null,
       },
       update: {
+        storeId: v.store_id ?? null,
         usedAt: new Date(v.used_at),
         status: v.status,
         courseName: v.course_name ?? null,

@@ -67,11 +67,15 @@ export const upsertVisitsSchema = z.object({
     sales_amount: z.number().int().default(0),
     staff_name: z.string().max(100).nullish(),
     treatment_comment: z.string().max(5000).nullish(),
+    store_id: z.string().uuid().nullish(),
   })).max(500),
 })
 
 export const listCustomersSchema = z.object({
   search: z.string().max(100).optional(),
+  // Scope to customers with an event at this karute location (derived from
+  // events — customers themselves are business-wide). Omitted = all locations.
+  store_id: z.string().uuid().optional(),
   // ids: comma-separated list of customer ids; when set the server returns only
   // those customers (no search, no pagination). Used for batch-lookup callers
   // that want to resolve N customer names in a single request instead of N.
