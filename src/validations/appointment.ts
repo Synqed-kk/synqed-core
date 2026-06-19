@@ -39,6 +39,7 @@ export const updateAppointmentSchema = z
 export const listAppointmentsSchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
+  store_id: z.string().uuid().optional(),
   staff_id: z.string().uuid().optional(),
   customer_id: z.string().uuid().optional(),
   status: appointmentStatusSchema.optional(),

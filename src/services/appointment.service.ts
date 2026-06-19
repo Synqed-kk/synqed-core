@@ -74,6 +74,7 @@ export async function listAppointments(
   options: {
     from?: string
     to?: string
+    store_id?: string
     staff_id?: string
     customer_id?: string
     status?: AppointmentStatus
@@ -92,6 +93,7 @@ export async function listAppointments(
   const offset = (page - 1) * pageSize
 
   const where: Record<string, unknown> = { businessId }
+  if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.customer_id) where.customerId = options.customer_id
   if (options.status) where.status = options.status

@@ -164,6 +164,29 @@ export async function countCustomersByStore(
   return { counts, unassigned, total }
 }
 
+/**
+ * One-time backfill: assign every still-unassigned (store_id IS NULL) event row
+ * in this business to `storeId` (the business's primary store). Idempotent —
+ * re-running only touches rows that are still null. Scoped to businessId.
+ */
+export async function backfillStore(
+  businessId: string,
+  storeId: string,
+): Promise<{ appointments: number; visits: number; karute_records: number; recordings: number }> {
+  const [appointments, visits, karute, recordings] = await prisma.$transaction([
+    prisma.appointment.updateMany({ where: { businessId, storeId: null }, data: { storeId } }),
+    prisma.customerVisit.updateMany({ where: { businessId, storeId: null }, data: { storeId } }),
+    prisma.karuteRecord.updateMany({ where: { businessId, storeId: null }, data: { storeId } }),
+    prisma.recordingSession.updateMany({ where: { businessId, storeId: null }, data: { storeId } }),
+  ])
+  return {
+    appointments: appointments.count,
+    visits: visits.count,
+    karute_records: karute.count,
+    recordings: recordings.count,
+  }
+}
+
 export async function getCustomer(
   businessId: string,
   id: string
