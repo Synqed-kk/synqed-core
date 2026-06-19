@@ -290,6 +290,7 @@ export interface UpdateAppointmentInput {
 export interface ListAppointmentsOptions {
   from?: string
   to?: string
+  store_id?: string
   staff_id?: string
   customer_id?: string
   status?: AppointmentStatus

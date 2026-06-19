@@ -14,6 +14,7 @@ export class AppointmentClient {
     const params = new URLSearchParams()
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
+    if (options?.store_id) params.set('store_id', options.store_id)
     if (options?.staff_id) params.set('staff_id', options.staff_id)
     if (options?.customer_id) params.set('customer_id', options.customer_id)
     if (options?.status) params.set('status', options.status)
