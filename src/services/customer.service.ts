@@ -110,8 +110,8 @@ export async function listCustomers(
       ...(where.AND ?? []),
       {
         OR: [
-          { visits: { some: { storeId: options.store_id } } },
-          { appointments: { some: { storeId: options.store_id } } },
+          { visits: { some: { storeId: options.store_id, status: { not: 'cancelled' } } } },
+          { appointments: { some: { storeId: options.store_id, status: { not: 'CANCELLED' } } } },
         ],
       },
     ]
@@ -147,9 +147,11 @@ export async function countCustomersByStore(
   const rows: Array<{ store_id: string | null; n: number }> = await prisma.$queryRaw`
     SELECT store_id, COUNT(DISTINCT customer_id)::int AS n
     FROM (
-      SELECT store_id, customer_id FROM customer_visits WHERE business_id = ${businessId}::uuid
+      SELECT store_id, customer_id FROM customer_visits
+        WHERE business_id = ${businessId}::uuid AND status <> 'cancelled'
       UNION
-      SELECT store_id, customer_id FROM appointments    WHERE business_id = ${businessId}::uuid
+      SELECT store_id, customer_id FROM appointments
+        WHERE business_id = ${businessId}::uuid AND status::text <> 'CANCELLED'
     ) e
     GROUP BY store_id`
   const counts: Record<string, number> = {}

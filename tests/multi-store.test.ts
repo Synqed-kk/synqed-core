@@ -76,6 +76,15 @@ describe('multi-store store_id', () => {
     expect(all.total).toBe(3)
   })
 
+  it('excludes cancelled-only events from store filter and counts', async () => {
+    const cust = await seedTestCustomer({ name: 'キャンセルのみ', email: 'cx@ex.com' })
+    await testPrisma.customerVisit.create({ data: { businessId: TEST_BUSINESS_ID, customerId: cust.id, qrReservationId: 9300, usedAt: new Date('2026-05-01T01:00:00Z'), status: 'cancelled', storeId: A } })
+    const scoped = await (await req('GET', `/customers?store_id=${A}`)).json()
+    expect(scoped.customers.map((c: { name: string }) => c.name)).not.toContain('キャンセルのみ')
+    const counts = await (await req('GET', '/customers/counts-by-store')).json()
+    expect(counts.counts[A] ?? 0).toBe(0)
+  })
+
   it('counts distinct customers per store from events', async () => {
     const a1 = await seedTestCustomer({ name: 'a1', email: 'a1@ex.com' })
     const a2 = await seedTestCustomer({ name: 'a2', email: 'a2@ex.com' })
