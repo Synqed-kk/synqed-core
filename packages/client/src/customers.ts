@@ -18,6 +18,7 @@ export class CustomerClient {
   async list(options?: ListCustomersOptions): Promise<ListCustomersResponse> {
     const params = new URLSearchParams()
     if (options?.search) params.set('search', options.search)
+    if (options?.store_id) params.set('store_id', options.store_id)
     if (options?.ids && options.ids.length > 0) {
       params.set('ids', options.ids.join(','))
     }
@@ -62,6 +63,15 @@ export class CustomerClient {
       method: 'PUT',
       body: JSON.stringify({ visits }),
     })
+  }
+
+  /** Distinct customer counts per store (store_id), derived from events. */
+  async countsByStore(): Promise<{
+    counts: Record<string, number>
+    unassigned: number
+    total: number
+  }> {
+    return this.client.fetch('/customers/counts-by-store')
   }
 
   async checkDuplicate(name: string): Promise<CheckDuplicateResponse> {

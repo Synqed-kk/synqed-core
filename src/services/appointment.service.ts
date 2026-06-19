@@ -17,6 +17,7 @@ export interface AppointmentPublic {
   business_id: string
   customer_id: string
   staff_id: string
+  store_id: string | null
   starts_at: string
   ends_at: string
   duration_minutes: number | null
@@ -35,6 +36,7 @@ function toPublic(row: {
   businessId: string
   customerId: string
   staffId: string
+  storeId: string | null
   startsAt: Date
   endsAt: Date
   durationMinutes: number | null
@@ -52,6 +54,7 @@ function toPublic(row: {
     business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
+    store_id: row.storeId,
     starts_at: row.startsAt.toISOString(),
     ends_at: row.endsAt.toISOString(),
     duration_minutes: row.durationMinutes,
@@ -131,6 +134,9 @@ export async function createAppointment(
     where: {
       businessId,
       staffId: input.staff_id,
+      // Per-store: a staff double-booking is only a conflict within the same
+      // location. null-store bookings conflict only with other null-store ones.
+      storeId: input.store_id ?? null,
       status: { not: 'CANCELLED' },
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
@@ -145,6 +151,7 @@ export async function createAppointment(
       businessId,
       customerId: input.customer_id,
       staffId: input.staff_id,
+      storeId: input.store_id ?? null,
       startsAt,
       endsAt,
       durationMinutes: input.duration_minutes ?? null,

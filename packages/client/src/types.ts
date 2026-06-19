@@ -108,6 +108,7 @@ export interface UpdateCustomerInput {
 export interface CustomerVisit {
   id: string
   customer_id: string
+  store_id: string | null
   qr_reservation_id: number
   used_at: string
   status: string
@@ -125,10 +126,14 @@ export interface UpsertVisitInput {
   sales_amount?: number
   staff_name?: string | null
   treatment_comment?: string | null
+  store_id?: string | null
 }
 
 export interface ListCustomersOptions {
   search?: string
+  // Scope to customers with an event at this karute location (store_id). Omitted
+  // = business-wide (all locations).
+  store_id?: string
   // When set, the server returns only the requested customers in one call
   // and skips search + pagination. Useful for resolving N customer names
   // without N round-trips.
@@ -244,6 +249,7 @@ export interface Appointment {
   business_id: string
   customer_id: string
   staff_id: string
+  store_id: string | null
   starts_at: string
   ends_at: string
   duration_minutes: number | null
@@ -260,6 +266,7 @@ export interface Appointment {
 export interface CreateAppointmentInput {
   customer_id: string
   staff_id: string
+  store_id?: string | null
   starts_at: string
   ends_at: string
   duration_minutes?: number
