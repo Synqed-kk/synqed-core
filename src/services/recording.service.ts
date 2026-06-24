@@ -157,6 +157,7 @@ export async function createRecording(
     data: {
       businessId,
       customerId: input.customer_id ?? null,
+      storeId: input.store_id ?? null,
       staffId: input.staff_id,
       appointmentId: input.appointment_id ?? null,
       audioStoragePath: input.audio_storage_path ?? null,
