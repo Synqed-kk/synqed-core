@@ -253,6 +253,9 @@ model SyncConfig {
   username             String?
   storeSlug            String?      @map("store_slug")
   storeId              Int?         @map("store_id")
+  // Karute LOCATION (uuid) this QR config feeds — synced events get stamped with it.
+  // Distinct from storeId above (the QR API's numeric store id).
+  karuteStoreId        String?      @map("karute_store_id") @db.Uuid
   // Scheduling
   enabled              Boolean      @default(false)
   intervalMinutes      Int          @default(15) @map("interval_minutes")

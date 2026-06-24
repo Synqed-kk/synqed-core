@@ -26,6 +26,7 @@ export interface SyncConfigPublic {
   username: string | null
   store_slug: string | null
   store_id: number | null
+  karute_store_id: string | null
   enabled: boolean
   interval_minutes: number
   business_hours_start: number
@@ -46,6 +47,7 @@ export interface SyncConfigInput {
   password?: string
   store_slug?: string
   store_id?: number
+  karute_store_id?: string | null
   enabled?: boolean
   interval_minutes?: number
   business_hours_start?: number
@@ -85,6 +87,7 @@ function toPublic(row: {
   username: string | null
   storeSlug: string | null
   storeId: number | null
+  karuteStoreId: string | null
   enabled: boolean
   intervalMinutes: number
   businessHoursStart: number
@@ -106,6 +109,7 @@ function toPublic(row: {
     username: row.username,
     store_slug: row.storeSlug,
     store_id: row.storeId,
+    karute_store_id: row.karuteStoreId,
     enabled: row.enabled,
     interval_minutes: row.intervalMinutes,
     business_hours_start: row.businessHoursStart,
@@ -163,6 +167,7 @@ export async function upsertConfig(
       username: input.username,
       storeSlug: input.store_slug,
       storeId: input.store_id,
+      karuteStoreId: input.karute_store_id ?? null,
       enabled: input.enabled ?? false,
       intervalMinutes: input.interval_minutes ?? 15,
       businessHoursStart: input.business_hours_start ?? 8,
@@ -175,6 +180,8 @@ export async function upsertConfig(
       username: input.username ?? undefined,
       storeSlug: input.store_slug ?? undefined,
       storeId: input.store_id ?? undefined,
+      // null is meaningful here (unassign the store); only skip when omitted.
+      ...('karute_store_id' in input ? { karuteStoreId: input.karute_store_id } : {}),
       enabled: input.enabled ?? undefined,
       intervalMinutes: input.interval_minutes ?? undefined,
       businessHoursStart: input.business_hours_start ?? undefined,
@@ -324,6 +331,7 @@ interface QRSyncConfig {
   businessId: string
   storeSlug: string | null
   storeId: number | null
+  karuteStoreId: string | null
   lookaheadDays: number
   timezone: string
 }
@@ -338,6 +346,9 @@ async function runQuickReserveSync(
   if (!storeSlug || !storeId) {
     throw new Error('Store slug / id missing from QR config')
   }
+  // Karute LOCATION (uuid) this config feeds. Stamped onto synced events so they
+  // carry the store. Null = unassigned/all-stores.
+  const karuteStoreId = config.karuteStoreId
 
   const session = await qrLogin(storeSlug, creds.username, creds.password)
   const { dateStrings, windowStart, windowEnd } = buildDateWindow(
@@ -409,6 +420,7 @@ async function runQuickReserveSync(
           data: {
             customerId,
             staffId,
+            storeId: karuteStoreId,
             startsAt: r.startsAt,
             endsAt: r.endsAt,
             durationMinutes: r.durationMinutes,
@@ -427,6 +439,7 @@ async function runQuickReserveSync(
             businessId,
             customerId,
             staffId,
+            storeId: karuteStoreId,
             startsAt: r.startsAt,
             endsAt: r.endsAt,
             durationMinutes: r.durationMinutes,

@@ -320,6 +320,7 @@ export interface SyncConfig {
   username: string | null
   store_slug: string | null
   store_id: number | null
+  karute_store_id: string | null
   enabled: boolean
   interval_minutes: number
   business_hours_start: number
@@ -340,6 +341,7 @@ export interface UpsertSyncConfigInput {
   password?: string
   store_slug?: string
   store_id?: number
+  karute_store_id?: string | null
   enabled?: boolean
   interval_minutes?: number
   business_hours_start?: number
