@@ -375,6 +375,7 @@ export interface Recording {
   id: string
   business_id: string
   customer_id: string | null
+  store_id: string | null
   staff_id: string
   appointment_id: string | null
   audio_storage_path: string | null
@@ -386,6 +387,7 @@ export interface Recording {
 
 export interface CreateRecordingInput {
   customer_id?: string | null
+  store_id?: string | null
   staff_id: string
   appointment_id?: string | null
   audio_storage_path?: string | null
@@ -406,6 +408,7 @@ export interface ListRecordingsOptions {
   to?: string
   date?: string
   customer_id?: string
+  store_id?: string
   staff_id?: string
   status?: RecordingStatus
   page?: number
@@ -484,6 +487,7 @@ export interface KaruteRecord {
   id: string
   business_id: string
   customer_id: string | null
+  store_id: string | null
   staff_id: string
   appointment_id: string | null
   recording_session_id: string | null
@@ -514,6 +518,7 @@ export interface KaruteRecord {
 
 export interface CreateKaruteRecordInput {
   customer_id?: string | null
+  store_id?: string | null
   staff_id: string
   appointment_id?: string | null
   recording_session_id?: string | null
@@ -540,6 +545,7 @@ export interface UpdateKaruteRecordInput {
 
 export interface ListKaruteRecordsOptions {
   customer_id?: string
+  store_id?: string
   staff_id?: string
   recording_session_id?: string
   appointment_id?: string

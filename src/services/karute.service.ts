@@ -24,6 +24,7 @@ export interface KaruteRecordPublic {
   id: string
   business_id: string
   customer_id: string | null
+  store_id: string | null
   staff_id: string
   appointment_id: string | null
   recording_session_id: string | null
@@ -43,6 +44,7 @@ function toPublic(
     id: string
     businessId: string
     customerId: string | null
+    storeId: string | null
     staffId: string
     appointmentId: string | null
     recordingSessionId: string | null
@@ -61,6 +63,7 @@ function toPublic(
     id: row.id,
     business_id: row.businessId,
     customer_id: row.customerId,
+    store_id: row.storeId,
     staff_id: row.staffId,
     appointment_id: row.appointmentId,
     recording_session_id: row.recordingSessionId,
@@ -108,6 +111,7 @@ export async function listKaruteRecords(
   businessId: string,
   options: {
     customer_id?: string
+    store_id?: string
     staff_id?: string
     recording_session_id?: string
     appointment_id?: string
@@ -129,6 +133,7 @@ export async function listKaruteRecords(
 
   const where: Record<string, unknown> = { businessId }
   if (options.customer_id) where.customerId = options.customer_id
+  if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
   if (options.appointment_id) where.appointmentId = options.appointment_id
@@ -227,6 +232,7 @@ export async function createKaruteRecord(
     data: {
       businessId,
       customerId: input.customer_id ?? null,
+      storeId: input.store_id ?? null,
       staffId: input.staff_id,
       appointmentId: input.appointment_id ?? null,
       recordingSessionId: input.recording_session_id ?? null,

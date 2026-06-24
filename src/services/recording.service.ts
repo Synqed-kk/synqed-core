@@ -22,6 +22,7 @@ export interface RecordingPublic {
   id: string
   business_id: string
   customer_id: string | null
+  store_id: string | null
   staff_id: string
   appointment_id: string | null
   audio_storage_path: string | null
@@ -35,6 +36,7 @@ function toPublic(row: {
   id: string
   businessId: string
   customerId: string | null
+  storeId: string | null
   staffId: string
   appointmentId: string | null
   audioStoragePath: string | null
@@ -47,6 +49,7 @@ function toPublic(row: {
     id: row.id,
     business_id: row.businessId,
     customer_id: row.customerId,
+    store_id: row.storeId,
     staff_id: row.staffId,
     appointment_id: row.appointmentId,
     audio_storage_path: row.audioStoragePath,
@@ -88,6 +91,7 @@ export async function listRecordings(
     to?: string
     date?: string
     customer_id?: string
+    store_id?: string
     staff_id?: string
     status?: RecordingStatus
     page?: number
@@ -105,6 +109,7 @@ export async function listRecordings(
 
   const where: Record<string, unknown> = { businessId }
   if (options.customer_id) where.customerId = options.customer_id
+  if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.status) where.status = options.status
 
