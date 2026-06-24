@@ -10,6 +10,7 @@ export const recordingStatusSchema = z.enum([
 
 export const createRecordingSchema = z.object({
   customer_id: z.string().uuid().nullable().optional(),
+  store_id: z.string().uuid().nullish(),
   staff_id: z.string().uuid(),
   appointment_id: z.string().uuid().nullable().optional(),
   audio_storage_path: z.string().max(500).nullable().optional(),
@@ -30,6 +31,7 @@ export const listRecordingsSchema = z.object({
   to: z.string().datetime().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   customer_id: z.string().uuid().optional(),
+  store_id: z.string().uuid().optional(),
   staff_id: z.string().uuid().optional(),
   status: recordingStatusSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),

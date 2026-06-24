@@ -7,6 +7,7 @@ export const upsertSyncConfigSchema = z.object({
   password: z.string().min(1).max(500).optional(),
   store_slug: z.string().min(1).max(100).optional(),
   store_id: z.number().int().nonnegative().optional(),
+  karute_store_id: z.string().uuid().nullable().optional(),
   enabled: z.boolean().optional(),
   interval_minutes: z.number().int().min(5).max(1440).optional(),
   business_hours_start: z.number().int().min(0).max(23).optional(),

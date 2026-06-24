@@ -25,6 +25,7 @@ export const entryInputSchema = z.object({
 
 export const createKaruteRecordSchema = z.object({
   customer_id: z.string().uuid().nullable().optional(),
+  store_id: z.string().uuid().nullish(),
   staff_id: z.string().uuid(),
   appointment_id: z.string().uuid().nullable().optional(),
   recording_session_id: z.string().uuid().nullable().optional(),
@@ -59,6 +60,7 @@ export const updateKaruteRecordSchema = z.object({
 
 export const listKaruteRecordsSchema = z.object({
   customer_id: z.string().uuid().optional(),
+  store_id: z.string().uuid().optional(),
   staff_id: z.string().uuid().optional(),
   appointment_id: z.string().uuid().optional(),
   recording_session_id: z.string().uuid().optional(),
