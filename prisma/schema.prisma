@@ -534,3 +534,26 @@ model CustomerMemoryItem {
   @@index([businessId, customerId])
   @@map("customer_memory_items")
 }
+
+// =============================================================================
+// KaruteOutcome — a session's coaching outcome label (success / no_deal /
+// pending …), consolidated from the karute app DB. Keyed on the karute record
+// (one outcome per record); the app upserts on karute_record_id.
+// =============================================================================
+
+model KaruteOutcome {
+  karuteRecordId String    @id @map("karute_record_id") @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  customerId     String?   @map("customer_id") @db.Uuid
+  outcome        String
+  reason         String?
+  isFirstVisit   Boolean   @default(false) @map("is_first_visit")
+  decidedBy      String?   @map("decided_by") @db.Uuid
+  decidedAt      DateTime? @map("decided_at") @db.Timestamptz()
+  autoDecided    Boolean   @default(false) @map("auto_decided")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("karute_outcomes")
+}

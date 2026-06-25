@@ -347,6 +347,32 @@ export interface ListMemoryItemsResponse {
 }
 
 // ===========================================================================
+// Karute Outcomes
+// ===========================================================================
+
+export interface KaruteOutcome {
+  karute_record_id: string
+  customer_id: string | null
+  outcome: string
+  reason: string | null
+  is_first_visit: boolean
+  decided_by: string | null
+  decided_at: string | null
+  auto_decided: boolean
+}
+
+export interface UpsertKaruteOutcomeInput {
+  karute_record_id: string
+  customer_id?: string | null
+  outcome: string
+  reason?: string | null
+  is_first_visit?: boolean
+  decided_by?: string | null
+  decided_at?: string | null
+  auto_decided?: boolean
+}
+
+// ===========================================================================
 // Appointments
 // ===========================================================================
 

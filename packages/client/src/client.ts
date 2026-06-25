@@ -12,6 +12,7 @@ import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
 import { InviteClient } from './invites.js'
 import { CustomerMemoryClient } from './customer-memory.js'
+import { KaruteOutcomeClient } from './karute-outcomes.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -31,6 +32,7 @@ export class SynqedClient {
   public staffStores: StaffStoreClient
   public invites: InviteClient
   public customerMemory: CustomerMemoryClient
+  public karuteOutcomes: KaruteOutcomeClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -49,6 +51,7 @@ export class SynqedClient {
     this.staffStores = new StaffStoreClient(this)
     this.invites = new InviteClient(this)
     this.customerMemory = new CustomerMemoryClient(this)
+    this.karuteOutcomes = new KaruteOutcomeClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {
