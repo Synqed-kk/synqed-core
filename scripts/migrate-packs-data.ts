@@ -15,9 +15,21 @@ async function main() {
     `SELECT id::text, business_id::text FROM customers`,
   )
   const bizOf = new Map(customers.map((c) => [c.id, c.business_id]))
+  // The 4 'Kitano sheet import' customers whose records are absent from core
+  // (lost in the QR dedup merges). The packs subsystem is single-business
+  // (7bb76aac = Kitano's salon — verified: all 305 packs), and Christian
+  // authorized migrating these orphans under it. Their money data is preserved
+  // in core; the missing customer RECORDS are a separate documented gap.
+  const ORPHAN_FALLBACK_BUSINESS = '7bb76aac-2947-47fb-b883-d85fe849ccec'
+  const ORPHANS = new Set([
+    'aa033f3c-108f-4354-ab6f-4e164df3da08',
+    '39295529-415b-4bbb-aebe-a0b95810a028',
+    '2019c67d-c026-41ae-b9e6-0dd282978970',
+    'cb131ee2-a296-4e66-b945-be865ceed15a',
+  ])
   const miss = new Set<string>()
   const biz = (cid: string): string | null => {
-    const b = bizOf.get(cid)
+    const b = bizOf.get(cid) ?? (ORPHANS.has(cid) ? ORPHAN_FALLBACK_BUSINESS : undefined)
     if (!b) miss.add(cid)
     return b ?? null
   }
