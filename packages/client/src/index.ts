@@ -14,6 +14,7 @@ export { InviteClient } from './invites.js'
 export { CustomerMemoryClient } from './customer-memory.js'
 export { KaruteOutcomeClient } from './karute-outcomes.js'
 export { PacksClient } from './packs.js'
+export { AiCacheClient } from './ai-cache.js'
 
 export type {
   // Shared
