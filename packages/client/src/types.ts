@@ -232,6 +232,41 @@ export interface ListStaffResponse {
 }
 
 // ===========================================================================
+// Stores (physical locations)
+// ===========================================================================
+
+export interface Store {
+  id: string
+  business_id: string
+  name: string
+  address: string | null
+  phone: string | null
+  is_primary: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateStoreInput {
+  name: string
+  address?: string | null
+  phone?: string | null
+  is_primary?: boolean
+  active?: boolean
+}
+
+export interface UpdateStoreInput {
+  name?: string
+  address?: string | null
+  phone?: string | null
+  active?: boolean
+}
+
+export interface ListStoresResponse {
+  stores: Store[]
+}
+
+// ===========================================================================
 // Appointments
 // ===========================================================================
 

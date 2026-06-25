@@ -438,3 +438,24 @@ model AiRequestLog {
   @@index([businessId, createdAt])
   @@map("ai_request_log")
 }
+
+// =============================================================================
+// Store — physical location (multi-store). The store_id on the event tables
+// (#16) references these. Consolidated from the karute app DB into core so the
+// stores live next to the events that key on them (single source of truth).
+// =============================================================================
+
+model Store {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String
+  address    String?
+  phone      String?
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("stores")
+}

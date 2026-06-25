@@ -7,6 +7,7 @@ export { RecordingClient } from './recordings.js'
 export { KaruteRecordClient } from './karute.js'
 export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
+export { StoreClient } from './stores.js'
 
 export type {
   // Shared
@@ -75,4 +76,10 @@ export type {
 
   // AI rate limit
   AiRateLimitResult,
+
+  // Stores
+  Store,
+  CreateStoreInput,
+  UpdateStoreInput,
+  ListStoresResponse,
 } from './types.js'
