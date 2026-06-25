@@ -12,6 +12,7 @@ import { orgSettingsRoutes } from './routes/org-settings.js'
 import { aiRateLimitRoutes } from './routes/ai-rate-limit.js'
 import { adminRoutes } from './routes/admin.js'
 import { storeRoutes } from './routes/stores.js'
+import { entitlementRoutes } from './routes/entitlements.js'
 import { authMiddleware } from './middleware/auth.js'
 
 const app = new Hono().basePath('/v1')
@@ -38,6 +39,7 @@ app.route('/org-settings', orgSettingsRoutes)
 app.route('/ai-rate-limit', aiRateLimitRoutes)
 app.route('/admin', adminRoutes)
 app.route('/stores', storeRoutes)
+app.route('/entitlements', entitlementRoutes)
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
 

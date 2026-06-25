@@ -266,6 +266,17 @@ export interface ListStoresResponse {
   stores: Store[]
 }
 
+export interface Entitlement {
+  business_id: string
+  tier: string
+  is_unlimited: boolean
+}
+
+export interface UpsertEntitlementInput {
+  tier?: string
+  is_unlimited?: boolean
+}
+
 // ===========================================================================
 // Appointments
 // ===========================================================================
