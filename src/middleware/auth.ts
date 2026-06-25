@@ -20,7 +20,7 @@ function isCrossBusinessPath(path: string): boolean {
 // Paths that require the API key but NO business scope — the business is
 // discovered from a per-resource secret (e.g. the pre-auth invite-by-token
 // lookup). The API key still gates access; only x-business-id is waived.
-const BUSINESS_OPTIONAL_PATHS = [/\/v1\/invites\/by-token\//]
+const BUSINESS_OPTIONAL_PATHS = [/\/v1\/invites\/by-token\//, /\/v1\/ai-cache(\/|$)/]
 
 function isBusinessOptionalPath(path: string): boolean {
   return BUSINESS_OPTIONAL_PATHS.some((re) => re.test(path))

@@ -14,6 +14,7 @@ import { InviteClient } from './invites.js'
 import { CustomerMemoryClient } from './customer-memory.js'
 import { KaruteOutcomeClient } from './karute-outcomes.js'
 import { PacksClient } from './packs.js'
+import { AiCacheClient } from './ai-cache.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -35,6 +36,7 @@ export class SynqedClient {
   public customerMemory: CustomerMemoryClient
   public karuteOutcomes: KaruteOutcomeClient
   public packs: PacksClient
+  public aiCache: AiCacheClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -55,6 +57,7 @@ export class SynqedClient {
     this.customerMemory = new CustomerMemoryClient(this)
     this.karuteOutcomes = new KaruteOutcomeClient(this)
     this.packs = new PacksClient(this)
+    this.aiCache = new AiCacheClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {

@@ -661,3 +661,19 @@ model CustomerLifecycle {
   @@index([businessId])
   @@map("customer_lifecycle")
 }
+
+// =============================================================================
+// AiCache — global AI-response cache (key = hash of the input), consolidated
+// from the karute app DB. NOT tenant-scoped (matches the app's existing global
+// cache); the routes are API-key-gated but business-optional.
+// =============================================================================
+
+model AiCache {
+  cacheKey  String   @id @map("cache_key")
+  result    Json
+  expiresAt DateTime @map("expires_at") @db.Timestamptz()
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([expiresAt])
+  @@map("ai_cache")
+}
