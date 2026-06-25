@@ -474,3 +474,21 @@ model BusinessEntitlement {
 
   @@map("business_entitlements")
 }
+
+// =============================================================================
+// StaffStore — many-to-many staff↔store assignment (multi-store). Consolidated
+// from the karute app DB's profile_stores; re-keyed on core staff ids (the
+// karute profile_id maps to core staff via staff.user_id). Zero rows for a
+// staff = "works in every store".
+// =============================================================================
+
+model StaffStore {
+  staffId    String   @map("staff_id") @db.Uuid
+  storeId    String   @map("store_id") @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@id([staffId, storeId])
+  @@index([businessId, storeId])
+  @@map("staff_stores")
+}
