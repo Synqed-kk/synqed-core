@@ -557,3 +557,107 @@ model KaruteOutcome {
   @@index([businessId])
   @@map("karute_outcomes")
 }
+
+// =============================================================================
+// 回数券 (ticket-pack) subsystem — consolidated from the karute app DB. All
+// customer-keyed; business_id is the tenant scope (derived from the customer at
+// migrate time; set from x-business-id on new writes). The app keeps the usage
+// aggregation (FIFO, 残 counts) — core just serves business-scoped rows.
+// =============================================================================
+
+model TicketPack {
+  id            String    @id @default(uuid()) @db.Uuid
+  businessId    String    @map("business_id") @db.Uuid
+  customerId    String    @map("customer_id") @db.Uuid
+  kind          String
+  packSize      Int       @map("pack_size")
+  unitPrice     Int       @map("unit_price")
+  totalPrice    Int?      @map("total_price")
+  purchaseRound Int       @default(0) @map("purchase_round")
+  purchasedAt   DateTime? @map("purchased_at") @db.Date
+  source        String    @default("manual")
+  status        String
+  notes         String?
+  createdBy     String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@index([businessId, status])
+  @@map("ticket_packs")
+}
+
+model PackRedemption {
+  id             String   @id @default(uuid()) @db.Uuid
+  businessId     String   @map("business_id") @db.Uuid
+  packId         String   @map("pack_id") @db.Uuid
+  customerId     String   @map("customer_id") @db.Uuid
+  redeemedOn     DateTime @map("redeemed_on") @db.Date
+  appointmentId  String?  @map("appointment_id")
+  karuteRecordId String?  @map("karute_record_id")
+  source         String   @default("manual")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@index([businessId, packId])
+  @@index([businessId, redeemedOn])
+  @@map("pack_redemptions")
+}
+
+model PackAlertDismissal {
+  id          String    @id @default(uuid()) @db.Uuid
+  businessId  String    @map("business_id") @db.Uuid
+  customerId  String    @map("customer_id") @db.Uuid
+  dismissedBy String    @map("dismissed_by") @db.Uuid
+  reason      String?
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@map("pack_alert_dismissals")
+}
+
+model CustomerContact {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  customerId  String   @map("customer_id") @db.Uuid
+  channel     String
+  alertKind   String?  @map("alert_kind")
+  note        String?
+  contactedBy String   @map("contacted_by") @db.Uuid
+  contactedAt DateTime @default(now()) @map("contacted_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@index([businessId, contactedAt])
+  @@map("customer_contacts")
+}
+
+model VisitReconcileDismissal {
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  customerId    String   @map("customer_id") @db.Uuid
+  appointmentId String?  @map("appointment_id")
+  visitDay      DateTime @map("visit_day") @db.Date
+  dismissedBy   String   @map("dismissed_by") @db.Uuid
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@index([businessId, visitDay])
+  @@map("visit_reconcile_dismissals")
+}
+
+model CustomerLifecycle {
+  customerId      String    @id @map("customer_id") @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  status          String
+  referral        Boolean   @default(false)
+  statusChangedAt DateTime? @map("status_changed_at") @db.Timestamptz()
+  reason          String?
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("customer_lifecycle")
+}
