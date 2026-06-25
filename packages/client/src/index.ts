@@ -12,6 +12,7 @@ export { EntitlementClient } from './entitlements.js'
 export { StaffStoreClient } from './staff-stores.js'
 export { InviteClient } from './invites.js'
 export { CustomerMemoryClient } from './customer-memory.js'
+export { KaruteOutcomeClient } from './karute-outcomes.js'
 
 export type {
   // Shared
@@ -105,4 +106,8 @@ export type {
   CreateMemoryItemInput,
   UpdateMemoryItemInput,
   ListMemoryItemsResponse,
+
+  // Karute outcomes
+  KaruteOutcome,
+  UpsertKaruteOutcomeInput,
 } from './types.js'
