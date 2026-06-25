@@ -459,3 +459,18 @@ model Store {
   @@index([businessId])
   @@map("stores")
 }
+
+// =============================================================================
+// BusinessEntitlement — plan tier + comp/dev unlimited override (store cap).
+// Consolidated from the karute app DB. One row per business; absent = 'free'.
+// =============================================================================
+
+model BusinessEntitlement {
+  businessId  String   @id @map("business_id") @db.Uuid
+  tier        String   @default("free")
+  isUnlimited Boolean  @default(false) @map("is_unlimited")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("business_entitlements")
+}

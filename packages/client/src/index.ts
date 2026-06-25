@@ -8,6 +8,7 @@ export { KaruteRecordClient } from './karute.js'
 export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
+export { EntitlementClient } from './entitlements.js'
 
 export type {
   // Shared
@@ -82,4 +83,8 @@ export type {
   CreateStoreInput,
   UpdateStoreInput,
   ListStoresResponse,
+
+  // Entitlements
+  Entitlement,
+  UpsertEntitlementInput,
 } from './types.js'
