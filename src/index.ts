@@ -14,6 +14,8 @@ import { adminRoutes } from './routes/admin.js'
 import { storeRoutes } from './routes/stores.js'
 import { entitlementRoutes } from './routes/entitlements.js'
 import { staffStoreRoutes } from './routes/staff-stores.js'
+import { inviteRoutes } from './routes/invites.js'
+import { customerMemoryRoutes } from './routes/customer-memory.js'
 import { authMiddleware } from './middleware/auth.js'
 
 const app = new Hono().basePath('/v1')
@@ -42,6 +44,8 @@ app.route('/admin', adminRoutes)
 app.route('/stores', storeRoutes)
 app.route('/entitlements', entitlementRoutes)
 app.route('/staff-stores', staffStoreRoutes)
+app.route('/invites', inviteRoutes)
+app.route('/customer-memory', customerMemoryRoutes)
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
