@@ -373,6 +373,117 @@ export interface UpsertKaruteOutcomeInput {
 }
 
 // ===========================================================================
+// 回数券 (ticket-pack) subsystem
+// ===========================================================================
+
+export interface Pack {
+  id: string
+  customer_id: string
+  kind: string
+  pack_size: number
+  unit_price: number
+  total_price: number | null
+  purchase_round: number
+  purchased_at: string | null
+  source: string
+  status: string
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ActivePack {
+  id: string
+  customer_id: string
+  kind: string
+  pack_size: number
+  unit_price: number
+}
+
+export interface CreatePackInput {
+  customer_id: string
+  kind: string
+  pack_size: number
+  unit_price: number
+  total_price?: number | null
+  purchase_round?: number
+  purchased_at?: string | null
+  source?: string
+  notes?: string | null
+  created_by?: string | null
+}
+
+export interface AddRedemptionInput {
+  pack_id: string
+  customer_id: string
+  redeemed_on: string
+  appointment_id?: string | null
+  karute_record_id?: string | null
+  source?: string
+  created_by?: string | null
+}
+
+export interface RecentRedemption {
+  customer_id: string
+  appointment_id: string | null
+  redeemed_on: string
+}
+
+export interface Lifecycle {
+  customer_id: string
+  status: string
+  referral: boolean
+}
+
+export interface SetLifecycleInput {
+  customer_id: string
+  status: string
+  referral: boolean
+  updated_by?: string | null
+  reason?: string | null
+}
+
+export interface AlertDismissal {
+  customer_id: string
+  expires_at: string | null
+}
+
+export interface AddAlertDismissalInput {
+  customer_id: string
+  dismissed_by: string
+  reason?: string | null
+  expires_at?: string | null
+}
+
+export interface AddContactInput {
+  customer_id: string
+  channel: string
+  alert_kind?: string | null
+  note?: string | null
+  contacted_by: string
+}
+
+export interface RecentContact {
+  customer_id: string
+  contacted_at: string
+}
+
+export interface AddVisitDismissalInput {
+  customer_id: string
+  appointment_id?: string | null
+  visit_day: string
+  dismissed_by: string
+  reason?: string | null
+}
+
+export interface VisitDismissal {
+  customer_id: string
+  appointment_id: string | null
+  visit_day: string
+}
+
+// ===========================================================================
 // Appointments
 // ===========================================================================
 

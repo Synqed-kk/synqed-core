@@ -13,6 +13,7 @@ export { StaffStoreClient } from './staff-stores.js'
 export { InviteClient } from './invites.js'
 export { CustomerMemoryClient } from './customer-memory.js'
 export { KaruteOutcomeClient } from './karute-outcomes.js'
+export { PacksClient } from './packs.js'
 
 export type {
   // Shared
@@ -110,4 +111,19 @@ export type {
   // Karute outcomes
   KaruteOutcome,
   UpsertKaruteOutcomeInput,
+
+  // 回数券 packs subsystem
+  Pack,
+  ActivePack,
+  CreatePackInput,
+  AddRedemptionInput,
+  RecentRedemption,
+  Lifecycle,
+  SetLifecycleInput,
+  AlertDismissal,
+  AddAlertDismissalInput,
+  AddContactInput,
+  RecentContact,
+  AddVisitDismissalInput,
+  VisitDismissal,
 } from './types.js'
