@@ -9,6 +9,7 @@ export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
 export { EntitlementClient } from './entitlements.js'
+export { StaffStoreClient } from './staff-stores.js'
 
 export type {
   // Shared
@@ -87,4 +88,8 @@ export type {
   // Entitlements
   Entitlement,
   UpsertEntitlementInput,
+
+  // Staff stores
+  StaffStoresResponse,
+  StaffStoreCountsResponse,
 } from './types.js'

@@ -9,6 +9,7 @@ import { OrgSettingsClient } from './org-settings.js'
 import { AiRateLimitClient } from './ai-rate-limit.js'
 import { StoreClient } from './stores.js'
 import { EntitlementClient } from './entitlements.js'
+import { StaffStoreClient } from './staff-stores.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -25,6 +26,7 @@ export class SynqedClient {
   public aiRateLimit: AiRateLimitClient
   public stores: StoreClient
   public entitlements: EntitlementClient
+  public staffStores: StaffStoreClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -40,6 +42,7 @@ export class SynqedClient {
     this.aiRateLimit = new AiRateLimitClient(this)
     this.stores = new StoreClient(this)
     this.entitlements = new EntitlementClient(this)
+    this.staffStores = new StaffStoreClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {

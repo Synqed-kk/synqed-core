@@ -277,6 +277,14 @@ export interface UpsertEntitlementInput {
   is_unlimited?: boolean
 }
 
+export interface StaffStoresResponse {
+  store_ids: string[]
+}
+
+export interface StaffStoreCountsResponse {
+  counts: Record<string, number>
+}
+
 // ===========================================================================
 // Appointments
 // ===========================================================================
