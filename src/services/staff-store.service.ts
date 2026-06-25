@@ -1,9 +1,22 @@
 import { prisma } from '../db/client.js'
 
+/** Resolve a staff identifier to the canonical core staff id. Accepts either the
+ *  core staff.id OR the karute profile id (= staff.user_id), so callers that
+ *  live in profile-id space (the karute app) work transparently. */
+async function resolveStaffId(businessId: string, idOrUserId: string): Promise<string | null> {
+  const staff = await prisma.staff.findFirst({
+    where: { businessId, OR: [{ id: idOrUserId }, { userId: idOrUserId }] },
+    select: { id: true },
+  })
+  return staff?.id ?? null
+}
+
 /** The store ids a staff member is assigned to (empty = works in every store). */
 export async function getStaffStores(businessId: string, staffId: string): Promise<string[]> {
+  const resolved = await resolveStaffId(businessId, staffId)
+  if (!resolved) return []
   const rows = await prisma.staffStore.findMany({
-    where: { businessId, staffId },
+    where: { businessId, staffId: resolved },
     select: { storeId: true },
   })
   return rows.map((r) => r.storeId)
@@ -18,11 +31,8 @@ export async function setStaffStores(
   staffId: string,
   storeIds: string[],
 ): Promise<{ ok: true }> {
-  const staff = await prisma.staff.findFirst({
-    where: { id: staffId, businessId },
-    select: { id: true },
-  })
-  if (!staff) throw new Error('Staff not found')
+  const resolved = await resolveStaffId(businessId, staffId)
+  if (!resolved) throw new Error('Staff not found')
 
   const wanted = Array.from(new Set(storeIds))
   if (wanted.length > 0) {
@@ -36,15 +46,15 @@ export async function setStaffStores(
   await prisma.$transaction([
     ...wanted.map((storeId) =>
       prisma.staffStore.upsert({
-        where: { staffId_storeId: { staffId, storeId } },
-        create: { staffId, storeId, businessId },
+        where: { staffId_storeId: { staffId: resolved, storeId } },
+        create: { staffId: resolved, storeId, businessId },
         update: {},
       }),
     ),
     prisma.staffStore.deleteMany({
       where: {
         businessId,
-        staffId,
+        staffId: resolved,
         ...(wanted.length > 0 ? { storeId: { notIn: wanted } } : {}),
       },
     }),
