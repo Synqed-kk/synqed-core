@@ -8,6 +8,12 @@ export class InviteClient {
     return this.client.fetch<ListInvitesResponse>('/invites')
   }
 
+  /** Public (pre-auth) lookup by token — no business scope needed; the token is
+   *  the secret. Throws SynqedError(404) if the token isn't found. */
+  async getByToken(token: string): Promise<Invite> {
+    return this.client.fetch<Invite>(`/invites/by-token/${encodeURIComponent(token)}`)
+  }
+
   async create(input: CreateInviteInput): Promise<Invite> {
     return this.client.fetch<Invite>('/invites', { method: 'POST', body: JSON.stringify(input) })
   }

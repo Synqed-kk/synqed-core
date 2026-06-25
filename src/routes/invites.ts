@@ -9,6 +9,14 @@ inviteRoutes.get('/', async (c) => {
   return c.json({ invites: await inviteService.listInvites(businessId) })
 })
 
+// Public (API-key-gated, NO business scope) — validate an invite token for the
+// pre-auth /join page. The token is the secret; the response carries business_id.
+inviteRoutes.get('/by-token/:token', async (c) => {
+  const invite = await inviteService.getInviteByToken(c.req.param('token'))
+  if (!invite) return c.json({ error: 'Invite not found' }, 404)
+  return c.json(invite)
+})
+
 inviteRoutes.post('/', async (c) => {
   const businessId = c.get('businessId')
   const b = await c.req.json().catch(() => ({}))

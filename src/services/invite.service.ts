@@ -41,6 +41,16 @@ export async function listInvites(businessId: string): Promise<InvitePublic[]> {
   return rows.map(toPublic)
 }
 
+/**
+ * Look up an invite by its token, WITHOUT a business scope — the pre-auth /join
+ * flow has no business yet; the high-entropy token is the per-invite secret and
+ * carries the business_id back to the caller. The API key still gates access.
+ */
+export async function getInviteByToken(token: string): Promise<InvitePublic | null> {
+  const row = await prisma.invite.findUnique({ where: { token } })
+  return row ? toPublic(row) : null
+}
+
 export async function createInvite(
   businessId: string,
   input: { email: string; role: string; token: string; invited_by?: string | null; expires_at?: string | null },

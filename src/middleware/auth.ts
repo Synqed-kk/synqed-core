@@ -17,6 +17,15 @@ function isCrossBusinessPath(path: string): boolean {
   return CROSS_BUSINESS_PATHS.some((re) => re.test(path))
 }
 
+// Paths that require the API key but NO business scope — the business is
+// discovered from a per-resource secret (e.g. the pre-auth invite-by-token
+// lookup). The API key still gates access; only x-business-id is waived.
+const BUSINESS_OPTIONAL_PATHS = [/\/v1\/invites\/by-token\//]
+
+function isBusinessOptionalPath(path: string): boolean {
+  return BUSINESS_OPTIONAL_PATHS.some((re) => re.test(path))
+}
+
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const path = c.req.path
   if (isCrossBusinessPath(path)) {
@@ -26,6 +35,10 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const apiKey = c.req.header('x-api-key')
   if (!apiKey || !getApiKeys().has(apiKey)) {
     return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  if (isBusinessOptionalPath(path)) {
+    return next()
   }
 
   const businessId = c.req.header('x-business-id')
