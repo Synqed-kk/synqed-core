@@ -10,6 +10,8 @@ export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
 export { EntitlementClient } from './entitlements.js'
 export { StaffStoreClient } from './staff-stores.js'
+export { InviteClient } from './invites.js'
+export { CustomerMemoryClient } from './customer-memory.js'
 
 export type {
   // Shared
@@ -92,4 +94,15 @@ export type {
   // Staff stores
   StaffStoresResponse,
   StaffStoreCountsResponse,
+
+  // Invites
+  Invite,
+  CreateInviteInput,
+  ListInvitesResponse,
+
+  // Customer memory
+  MemoryItem,
+  CreateMemoryItemInput,
+  UpdateMemoryItemInput,
+  ListMemoryItemsResponse,
 } from './types.js'

@@ -10,6 +10,8 @@ import { AiRateLimitClient } from './ai-rate-limit.js'
 import { StoreClient } from './stores.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
+import { InviteClient } from './invites.js'
+import { CustomerMemoryClient } from './customer-memory.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -27,6 +29,8 @@ export class SynqedClient {
   public stores: StoreClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
+  public invites: InviteClient
+  public customerMemory: CustomerMemoryClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -43,6 +47,8 @@ export class SynqedClient {
     this.stores = new StoreClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
+    this.invites = new InviteClient(this)
+    this.customerMemory = new CustomerMemoryClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {

@@ -285,6 +285,67 @@ export interface StaffStoreCountsResponse {
   counts: Record<string, number>
 }
 
+export interface Invite {
+  id: string
+  business_id: string
+  email: string
+  role: string
+  token: string
+  status: string
+  invited_by: string | null
+  created_at: string
+  expires_at: string | null
+}
+
+export interface CreateInviteInput {
+  email: string
+  role: string
+  token: string
+  invited_by?: string | null
+  expires_at?: string | null
+}
+
+export interface ListInvitesResponse {
+  invites: Invite[]
+}
+
+export interface MemoryItem {
+  id: string
+  business_id: string
+  customer_id: string
+  category: string
+  label: string
+  detail: string | null
+  source: string | null
+  confidence: number | null
+  pinned: boolean
+  suggest_talking_point: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMemoryItemInput {
+  customer_id: string
+  category: string
+  label: string
+  detail?: string | null
+  source?: string | null
+  confidence?: number | null
+  pinned?: boolean
+  suggest_talking_point?: boolean
+}
+
+export interface UpdateMemoryItemInput {
+  label?: string
+  detail?: string | null
+  pinned?: boolean
+  suggest_talking_point?: boolean
+}
+
+export interface ListMemoryItemsResponse {
+  items: MemoryItem[]
+}
+
 // ===========================================================================
 // Appointments
 // ===========================================================================

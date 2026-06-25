@@ -492,3 +492,45 @@ model StaffStore {
   @@index([businessId, storeId])
   @@map("staff_stores")
 }
+
+// =============================================================================
+// Invite — staff invitation, consolidated from the karute app DB.
+// =============================================================================
+
+model Invite {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  email      String
+  role       String
+  token      String    @unique
+  status     String    @default("pending")
+  invitedBy  String?   @map("invited_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("invites")
+}
+
+// =============================================================================
+// CustomerMemoryItem — "AI Customer Memory" notes, consolidated from karute.
+// =============================================================================
+
+model CustomerMemoryItem {
+  id                  String    @id @default(uuid()) @db.Uuid
+  businessId          String    @map("business_id") @db.Uuid
+  customerId          String    @map("customer_id")
+  category            String
+  label               String
+  detail              String?
+  source              String?
+  confidence          Float?
+  pinned              Boolean   @default(false)
+  suggestTalkingPoint Boolean   @default(false) @map("suggest_talking_point")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz()
+
+  @@index([businessId, customerId])
+  @@map("customer_memory_items")
+}
