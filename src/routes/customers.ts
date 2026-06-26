@@ -7,8 +7,16 @@ import {
   upsertVisitsSchema,
 } from '../validations/customer.js'
 import * as customerService from '../services/customer.service.js'
+import { customerEnrichment } from '../services/customer-enrichment.service.js'
 
 export const customerRoutes = new Hono<AppEnv>()
+
+// GET /v1/customers/enrichment — per-customer list badges (last visit, visit
+// counts, next booking, 担当), aggregated in ONE query for the whole business.
+// Replaces the app's whole-tenant karute+appointments+staff crawl. Before /:id.
+customerRoutes.get('/enrichment', async (c) => {
+  return c.json({ enrichment: await customerEnrichment(c.get('businessId')) })
+})
 
 // GET /v1/customers/check-duplicate?name=...
 // MUST be before /:id to avoid "check-duplicate" matching as an :id param

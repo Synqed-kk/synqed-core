@@ -27,6 +27,7 @@ export type {
   ListCustomersOptions,
   ListCustomersResponse,
   CheckDuplicateResponse,
+  CustomerEnrichment,
   CustomerPhoto,
   RecordingConsent,
   RecordingConsentMethod,

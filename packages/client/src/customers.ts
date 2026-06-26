@@ -10,10 +10,18 @@ import type {
   RecordingConsent,
   GrantRecordingConsentInput,
   UpsertVisitInput,
+  CustomerEnrichment,
 } from './types.js'
 
 export class CustomerClient {
   constructor(private client: SynqedClient) {}
+
+  /** Per-customer list badges (last visit, visit counts, next booking, 担当)
+   *  for the whole business, aggregated server-side in one query. */
+  async enrichment(): Promise<CustomerEnrichment[]> {
+    const r = await this.client.fetch<{ enrichment: CustomerEnrichment[] }>('/customers/enrichment')
+    return r.enrichment
+  }
 
   async list(options?: ListCustomersOptions): Promise<ListCustomersResponse> {
     const params = new URLSearchParams()
