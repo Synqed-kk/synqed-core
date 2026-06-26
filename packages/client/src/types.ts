@@ -157,6 +157,18 @@ export interface CheckDuplicateResponse {
   existing_name?: string
 }
 
+export interface CustomerEnrichment {
+  customer_id: string
+  total_karute: number
+  last_visit: string | null
+  first_visit: string | null
+  past_appointment_count: number
+  last_visit_service: string | null
+  booking_staff_id: string | null
+  next_appointment: string | null
+  dated_visit_count: number
+}
+
 export interface CustomerPhoto {
   id: string
   customer_id: string
