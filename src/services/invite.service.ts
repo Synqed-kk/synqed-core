@@ -8,6 +8,7 @@ export interface InvitePublic {
   token: string
   status: string
   invited_by: string | null
+  invited_staff_id: string | null
   created_at: string
   expires_at: string | null
 }
@@ -20,6 +21,7 @@ function toPublic(row: {
   token: string
   status: string
   invitedBy: string | null
+  invitedStaffId: string | null
   createdAt: Date
   expiresAt: Date | null
 }): InvitePublic {
@@ -31,6 +33,7 @@ function toPublic(row: {
     token: row.token,
     status: row.status,
     invited_by: row.invitedBy,
+    invited_staff_id: row.invitedStaffId,
     created_at: row.createdAt.toISOString(),
     expires_at: row.expiresAt ? row.expiresAt.toISOString() : null,
   }
@@ -53,7 +56,14 @@ export async function getInviteByToken(token: string): Promise<InvitePublic | nu
 
 export async function createInvite(
   businessId: string,
-  input: { email: string; role: string; token: string; invited_by?: string | null; expires_at?: string | null },
+  input: {
+    email: string
+    role: string
+    token: string
+    invited_by?: string | null
+    invited_staff_id?: string | null
+    expires_at?: string | null
+  },
 ): Promise<InvitePublic> {
   const row = await prisma.invite.create({
     data: {
@@ -62,6 +72,7 @@ export async function createInvite(
       role: input.role,
       token: input.token,
       invitedBy: input.invited_by ?? null,
+      invitedStaffId: input.invited_staff_id ?? null,
       expiresAt: input.expires_at ? new Date(input.expires_at) : null,
     },
   })

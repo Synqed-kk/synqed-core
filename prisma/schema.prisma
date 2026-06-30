@@ -505,6 +505,9 @@ model Invite {
   token      String    @unique
   status     String    @default("pending")
   invitedBy  String?   @map("invited_by") @db.Uuid
+  // The existing staff row this invite re-activates (accept sets its user_id)
+  // instead of minting a duplicate. Null = a brand-new person (email-only invite).
+  invitedStaffId String? @map("invited_staff_id") @db.Uuid
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
 
