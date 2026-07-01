@@ -65,6 +65,7 @@ export interface SyncRunResult {
   skipped_no_staff: number
   skipped_deleted: number
   skipped_error: number
+  skipped_non_booking: number
   unmatched_staff: string[]
   duration_ms: number
 }
@@ -357,13 +358,23 @@ async function runQuickReserveSync(
     config.timezone,
   )
 
-  // Fetch reservations across the date window
+  // Fetch reservations across the date window. QR's by-date feed also returns
+  // non-booking rows (休憩/block/closed slot) that carry no resolved customer or
+  // course — skip them so we don't map a bookingless row into a junk customer /
+  // empty appointment.
   const allReservations: MappedQRReservation[] = []
   let totalFetched = 0
+  let skippedNonBooking = 0
   for (const date of dateStrings) {
     const raw = await qrGetReservations(session, storeSlug, storeId, date)
     totalFetched += raw.length
-    for (const r of raw) allReservations.push(mapReservation(r))
+    for (const r of raw) {
+      if (r.resolvedCustomerId == null || !r.staff || !r.treatment_course) {
+        skippedNonBooking++
+        continue
+      }
+      allReservations.push(mapReservation(r))
+    }
   }
 
   // Load staff for this tenant (for name matching)
@@ -520,6 +531,7 @@ async function runQuickReserveSync(
     skipped_no_staff: skippedNoStaff,
     skipped_deleted: skippedDeleted,
     skipped_error: skippedError,
+    skipped_non_booking: skippedNonBooking,
     unmatched_staff: Array.from(unmatchedStaff),
     duration_ms: 0, // filled by caller
   }
