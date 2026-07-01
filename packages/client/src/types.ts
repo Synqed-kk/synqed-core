@@ -305,6 +305,9 @@ export interface Invite {
   token: string
   status: string
   invited_by: string | null
+  /** The existing staff row this invite re-activates (accept sets its user_id),
+   *  or null for a brand-new person (email-only invite). */
+  invited_staff_id: string | null
   created_at: string
   expires_at: string | null
 }
@@ -314,6 +317,8 @@ export interface CreateInviteInput {
   role: string
   token: string
   invited_by?: string | null
+  /** Pass the existing staff id to LINK on accept instead of minting a duplicate. */
+  invited_staff_id?: string | null
   expires_at?: string | null
 }
 

@@ -28,6 +28,7 @@ inviteRoutes.post('/', async (c) => {
     role: b.role,
     token: b.token,
     invited_by: typeof b.invited_by === 'string' ? b.invited_by : null,
+    invited_staff_id: typeof b.invited_staff_id === 'string' ? b.invited_staff_id : null,
     expires_at: typeof b.expires_at === 'string' ? b.expires_at : null,
   })
   return c.json(invite, 201)
