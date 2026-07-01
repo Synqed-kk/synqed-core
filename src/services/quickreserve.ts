@@ -17,28 +17,25 @@ export interface QRReservation {
   rid: string
   is_new_customer_flag: boolean
   nominated_staff_id: number | null
-  Customer: {
+  // QR changed the reservation payload (2026-06): the old PascalCase
+  // Customer/Staff/TreatmentCourse objects are GONE. The customer is now a
+  // resolved id + name only (no phone/email/kana/visits on the reservation);
+  // staff and treatment_course are lowercase nested objects.
+  // Nullable: QR's non-booking rows (休憩/block/closed slot) carry no resolved
+  // customer or course — the sync skips those, so keep this honestly nullable.
+  resolvedCustomerId: number | null
+  resolvedCustomerName: string
+  staff: {
     id: number
     name: string
     name_kana: string
-    phone1: string
-    mail1: string
-    remarks1: string
-    visits_number_cache: number
-    is_existing_customer: boolean
-  }
-  Staff: {
-    id: number
-    name: string
-    name_kana: string
-  }
-  TreatmentCourse: {
+  } | null
+  treatment_course: {
     id: number
     name: string
     duration: number
     price: number
-    treatment_category_id: number
-  }
+  } | null
 }
 
 export interface QRSession {
@@ -159,18 +156,22 @@ export function mapReservation(r: QRReservation): MappedQRReservation {
   return {
     qrReservationId: r.id,
     qrRid: r.rid,
-    qrCustomerId: r.Customer.id,
-    qrStaffId: r.Staff.id,
-    customerName: r.Customer.name,
-    customerKana: r.Customer.name_kana ?? '',
-    customerPhone: r.Customer.phone1 ?? '',
-    customerEmail: r.Customer.mail1 ?? '',
-    customerNotes: r.Customer.remarks1 ?? '',
-    customerVisitsCached: r.Customer.visits_number_cache ?? 0,
-    isNewCustomer: r.is_new_customer_flag || !r.Customer.is_existing_customer,
-    staffName: r.Staff.name,
-    treatmentName: r.TreatmentCourse.name,
-    treatmentId: r.TreatmentCourse.id,
+    // Stable QR customer id — the real identity key. Now surfaced as
+    // resolvedCustomerId rather than an embedded Customer object.
+    qrCustomerId: r.resolvedCustomerId ?? r.customer_id,
+    qrStaffId: r.staff?.id ?? r.staff_id,
+    customerName: r.resolvedCustomerName ?? '',
+    // Phone / email / kana / visit-count are no longer on the reservation —
+    // customer matching falls back to id/name; enrichment is a separate sync.
+    customerKana: '',
+    customerPhone: '',
+    customerEmail: '',
+    customerNotes: r.request ?? '',
+    customerVisitsCached: 0,
+    isNewCustomer: r.is_new_customer_flag,
+    staffName: r.staff?.name ?? '',
+    treatmentName: r.treatment_course?.name ?? '',
+    treatmentId: r.treatment_course?.id ?? r.treatment_course_id,
     startsAt: new Date(r.start_at),
     endsAt: new Date(r.end_at),
     durationMinutes: Math.round((r.end_at - r.start_at) / 60000),
