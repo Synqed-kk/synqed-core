@@ -423,54 +423,63 @@ async function runQuickReserveSync(
       // --- Customer find-or-create by QR id → fall back to (tenant, name) ---
       const customerId = await findOrCreateCustomer(businessId, r)
 
+      // Fields the QR feed owns on every write (found-update, create, adopt).
+      const qrData = {
+        customerId,
+        staffId,
+        storeId: karuteStoreId,
+        startsAt: r.startsAt,
+        endsAt: r.endsAt,
+        durationMinutes: r.durationMinutes,
+        title: r.treatmentName,
+        notes: buildNotes(r),
+        status: 'SCHEDULED' as AppointmentStatus,
+        source: 'QUICKRESERVE' as AppointmentSource,
+        cancelledAt: null,
+      }
+      const qrExternalRefs = {
+        quickreserve: {
+          reservationId: r.qrReservationId,
+          rid: r.qrRid,
+          customerId: r.qrCustomerId,
+          staffId: r.qrStaffId,
+          treatmentId: r.treatmentId,
+        },
+      }
+
       // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
       const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
       if (existing) {
-        await prisma.appointment.update({
-          where: { id: existing.id },
-          data: {
-            customerId,
-            staffId,
-            storeId: karuteStoreId,
-            startsAt: r.startsAt,
-            endsAt: r.endsAt,
-            durationMinutes: r.durationMinutes,
-            title: r.treatmentName,
-            notes: buildNotes(r),
-            status: 'SCHEDULED' as AppointmentStatus,
-            source: 'QUICKRESERVE' as AppointmentSource,
-            cancelledAt: null,
-          },
-        })
+        await prisma.appointment.update({ where: { id: existing.id }, data: qrData })
         seenAppointmentIds.push(existing.id)
         updated++
       } else {
-        const row = await prisma.appointment.create({
-          data: {
-            businessId,
-            customerId,
-            staffId,
-            storeId: karuteStoreId,
-            startsAt: r.startsAt,
-            endsAt: r.endsAt,
-            durationMinutes: r.durationMinutes,
-            title: r.treatmentName,
-            notes: buildNotes(r),
-            status: 'SCHEDULED' as AppointmentStatus,
-            source: 'QUICKRESERVE' as AppointmentSource,
-            externalRefs: {
-              quickreserve: {
-                reservationId: r.qrReservationId,
-                rid: r.qrRid,
-                customerId: r.qrCustomerId,
-                staffId: r.qrStaffId,
-                treatmentId: r.treatmentId,
-              },
-            },
-          },
-        })
-        seenAppointmentIds.push(row.id)
-        created++
+        // Brand-new reservation to us. Insert it — but the customer-slot is
+        // unique, so if a booking already sits there (a pre-existing manual
+        // entry for the same visit, or a racing concurrent tick) the insert
+        // hits P2002. That is NOT an error: ADOPT the existing row — stamp the
+        // QR ref onto it and refresh from the feed — instead of duplicating.
+        // This is what makes "one visit = two bookings" impossible.
+        try {
+          const row = await prisma.appointment.create({
+            data: { businessId, ...qrData, externalRefs: qrExternalRefs },
+          })
+          seenAppointmentIds.push(row.id)
+          created++
+        } catch (e) {
+          if (!isUniqueViolation(e, 'startsAt')) throw e
+          const claimed = await prisma.appointment.findFirst({
+            where: { businessId, customerId, startsAt: r.startsAt },
+            select: { id: true },
+          })
+          if (!claimed) throw e
+          await prisma.appointment.update({
+            where: { id: claimed.id },
+            data: { ...qrData, externalRefs: qrExternalRefs },
+          })
+          seenAppointmentIds.push(claimed.id)
+          updated++
+        }
       }
     } catch (err) {
       skippedError++

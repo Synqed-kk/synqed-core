@@ -222,6 +222,13 @@ model Appointment {
   // External-ref-based dedup for upserts
   @@index([businessId, source])
   @@index([businessId, storeId])
+  // One booking per customer-slot. A customer cannot start two sessions at the
+  // same instant, so this is the hard guarantee that the QR crawl (or a
+  // slow-wifi save retry) can never mint a second row for the same visit —
+  // "one visit showing as two bookings." A genuine back-to-back double session
+  // has a DIFFERENT startsAt and is unaffected. Enforced-adopt on conflict in
+  // runQuickReserveSync claims the existing row instead of duplicating.
+  @@unique([businessId, customerId, startsAt])
   @@map("appointments")
 }
 
