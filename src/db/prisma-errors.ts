@@ -10,3 +10,14 @@ export function isUniqueViolation(e: unknown, field: string): boolean {
   const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '')
   return asStr.includes(field)
 }
+
+// True when `e` is a Prisma P2025 "record to update/delete does not exist"
+// error — the row vanished between a read and the write that targets it.
+export function isRecordNotFound(e: unknown): boolean {
+  return (
+    e !== null &&
+    typeof e === 'object' &&
+    'code' in e &&
+    (e as { code?: unknown }).code === 'P2025'
+  )
+}

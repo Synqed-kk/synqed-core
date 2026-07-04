@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import { isUniqueViolation } from '../db/prisma-errors.js'
+import { isUniqueViolation, isRecordNotFound } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -470,13 +470,35 @@ async function runQuickReserveSync(
           if (!isUniqueViolation(e, 'startsAt')) throw e
           const claimed = await prisma.appointment.findFirst({
             where: { businessId, customerId, startsAt: r.startsAt },
-            select: { id: true },
+            select: { id: true, externalRefs: true },
           })
           if (!claimed) throw e
-          await prisma.appointment.update({
-            where: { id: claimed.id },
-            data: { ...qrData, externalRefs: qrExternalRefs },
-          })
+          try {
+            await prisma.appointment.update({
+              where: { id: claimed.id },
+              // Merge, don't clobber: keep any non-QR refs already on the row
+              // (e.g. a future integration) and stamp the QR ref on top.
+              data: {
+                ...qrData,
+                externalRefs: {
+                  ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
+                  ...qrExternalRefs,
+                },
+              },
+            })
+          } catch (e2) {
+            // Narrow TOCTOU: the claimed row was deleted (e.g. a manual
+            // cancellation) between the findFirst and this update → P2025.
+            // Surface it as its own benign line instead of a generic "skipped
+            // reservation"; the row is gone, nothing to adopt, next tick recovers.
+            if (isRecordNotFound(e2)) {
+              console.warn(
+                `[sync] adopt race: claimed row ${claimed.id} for reservation ${r.qrReservationId} vanished before update; recovering next tick`,
+              )
+              continue
+            }
+            throw e2
+          }
           seenAppointmentIds.push(claimed.id)
           updated++
         }
