@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import type { KaruteStatus, EntryCategory } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
@@ -225,6 +226,33 @@ export async function getByRecordingSession(
 }
 
 export async function createKaruteRecord(
+  businessId: string,
+  input: CreateKaruteRecordInput,
+): Promise<KaruteRecordPublic> {
+  try {
+    return await createKaruteRecordInner(businessId, input)
+  } catch (e) {
+    // Idempotent retry: the client stamps a stable recording_session_id on each
+    // save. The UNIQUE(recording_session_id) index turns a retried save into a
+    // P2002 instead of a duplicate row — return the record already saved rather
+    // than surfacing a 500. Match the target column explicitly (not just any
+    // P2002) so a future second unique index on this table can't misroute here.
+    if (
+      input.recording_session_id &&
+      isUniqueViolation(e, 'recording_session_id')
+    ) {
+      const existing = await getByRecordingSession(
+        businessId,
+        input.recording_session_id,
+        { includeEntries: true },
+      )
+      if (existing) return existing
+    }
+    throw e
+  }
+}
+
+async function createKaruteRecordInner(
   businessId: string,
   input: CreateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
