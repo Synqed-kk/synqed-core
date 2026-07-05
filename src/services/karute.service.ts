@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import type { KaruteStatus, EntryCategory } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
@@ -234,13 +235,12 @@ export async function createKaruteRecord(
     // Idempotent retry: the client stamps a stable recording_session_id on each
     // save. The UNIQUE(recording_session_id) index turns a retried save into a
     // P2002 instead of a duplicate row — return the record already saved rather
-    // than surfacing a 500. On a create the only client-supplied unique key is
-    // recording_session_id (id is a server-generated uuid), so a P2002 here is
-    // always the recording-session collision.
-    const isUniqueConflict =
-      e !== null && typeof e === 'object' && 'code' in e &&
-      (e as { code?: unknown }).code === 'P2002'
-    if (input.recording_session_id && isUniqueConflict) {
+    // than surfacing a 500. Match the target column explicitly (not just any
+    // P2002) so a future second unique index on this table can't misroute here.
+    if (
+      input.recording_session_id &&
+      isUniqueViolation(e, 'recording_session_id')
+    ) {
       const existing = await getByRecordingSession(
         businessId,
         input.recording_session_id,
