@@ -116,12 +116,38 @@ describe('Appointments — overlap check', () => {
     expect(res.status).toBe(201)
   })
 
-  it('does NOT return 409 for overlapping time but different staff', async () => {
-    const customer = await seedTestCustomer({ email: 'appt-test-5@example.com' })
+  it('does NOT return 409 for overlapping time but different staff (different customers)', async () => {
+    const customer1 = await seedTestCustomer({ email: 'appt-test-5a@example.com' })
+    const customer2 = await seedTestCustomer({ email: 'appt-test-5b@example.com' })
     const staff1 = await seedTestStaff()
     const staff2 = await seedTestStaff({ name: '別スタッフ', role: 'STYLIST' })
 
-    // Existing appointment for staff1 10:00–11:00
+    // Existing appointment: customer1 with staff1, 10:00–11:00
+    await seedTestAppointment({
+      customerId: customer1.id,
+      staffId: staff1.id,
+      startsAt: new Date('2026-05-10T10:00:00Z'),
+      endsAt: new Date('2026-05-10T11:00:00Z'),
+      status: 'SCHEDULED',
+    })
+
+    // A different customer with staff2 in the same window — the overlap check is
+    // per-staff, so this must succeed.
+    const res = await req('POST', '/appointments', {
+      customer_id: customer2.id,
+      staff_id: staff2.id,
+      starts_at: '2026-05-10T10:00:00Z',
+      ends_at: '2026-05-10T11:00:00Z',
+    })
+
+    expect(res.status).toBe(201)
+  })
+
+  it('returns 409 when the SAME customer is booked at the same instant (two chairs)', async () => {
+    const customer = await seedTestCustomer({ email: 'appt-test-6@example.com' })
+    const staff1 = await seedTestStaff()
+    const staff2 = await seedTestStaff({ name: '別スタッフ', role: 'STYLIST' })
+
     await seedTestAppointment({
       customerId: customer.id,
       staffId: staff1.id,
@@ -130,7 +156,9 @@ describe('Appointments — overlap check', () => {
       status: 'SCHEDULED',
     })
 
-    // Book staff2 in the same time window — should succeed (different staff)
+    // Same customer, same start — a customer can't be in two chairs at once.
+    // UNIQUE(business_id, customer_id, starts_at) rejects it; the API surfaces a
+    // clean 409 rather than a raw P2002 → 500.
     const res = await req('POST', '/appointments', {
       customer_id: customer.id,
       staff_id: staff2.id,
@@ -138,6 +166,6 @@ describe('Appointments — overlap check', () => {
       ends_at: '2026-05-10T11:00:00Z',
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(409)
   })
 })
