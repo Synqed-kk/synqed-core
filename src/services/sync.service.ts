@@ -487,7 +487,12 @@ async function runQuickReserveSync(
           seenAppointmentIds.push(row.id)
           created++
         } catch (e) {
-          if (!isUniqueViolation(e, 'startsAt')) throw e
+          // meta.target carries DB COLUMN names (snake_case), so this must be
+          // 'starts_at' — 'startsAt' never matches, which silently disabled the
+          // adopt path: every QR reservation landing on an existing manual row
+          // was skipped instead of adopted, leaving those rows orphaned with
+          // empty external_refs (the crawl then can't own their cancellations).
+          if (!isUniqueViolation(e, 'starts_at')) throw e
           const claimed = await prisma.appointment.findFirst({
             where: { businessId, customerId, startsAt: r.startsAt },
             select: { id: true, externalRefs: true, status: true, statusSource: true },
@@ -716,7 +721,7 @@ async function findOrCreateCustomer(
       })
       return created.id
     } catch (e) {
-      if (isUniqueViolation(e, 'karuteNumber')) {
+      if (isUniqueViolation(e, 'karute_number')) {
         if (attempt < 4) continue
         throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
       }
