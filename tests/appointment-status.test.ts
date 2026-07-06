@@ -37,46 +37,50 @@ async function seedAppt(status?: 'SCHEDULED' | 'CANCELLED') {
   return { appt, staff }
 }
 
-describe('PATCH /appointments/:id/status — staff-set status + audit', () => {
+describe('PUT /appointments/:id — staff-set status + audit', () => {
   afterEach(async () => {
     await cleanupTestData()
   })
 
   it('sets NO_SHOW with the full staff audit trail', async () => {
     const { appt, staff } = await seedAppt()
-    const res = await req('PATCH', `/appointments/${appt.id}/status`, {
+    const res = await req('PUT', `/appointments/${appt.id}`, {
       status: 'NO_SHOW',
-      reason: '無断キャンセル',
+      status_reason: 'no-show-no-contact',
       acting_staff_id: staff.id,
     })
     expect(res.status).toBe(200)
 
     // Audit trail must be exposed in the API response (Liam's UI reads it).
     const json = await res.json()
+    expect(json.status).toBe('NO_SHOW')
     expect(json.status_source).toBe('STAFF')
     expect(json.status_set_by).toBe(staff.id)
-    expect(json.status_reason).toBe('無断キャンセル')
+    expect(json.status_reason).toBe('no-show-no-contact')
     expect(json.status_set_at).not.toBeNull()
+    expect(json.cancelled_at).not.toBeNull()
 
     const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(row.status).toBe('NO_SHOW')
     expect(row.statusSource).toBe('STAFF')
     expect(row.statusSetBy).toBe(staff.id)
-    expect(row.statusReason).toBe('無断キャンセル')
+    expect(row.statusReason).toBe('no-show-no-contact')
     expect(row.statusSetAt).not.toBeNull()
     expect(row.cancelledAt).not.toBeNull()
   })
 
   it('cancelling sets cancelledAt; returning to SCHEDULED clears it', async () => {
-    const { appt, staff } = await seedAppt('CANCELLED')
-    await req('PATCH', `/appointments/${appt.id}/status`, {
+    const { appt, staff } = await seedAppt()
+    await req('PUT', `/appointments/${appt.id}`, {
       status: 'CANCELLED',
+      status_reason: 'advance-cancel',
       acting_staff_id: staff.id,
     })
     const cancelled = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(cancelled.cancelledAt).not.toBeNull()
+    expect(cancelled.statusReason).toBe('advance-cancel')
 
-    await req('PATCH', `/appointments/${appt.id}/status`, {
+    await req('PUT', `/appointments/${appt.id}`, {
       status: 'SCHEDULED',
       acting_staff_id: staff.id,
     })
@@ -85,66 +89,30 @@ describe('PATCH /appointments/:id/status — staff-set status + audit', () => {
     expect(restored.cancelledAt).toBeNull()
   })
 
+  it('non-status edits leave the audit trail untouched', async () => {
+    const { appt, staff } = await seedAppt()
+    // First, staff-set NO_SHOW with a reason.
+    await req('PUT', `/appointments/${appt.id}`, {
+      status: 'NO_SHOW',
+      status_reason: 'no-show-no-contact',
+      acting_staff_id: staff.id,
+    })
+    // A later edit that doesn't touch status must not stamp/clear the audit.
+    await req('PUT', `/appointments/${appt.id}`, { title: 'カット' })
+    const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
+    expect(row.status).toBe('NO_SHOW')
+    expect(row.statusSource).toBe('STAFF')
+    expect(row.statusReason).toBe('no-show-no-contact')
+    expect(row.title).toBe('カット')
+  })
+
   it('404s for an unknown appointment', async () => {
     const { staff } = await seedAppt()
     const res = await req(
-      'PATCH',
-      '/appointments/00000000-0000-0000-0000-000000000000/status',
+      'PUT',
+      '/appointments/00000000-0000-0000-0000-000000000000',
       { status: 'CANCELLED', acting_staff_id: staff.id },
     )
     expect(res.status).toBe(404)
-  })
-
-  it('burn_ticket on a NO_SHOW consumes one flagged non-visit ticket', async () => {
-    const { appt, staff } = await seedAppt()
-    const pack = await prisma.ticketPack.create({
-      data: {
-        businessId: TEST_BUSINESS_ID,
-        customerId: appt.customerId,
-        kind: 'pack',
-        packSize: 10,
-        unitPrice: 1000,
-        purchaseRound: 0,
-        status: 'active',
-      },
-    })
-
-    const res = await req('PATCH', `/appointments/${appt.id}/status`, {
-      status: 'NO_SHOW',
-      acting_staff_id: staff.id,
-      burn_ticket: true,
-    })
-    expect(res.status).toBe(200)
-
-    const reds = await prisma.packRedemption.findMany({ where: { packId: pack.id } })
-    expect(reds).toHaveLength(1)
-    expect(reds[0].countsAsVisit).toBe(false)
-    expect(reds[0].source).toBe('no_show')
-  })
-
-  it('default no-show burns nothing', async () => {
-    const { appt, staff } = await seedAppt()
-    await prisma.ticketPack.create({
-      data: {
-        businessId: TEST_BUSINESS_ID, customerId: appt.customerId,
-        kind: 'pack', packSize: 10, unitPrice: 1000, purchaseRound: 0, status: 'active',
-      },
-    })
-    await req('PATCH', `/appointments/${appt.id}/status`, {
-      status: 'NO_SHOW',
-      acting_staff_id: staff.id,
-    })
-    const reds = await prisma.packRedemption.findMany({ where: { customerId: appt.customerId } })
-    expect(reds).toHaveLength(0)
-  })
-
-  it('burn_ticket with no active pack returns 400', async () => {
-    const { appt, staff } = await seedAppt()
-    const res = await req('PATCH', `/appointments/${appt.id}/status`, {
-      status: 'NO_SHOW',
-      acting_staff_id: staff.id,
-      burn_ticket: true,
-    })
-    expect(res.status).toBe(400)
   })
 })

@@ -39,5 +39,7 @@ describe('customerEnrichment — NO_SHOW is not a visit', () => {
     expect(row).toBeDefined()
     expect(row!.past_appointment_count).toBe(1)
     expect(row!.dated_visit_count).toBe(1)
+    // ...but it IS surfaced as a per-customer no-show count (Liam's repeat-no-show badge).
+    expect(row!.no_show_count).toBe(1)
   })
 })

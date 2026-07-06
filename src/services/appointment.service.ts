@@ -1,10 +1,8 @@
 import { prisma } from '../db/client.js'
-import { listActivePacks } from './packs.service.js'
 import type { AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
-  SetStatusInput,
 } from '../validations/appointment.js'
 
 export class AppointmentOverlapError extends Error {
@@ -198,78 +196,22 @@ export async function updateAppointment(
   if (input.notes !== undefined) data.notes = input.notes
   if (input.status !== undefined) {
     data.status = input.status
-    // Cancelling through HTTP clears cancelledAt timestamp appropriately
-    if (input.status === 'CANCELLED' && !existing.cancelledAt) {
+    // A status change through the app is a staff decision — stamp the audit
+    // trail (who/why/when) and mark statusSource=STAFF so the QuickReserve crawl
+    // won't overwrite it (see sync.service stripStaffLockedStatus).
+    data.statusSource = 'STAFF'
+    data.statusSetBy = input.acting_staff_id ?? null
+    data.statusReason = input.status_reason ?? null
+    data.statusSetAt = new Date()
+    const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
+    if (terminal && !existing.cancelledAt) {
       data.cancelledAt = new Date()
-    } else if (input.status !== 'CANCELLED' && existing.cancelledAt) {
+    } else if (!terminal && existing.cancelledAt) {
       data.cancelledAt = null
     }
   }
 
   const row = await prisma.appointment.update({ where: { id }, data })
-  return toPublic(row)
-}
-
-/**
- * Staff-set status change — the audited path. Records who/why/when and stamps
- * statusSource=STAFF so the QuickReserve crawl won't overwrite the decision
- * (see runQuickReserveSync + markOrphanedCancelled). burn_ticket handling is
- * layered on in a follow-up.
- */
-export async function setAppointmentStatus(
-  businessId: string,
-  id: string,
-  input: SetStatusInput,
-): Promise<AppointmentPublic> {
-  const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
-  if (!existing) throw new Error('Appointment not found')
-
-  // Resolve the burn target BEFORE mutating anything, so a no-active-pack
-  // request fails cleanly with the row untouched (no split-brain where the
-  // status commits but the caller gets a 400).
-  const wantsBurn = input.burn_ticket === true && input.status === 'NO_SHOW'
-  let burnPackId: string | null = null
-  if (wantsBurn) {
-    const activePack = (await listActivePacks(businessId)).find(
-      (p) => p.customer_id === existing.customerId,
-    )
-    if (!activePack) throw new Error('No active pack to burn')
-    burnPackId = activePack.id
-  }
-
-  const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
-  // Status update + optional burn are one transaction: if the redemption fails
-  // (e.g. the below-zero guard rejects a full pack) the status change rolls back
-  // too, so the appointment and its money data never disagree.
-  const row = await prisma.$transaction(async (tx) => {
-    const updated = await tx.appointment.update({
-      where: { id },
-      data: {
-        status: input.status as AppointmentStatus,
-        statusSource: 'STAFF',
-        statusSetBy: input.acting_staff_id,
-        statusReason: input.reason ?? null,
-        statusSetAt: new Date(),
-        cancelledAt: terminal ? (existing.cancelledAt ?? new Date()) : null,
-      },
-    })
-    if (burnPackId) {
-      await tx.packRedemption.create({
-        data: {
-          businessId,
-          packId: burnPackId,
-          customerId: existing.customerId,
-          redeemedOn: new Date(),
-          appointmentId: id,
-          source: 'no_show',
-          createdBy: input.acting_staff_id,
-          countsAsVisit: false,
-        },
-      })
-    }
-    return updated
-  })
-
   return toPublic(row)
 }
 
