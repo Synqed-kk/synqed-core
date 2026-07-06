@@ -5,10 +5,15 @@ import {
   updateStaffSchema,
   listStaffSchema,
   setPinSchema,
+  removePinSchema,
   verifyPinSchema,
 } from '../validations/staff.js'
 import * as staffService from '../services/staff.service.js'
-import { StaffLastMemberError, StaffAttributedRecordsError } from '../services/staff.service.js'
+import {
+  StaffLastMemberError,
+  StaffAttributedRecordsError,
+  StaffForbiddenError,
+} from '../services/staff.service.js'
 
 export const staffRoutes = new Hono<AppEnv>()
 
@@ -77,9 +82,12 @@ staffRoutes.put('/:id/pin', async (c) => {
   const parsed = setPinSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
-    await staffService.setPin(businessId, id, parsed.data.pin)
+    await staffService.setPin(businessId, id, parsed.data.pin, parsed.data.acting_staff_id)
     return c.json({ success: true })
   } catch (err) {
+    if (err instanceof StaffForbiddenError) {
+      return c.json({ error: err.message }, 403)
+    }
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
     }
@@ -90,10 +98,16 @@ staffRoutes.put('/:id/pin', async (c) => {
 staffRoutes.delete('/:id/pin', async (c) => {
   const businessId = c.get('businessId')
   const id = c.req.param('id')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = removePinSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
-    await staffService.removePin(businessId, id)
+    await staffService.removePin(businessId, id, parsed.data.acting_staff_id)
     return c.json({ success: true })
   } catch (err) {
+    if (err instanceof StaffForbiddenError) {
+      return c.json({ error: err.message }, 403)
+    }
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
     }
