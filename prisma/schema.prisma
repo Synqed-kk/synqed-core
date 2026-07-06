@@ -237,13 +237,20 @@ model Appointment {
   // External-ref-based dedup for upserts
   @@index([businessId, source])
   @@index([businessId, storeId])
-  // One booking per customer-slot. A customer cannot start two sessions at the
-  // same instant, so this is the hard guarantee that the QR crawl (or a
+  // One ACTIVE booking per customer-slot. A customer cannot start two sessions
+  // at the same instant, so this is the hard guarantee that the QR crawl (or a
   // slow-wifi save retry) can never mint a second row for the same visit —
   // "one visit showing as two bookings." A genuine back-to-back double session
   // has a DIFFERENT startsAt and is unaffected. Enforced-adopt on conflict in
   // runQuickReserveSync claims the existing row instead of duplicating.
-  @@unique([businessId, customerId, startsAt])
+  //
+  // This is a PARTIAL unique index (WHERE status NOT IN ('CANCELLED','NO_SHOW'))
+  // — a terminal booking frees its slot so the customer can rebook it. Prisma
+  // can't express partial uniqueness, so it lives in the manual migration
+  // 2026-07-06-appointment-active-slot-partial.sql, not as an @@unique here.
+  // Nothing in code does a compound findUnique on this key (adopt uses findFirst).
+  // With @@unique gone, P2002 reports the raw index NAME, so that name contains
+  // "starts_at" and isUniqueViolation(e, 'starts_at') still matches (adopt + 409).
   @@map("appointments")
 }
 

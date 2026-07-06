@@ -1,5 +1,6 @@
 import { prisma } from '../db/client.js'
 import type { AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -9,6 +10,13 @@ export class AppointmentOverlapError extends Error {
   constructor(message = 'This time slot overlaps with an existing booking.') {
     super(message)
     this.name = 'AppointmentOverlapError'
+  }
+}
+
+export class CustomerSlotConflictError extends Error {
+  constructor(message = 'This customer already has a booking at this time.') {
+    super(message)
+    this.name = 'CustomerSlotConflictError'
   }
 }
 
@@ -162,22 +170,33 @@ export async function createAppointment(
 
   if (overlapping) throw new AppointmentOverlapError()
 
-  const row = await prisma.appointment.create({
-    data: {
-      businessId,
-      customerId: input.customer_id,
-      staffId: input.staff_id,
-      storeId: input.store_id ?? null,
-      startsAt,
-      endsAt,
-      durationMinutes: input.duration_minutes ?? null,
-      title: input.title ?? null,
-      notes: input.notes ?? null,
-      status: input.status ?? 'SCHEDULED',
-      source: input.source ?? 'MANUAL',
-    },
-  })
-  return toPublic(row)
+  // A customer can't be in two chairs at once: UNIQUE(business_id, customer_id,
+  // starts_at) enforces one booking per customer per instant (and is what lets
+  // the QR crawl adopt a manual row instead of twinning it — see sync.service).
+  // The per-staff overlap check above can't catch a same-customer/same-time
+  // booking under a DIFFERENT staff, so the DB constraint is the backstop.
+  // Surface that collision as a clean 409 rather than a raw P2002 → 500.
+  try {
+    const row = await prisma.appointment.create({
+      data: {
+        businessId,
+        customerId: input.customer_id,
+        staffId: input.staff_id,
+        storeId: input.store_id ?? null,
+        startsAt,
+        endsAt,
+        durationMinutes: input.duration_minutes ?? null,
+        title: input.title ?? null,
+        notes: input.notes ?? null,
+        status: input.status ?? 'SCHEDULED',
+        source: input.source ?? 'MANUAL',
+      },
+    })
+    return toPublic(row)
+  } catch (e) {
+    if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
+    throw e
+  }
 }
 
 export async function updateAppointment(

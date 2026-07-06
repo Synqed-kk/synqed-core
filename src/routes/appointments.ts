@@ -6,7 +6,10 @@ import {
   listAppointmentsSchema,
 } from '../validations/appointment.js'
 import * as appointmentService from '../services/appointment.service.js'
-import { AppointmentOverlapError } from '../services/appointment.service.js'
+import {
+  AppointmentOverlapError,
+  CustomerSlotConflictError,
+} from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
 
@@ -35,7 +38,7 @@ appointmentRoutes.post('/', async (c) => {
     const appointment = await appointmentService.createAppointment(businessId, parsed.data)
     return c.json(appointment, 201)
   } catch (err) {
-    if (err instanceof AppointmentOverlapError) {
+    if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
       return c.json({ error: err.message }, 409)
     }
     throw err
