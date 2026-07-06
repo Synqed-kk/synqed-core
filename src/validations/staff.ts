@@ -22,6 +22,13 @@ export const listStaffSchema = z.object({
 
 export const setPinSchema = z.object({
   pin: z.string().regex(/^\d{4}$/, 'PIN must be exactly 4 digits'),
+  // Who is performing the change. Required: PIN mutation is gated server-side
+  // (you may set your own PIN; OWNER/ADMIN may set anyone's). See staff.service.
+  acting_staff_id: z.string().uuid(),
+})
+
+export const removePinSchema = z.object({
+  acting_staff_id: z.string().uuid(),
 })
 
 export const verifyPinSchema = z.object({

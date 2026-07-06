@@ -18,6 +18,41 @@ export class StaffAttributedRecordsError extends Error {
   }
 }
 
+export class StaffForbiddenError extends Error {
+  constructor(message = 'Not permitted to change this staff PIN.') {
+    super(message)
+    this.name = 'StaffForbiddenError'
+  }
+}
+
+// A PIN change is allowed only when the acting staff is setting their OWN PIN,
+// or is an OWNER/ADMIN of the same business. The acting staff must be a live
+// member of the business — an unknown / other-tenant / inactive actor is denied
+// (fail closed). Throws StaffForbiddenError otherwise.
+//
+// Trust boundary: core is a shared-secret backend (api-key + x-business-id); it
+// has no per-user session, so it cannot cryptographically verify the caller IS
+// `actingStaffId`. This gate assumes the app sets acting_staff_id from the
+// authenticated session — NOT from client-controlled input. Its job is to stop
+// the app's own flows from crossing roles (a signed-in STYLIST clearing a
+// colleague's PIN), not to defend a leaked api-key. True server-side
+// enforcement would require per-user auth (JWT) at the core boundary — tracked
+// separately.
+async function assertCanManagePin(
+  businessId: string,
+  targetStaffId: string,
+  actingStaffId: string,
+): Promise<void> {
+  const acting = await prisma.staff.findFirst({
+    where: { id: actingStaffId, businessId, isActive: true },
+    select: { id: true, role: true },
+  })
+  if (!acting) throw new StaffForbiddenError()
+  const isSelf = acting.id === targetStaffId
+  const isManager = acting.role === 'OWNER' || acting.role === 'ADMIN'
+  if (!isSelf && !isManager) throw new StaffForbiddenError()
+}
+
 export interface StaffPublic {
   id: string
   business_id: string
@@ -144,7 +179,13 @@ export async function deleteStaff(businessId: string, id: string): Promise<void>
   await prisma.staff.delete({ where: { id } })
 }
 
-export async function setPin(businessId: string, staffId: string, pin: string): Promise<void> {
+export async function setPin(
+  businessId: string,
+  staffId: string,
+  pin: string,
+  actingStaffId: string,
+): Promise<void> {
+  await assertCanManagePin(businessId, staffId, actingStaffId)
   const result = await prisma.staff.updateMany({
     where: { id: staffId, businessId },
     data: { pinHash: hashPin(pin) },
@@ -152,7 +193,12 @@ export async function setPin(businessId: string, staffId: string, pin: string): 
   if (result.count === 0) throw new Error('Staff not found')
 }
 
-export async function removePin(businessId: string, staffId: string): Promise<void> {
+export async function removePin(
+  businessId: string,
+  staffId: string,
+  actingStaffId: string,
+): Promise<void> {
+  await assertCanManagePin(businessId, staffId, actingStaffId)
   const result = await prisma.staff.updateMany({
     where: { id: staffId, businessId },
     data: { pinHash: null },
