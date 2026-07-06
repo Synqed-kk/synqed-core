@@ -183,6 +183,15 @@ enum AppointmentStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+  NO_SHOW
+}
+
+// Who last set an appointment's status. STAFF-set terminal statuses win over
+// the QuickReserve crawl (it must never flip a staff cancel/no-show back).
+enum StatusSource {
+  SYSTEM
+  QR
+  STAFF
 }
 
 enum AppointmentSource {
@@ -210,6 +219,12 @@ model Appointment {
   // External system references. Shape: { quickreserve: { reservationId: 12345, rid: "abc" } }
   externalRefs    Json              @default("{}") @map("external_refs")
   cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz()
+  // Status audit + sync-win. status_source=STAFF marks a human decision the
+  // crawl must not overwrite; the rest is the who/why/when audit trail.
+  statusSource    StatusSource      @default(SYSTEM) @map("status_source")
+  statusSetBy     String?           @map("status_set_by") @db.Uuid
+  statusReason    String?           @map("status_reason")
+  statusSetAt     DateTime?         @map("status_set_at") @db.Timestamptz()
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -606,6 +621,8 @@ model PackRedemption {
   appointmentId  String?  @map("appointment_id")
   karuteRecordId String?  @map("karute_record_id")
   source         String   @default("manual")
+  // A no-show burn is money-tracked but must never count as a visit.
+  countsAsVisit  Boolean  @default(true) @map("counts_as_visit")
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 

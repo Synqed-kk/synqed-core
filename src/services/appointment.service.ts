@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { AppointmentStatus, AppointmentSource } from '@prisma/client'
+import type { AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -27,6 +27,10 @@ export interface AppointmentPublic {
   source: AppointmentSource
   external_refs: unknown
   cancelled_at: string | null
+  status_source: StatusSource
+  status_set_by: string | null
+  status_reason: string | null
+  status_set_at: string | null
   created_at: string
   updated_at: string
 }
@@ -46,6 +50,10 @@ function toPublic(row: {
   source: AppointmentSource
   externalRefs: unknown
   cancelledAt: Date | null
+  statusSource: StatusSource
+  statusSetBy: string | null
+  statusReason: string | null
+  statusSetAt: Date | null
   createdAt: Date
   updatedAt: Date
 }): AppointmentPublic {
@@ -64,6 +72,10 @@ function toPublic(row: {
     source: row.source,
     external_refs: row.externalRefs,
     cancelled_at: row.cancelledAt?.toISOString() ?? null,
+    status_source: row.statusSource,
+    status_set_by: row.statusSetBy,
+    status_reason: row.statusReason,
+    status_set_at: row.statusSetAt?.toISOString() ?? null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -139,7 +151,9 @@ export async function createAppointment(
       // Per-store: a staff double-booking is only a conflict within the same
       // location. null-store bookings conflict only with other null-store ones.
       storeId: input.store_id ?? null,
-      status: { not: 'CANCELLED' },
+      // A terminal booking (cancelled or no-show) frees the slot — the customer
+      // isn't coming, so it must be rebookable.
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
     },
@@ -184,10 +198,17 @@ export async function updateAppointment(
   if (input.notes !== undefined) data.notes = input.notes
   if (input.status !== undefined) {
     data.status = input.status
-    // Cancelling through HTTP clears cancelledAt timestamp appropriately
-    if (input.status === 'CANCELLED' && !existing.cancelledAt) {
+    // A status change through the app is a staff decision — stamp the audit
+    // trail (who/why/when) and mark statusSource=STAFF so the QuickReserve crawl
+    // won't overwrite it (see sync.service stripStaffLockedStatus).
+    data.statusSource = 'STAFF'
+    data.statusSetBy = input.acting_staff_id ?? null
+    data.statusReason = input.status_reason ?? null
+    data.statusSetAt = new Date()
+    const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
+    if (terminal && !existing.cancelledAt) {
       data.cancelledAt = new Date()
-    } else if (input.status !== 'CANCELLED' && existing.cancelledAt) {
+    } else if (!terminal && existing.cancelledAt) {
       data.cancelledAt = null
     }
   }

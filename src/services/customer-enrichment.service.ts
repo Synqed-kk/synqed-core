@@ -20,6 +20,7 @@ export interface CustomerEnrichmentRow {
   booking_staff_id: string | null
   next_appointment: string | null
   dated_visit_count: number
+  no_show_count: number
 }
 
 interface Raw {
@@ -32,6 +33,7 @@ interface Raw {
   booking_staff_id: string | null
   next_appointment: Date | null
   dated_visit_count: number
+  no_show_count: number
 }
 
 export async function customerEnrichment(businessId: string): Promise<CustomerEnrichmentRow[]> {
@@ -40,7 +42,13 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
     with appt as (
       select customer_id, starts_at, title, staff_id
       from appointments
-      where business_id = $1::uuid and status::text <> 'CANCELLED'
+      where business_id = $1::uuid and status::text not in ('CANCELLED', 'NO_SHOW')
+    ),
+    noshow as (
+      select customer_id, count(*)::int n
+      from appointments
+      where business_id = $1::uuid and status::text = 'NO_SHOW'
+      group by customer_id
     ),
     kar as (
       select customer_id, created_at
@@ -64,7 +72,11 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
       select distinct on (customer_id) customer_id, starts_at, staff_id
       from appt where starts_at >= now() order by customer_id, starts_at asc
     ),
-    ids as ( select customer_id from kar_agg union select customer_id from appt )
+    ids as (
+      select customer_id from kar_agg
+      union select customer_id from appt
+      union select customer_id from noshow
+    )
     select
       i.customer_id::text as customer_id,
       coalesce(ka.n, 0) as total_karute,
@@ -74,12 +86,14 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
       lp.title as last_visit_service,
       na.starts_at as next_appointment,
       coalesce(ka.n, 0) + coalesce(pa.n, 0) as dated_visit_count,
+      coalesce(ns.n, 0) as no_show_count,
       coalesce(st.user_id::text, coalesce(na.staff_id, lp.staff_id)::text) as booking_staff_id
     from (select distinct customer_id from ids) i
     left join kar_agg  ka on ka.customer_id = i.customer_id
     left join past_agg pa on pa.customer_id = i.customer_id
     left join last_past lp on lp.customer_id = i.customer_id
     left join next_appt na on na.customer_id = i.customer_id
+    left join noshow   ns on ns.customer_id = i.customer_id
     left join staff st on st.id = coalesce(na.staff_id, lp.staff_id)
     `,
     businessId,
@@ -94,5 +108,6 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
     booking_staff_id: r.booking_staff_id,
     next_appointment: r.next_appointment ? r.next_appointment.toISOString() : null,
     dated_visit_count: r.dated_visit_count,
+    no_show_count: r.no_show_count,
   }))
 }

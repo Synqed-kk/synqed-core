@@ -13,7 +13,24 @@ import type {
   SyncStatus,
   AppointmentSource,
   AppointmentStatus,
+  StatusSource,
 } from '@prisma/client'
+
+// A staff-set terminal status (CANCELLED / NO_SHOW) is a human decision the
+// QuickReserve crawl must never overwrite. Strip status + cancelledAt from a
+// crawl update when the existing row is staff-locked so title/notes/times/refs
+// still refresh but the staff decision stands.
+export function stripStaffLockedStatus<T extends Record<string, unknown>>(
+  data: T,
+  existing: { status: AppointmentStatus; statusSource: StatusSource },
+): T {
+  const locked =
+    existing.statusSource === 'STAFF' &&
+    (existing.status === 'CANCELLED' || existing.status === 'NO_SHOW')
+  if (!locked) return data
+  const { status: _s, cancelledAt: _c, ...rest } = data
+  return rest as T
+}
 
 // =============================================================================
 // Types exposed via HTTP
@@ -450,7 +467,10 @@ async function runQuickReserveSync(
       // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
       const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
       if (existing) {
-        await prisma.appointment.update({ where: { id: existing.id }, data: qrData })
+        await prisma.appointment.update({
+          where: { id: existing.id },
+          data: stripStaffLockedStatus({ ...qrData }, existing),
+        })
         seenAppointmentIds.push(existing.id)
         updated++
       } else {
@@ -470,21 +490,25 @@ async function runQuickReserveSync(
           if (!isUniqueViolation(e, 'startsAt')) throw e
           const claimed = await prisma.appointment.findFirst({
             where: { businessId, customerId, startsAt: r.startsAt },
-            select: { id: true, externalRefs: true },
+            select: { id: true, externalRefs: true, status: true, statusSource: true },
           })
           if (!claimed) throw e
           try {
             await prisma.appointment.update({
               where: { id: claimed.id },
               // Merge, don't clobber: keep any non-QR refs already on the row
-              // (e.g. a future integration) and stamp the QR ref on top.
-              data: {
-                ...qrData,
-                externalRefs: {
-                  ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
-                  ...qrExternalRefs,
+              // (e.g. a future integration) and stamp the QR ref on top. Also
+              // preserve a staff-set terminal status (adopt must not un-cancel).
+              data: stripStaffLockedStatus(
+                {
+                  ...qrData,
+                  externalRefs: {
+                    ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
+                    ...qrExternalRefs,
+                  },
                 },
-              },
+                claimed,
+              ),
             })
           } catch (e2) {
             // Narrow TOCTOU: the claimed row was deleted (e.g. a manual
@@ -749,18 +773,18 @@ async function reconcileExisting(
 async function findAppointmentByQrId(
   businessId: string,
   qrReservationId: number,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; status: AppointmentStatus; statusSource: StatusSource } | null> {
   return prisma.appointment.findFirst({
     where: {
       businessId,
       source: 'QUICKRESERVE' as AppointmentSource,
       externalRefs: { path: ['quickreserve', 'reservationId'], equals: qrReservationId },
     },
-    select: { id: true },
+    select: { id: true, status: true, statusSource: true },
   })
 }
 
-async function markOrphanedCancelled(
+export async function markOrphanedCancelled(
   businessId: string,
   windowStart: Date,
   windowEnd: Date,
@@ -772,7 +796,10 @@ async function markOrphanedCancelled(
       source: 'QUICKRESERVE' as AppointmentSource,
       startsAt: { gte: windowStart, lt: windowEnd },
       cancelledAt: null,
-      status: { not: 'CANCELLED' as AppointmentStatus },
+      // Never re-touch a terminal row, and never override a staff decision — a
+      // staff-set CANCELLED/NO_SHOW must survive the crawl's orphan sweep.
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] as AppointmentStatus[] },
+      statusSource: { not: 'STAFF' as StatusSource },
       id: { notIn: seenIds },
     },
     data: {
