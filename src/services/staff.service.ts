@@ -29,6 +29,15 @@ export class StaffForbiddenError extends Error {
 // or is an OWNER/ADMIN of the same business. The acting staff must be a live
 // member of the business — an unknown / other-tenant / inactive actor is denied
 // (fail closed). Throws StaffForbiddenError otherwise.
+//
+// Trust boundary: core is a shared-secret backend (api-key + x-business-id); it
+// has no per-user session, so it cannot cryptographically verify the caller IS
+// `actingStaffId`. This gate assumes the app sets acting_staff_id from the
+// authenticated session — NOT from client-controlled input. Its job is to stop
+// the app's own flows from crossing roles (a signed-in STYLIST clearing a
+// colleague's PIN), not to defend a leaked api-key. True server-side
+// enforcement would require per-user auth (JWT) at the core boundary — tracked
+// separately.
 async function assertCanManagePin(
   businessId: string,
   targetStaffId: string,

@@ -54,6 +54,10 @@ describe('Staff PIN endpoints', () => {
 
   afterEach(async () => {
     await cleanupTestData()
+    // The cross-tenant test seeds a staff row under business B, which
+    // cleanupTestData (scoped to the test business) doesn't touch. Clear it
+    // here so it runs even if an assertion fails mid-test.
+    await testPrisma.staff.deleteMany({ where: { businessId: BUSINESS_B_ID } })
   })
 
   it('PUT /:id/pin (self) sets a PIN and GET /:id/pin returns has_pin: true', async () => {
@@ -107,7 +111,7 @@ describe('Staff PIN endpoints', () => {
 
     await req('PUT', `/staff/${staff.id}/pin`, { pin: '9999', acting_staff_id: staff.id })
 
-    const delRes = await req('DELETE', `/staff/${staff.id}/pin`, { acting_staff_id: staff.id })
+    const delRes = await req('DELETE', `/staff/${staff.id}/pin?acting_staff_id=${staff.id}`)
     expect(delRes.status).toBe(200)
     const delBody = await delRes.json()
     expect(delBody.success).toBe(true)
@@ -183,7 +187,7 @@ describe('Staff PIN endpoints', () => {
     await req('PUT', `/staff/${target.id}/pin`, { pin: '1234', acting_staff_id: owner.id })
     const actor = await seedTestStaff({ role: 'STYLIST' })
 
-    const res = await req('DELETE', `/staff/${target.id}/pin`, { acting_staff_id: actor.id })
+    const res = await req('DELETE', `/staff/${target.id}/pin?acting_staff_id=${actor.id}`)
     expect(res.status).toBe(403)
     const row = await testPrisma.staff.findFirst({ where: { id: target.id } })
     expect(row!.pinHash).not.toBeNull()
@@ -256,8 +260,6 @@ describe('Staff PIN endpoints', () => {
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.error).toMatch(/not found/i)
-
-    await testPrisma.staff.deleteMany({ where: { businessId: BUSINESS_B_ID } })
   })
 
   it('cross-tenant: POST /:id/pin/verify for tenant A staff from tenant B headers returns 404', async () => {
@@ -287,9 +289,10 @@ describe('Staff PIN endpoints', () => {
 
   it('DELETE /:id/pin for unknown staff ID (as OWNER) returns 404', async () => {
     const owner = await seedManager('OWNER')
-    const res = await req('DELETE', '/staff/00000000-0000-0000-0000-000000000099/pin', {
-      acting_staff_id: owner.id,
-    })
+    const res = await req(
+      'DELETE',
+      `/staff/00000000-0000-0000-0000-000000000099/pin?acting_staff_id=${owner.id}`,
+    )
     expect(res.status).toBe(404)
   })
 

@@ -98,8 +98,10 @@ staffRoutes.put('/:id/pin', async (c) => {
 staffRoutes.delete('/:id/pin', async (c) => {
   const businessId = c.get('businessId')
   const id = c.req.param('id')
-  const body = await c.req.json().catch(() => ({}))
-  const parsed = removePinSchema.safeParse(body)
+  // acting_staff_id rides the query string, not a body: some HTTP clients and
+  // proxies silently drop DELETE request bodies, which would turn the auth
+  // field into a hard-to-diagnose 400.
+  const parsed = removePinSchema.safeParse({ acting_staff_id: c.req.query('acting_staff_id') })
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
     await staffService.removePin(businessId, id, parsed.data.acting_staff_id)
