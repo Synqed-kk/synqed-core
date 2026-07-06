@@ -277,7 +277,7 @@ export async function createCustomer(
       }
       // karuteNumber (max+1) races under concurrent creates: retry a few
       // times, then surface the exhaustion clearly (reachable, not dead code).
-      if (isUniqueViolation(e, 'karuteNumber')) {
+      if (isUniqueViolation(e, 'karute_number')) {
         if (attempt < 4) continue
         throw new Error('createCustomer: exhausted karuteNumber retries')
       }

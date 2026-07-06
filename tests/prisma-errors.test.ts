@@ -25,6 +25,14 @@ describe('isUniqueViolation', () => {
     expect(isUniqueViolation(err, 'starts_at')).toBe(true)
   })
 
+  it('karute_number: snake column matches, camelCase field does not', () => {
+    // customer.service + sync.service retry on this key; the column is
+    // @map("karute_number"), so 'karuteNumber' never matched.
+    const err = p2002(['business_id', 'karute_number'])
+    expect(isUniqueViolation(err, 'karute_number')).toBe(true)
+    expect(isUniqueViolation(err, 'karuteNumber')).toBe(false)
+  })
+
   it('is false for a non-P2002 error', () => {
     expect(isUniqueViolation({ code: 'P2025' }, 'starts_at')).toBe(false)
     expect(isUniqueViolation(null, 'starts_at')).toBe(false)
