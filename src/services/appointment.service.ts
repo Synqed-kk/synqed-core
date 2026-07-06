@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import { listActivePacks, addRedemption } from './packs.service.js'
+import { listActivePacks } from './packs.service.js'
 import type { AppointmentStatus, AppointmentSource } from '@prisma/client'
 import type {
   CreateAppointmentInput,
@@ -212,37 +212,51 @@ export async function setAppointmentStatus(
   const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Appointment not found')
 
-  const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
-  const row = await prisma.appointment.update({
-    where: { id },
-    data: {
-      status: input.status as AppointmentStatus,
-      statusSource: 'STAFF',
-      statusSetBy: input.acting_staff_id,
-      statusReason: input.reason ?? null,
-      statusSetAt: new Date(),
-      cancelledAt: terminal ? (existing.cancelledAt ?? new Date()) : null,
-    },
-  })
-
-  // Optional last-minute no-show burn: consume ONE ticket from the customer's
-  // oldest active pack, flagged counts_as_visit=false so it never becomes a
-  // visit. Burns nothing by default.
-  if (input.burn_ticket && input.status === 'NO_SHOW') {
+  // Resolve the burn target BEFORE mutating anything, so a no-active-pack
+  // request fails cleanly with the row untouched (no split-brain where the
+  // status commits but the caller gets a 400).
+  const wantsBurn = input.burn_ticket === true && input.status === 'NO_SHOW'
+  let burnPackId: string | null = null
+  if (wantsBurn) {
     const activePack = (await listActivePacks(businessId)).find(
       (p) => p.customer_id === existing.customerId,
     )
     if (!activePack) throw new Error('No active pack to burn')
-    await addRedemption(businessId, {
-      pack_id: activePack.id,
-      customer_id: existing.customerId,
-      redeemed_on: new Date().toISOString().slice(0, 10),
-      appointment_id: id,
-      source: 'no_show',
-      created_by: input.acting_staff_id,
-      counts_as_visit: false,
-    })
+    burnPackId = activePack.id
   }
+
+  const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
+  // Status update + optional burn are one transaction: if the redemption fails
+  // (e.g. the below-zero guard rejects a full pack) the status change rolls back
+  // too, so the appointment and its money data never disagree.
+  const row = await prisma.$transaction(async (tx) => {
+    const updated = await tx.appointment.update({
+      where: { id },
+      data: {
+        status: input.status as AppointmentStatus,
+        statusSource: 'STAFF',
+        statusSetBy: input.acting_staff_id,
+        statusReason: input.reason ?? null,
+        statusSetAt: new Date(),
+        cancelledAt: terminal ? (existing.cancelledAt ?? new Date()) : null,
+      },
+    })
+    if (burnPackId) {
+      await tx.packRedemption.create({
+        data: {
+          businessId,
+          packId: burnPackId,
+          customerId: existing.customerId,
+          redeemedOn: new Date(),
+          appointmentId: id,
+          source: 'no_show',
+          createdBy: input.acting_staff_id,
+          countsAsVisit: false,
+        },
+      })
+    }
+    return updated
+  })
 
   return toPublic(row)
 }
