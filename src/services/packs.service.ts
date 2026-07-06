@@ -121,6 +121,7 @@ export async function listRecentRedemptions(
 export interface AddRedemptionInput {
   pack_id: string; customer_id: string; redeemed_on: string
   appointment_id?: string | null; karute_record_id?: string | null; source?: string; created_by?: string | null
+  counts_as_visit?: boolean
 }
 
 export async function addRedemption(businessId: string, input: AddRedemptionInput): Promise<{ id: string }> {
@@ -130,6 +131,7 @@ export async function addRedemption(businessId: string, input: AddRedemptionInpu
       redeemedOn: new Date(input.redeemed_on), appointmentId: input.appointment_id ?? null,
       karuteRecordId: input.karute_record_id ?? null, source: input.source ?? 'manual',
       createdBy: input.created_by ?? null,
+      countsAsVisit: input.counts_as_visit ?? true,
     },
     select: { id: true },
   })

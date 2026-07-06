@@ -87,4 +87,57 @@ describe('PATCH /appointments/:id/status — staff-set status + audit', () => {
     )
     expect(res.status).toBe(404)
   })
+
+  it('burn_ticket on a NO_SHOW consumes one flagged non-visit ticket', async () => {
+    const { appt, staff } = await seedAppt()
+    const pack = await prisma.ticketPack.create({
+      data: {
+        businessId: TEST_BUSINESS_ID,
+        customerId: appt.customerId,
+        kind: 'pack',
+        packSize: 10,
+        unitPrice: 1000,
+        purchaseRound: 0,
+        status: 'active',
+      },
+    })
+
+    const res = await req('PATCH', `/appointments/${appt.id}/status`, {
+      status: 'NO_SHOW',
+      acting_staff_id: staff.id,
+      burn_ticket: true,
+    })
+    expect(res.status).toBe(200)
+
+    const reds = await prisma.packRedemption.findMany({ where: { packId: pack.id } })
+    expect(reds).toHaveLength(1)
+    expect(reds[0].countsAsVisit).toBe(false)
+    expect(reds[0].source).toBe('no_show')
+  })
+
+  it('default no-show burns nothing', async () => {
+    const { appt, staff } = await seedAppt()
+    await prisma.ticketPack.create({
+      data: {
+        businessId: TEST_BUSINESS_ID, customerId: appt.customerId,
+        kind: 'pack', packSize: 10, unitPrice: 1000, purchaseRound: 0, status: 'active',
+      },
+    })
+    await req('PATCH', `/appointments/${appt.id}/status`, {
+      status: 'NO_SHOW',
+      acting_staff_id: staff.id,
+    })
+    const reds = await prisma.packRedemption.findMany({ where: { customerId: appt.customerId } })
+    expect(reds).toHaveLength(0)
+  })
+
+  it('burn_ticket with no active pack returns 400', async () => {
+    const { appt, staff } = await seedAppt()
+    const res = await req('PATCH', `/appointments/${appt.id}/status`, {
+      status: 'NO_SHOW',
+      acting_staff_id: staff.id,
+      burn_ticket: true,
+    })
+    expect(res.status).toBe(400)
+  })
 })

@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { listActivePacks, addRedemption } from './packs.service.js'
 import type { AppointmentStatus, AppointmentSource } from '@prisma/client'
 import type {
   CreateAppointmentInput,
@@ -223,6 +224,26 @@ export async function setAppointmentStatus(
       cancelledAt: terminal ? (existing.cancelledAt ?? new Date()) : null,
     },
   })
+
+  // Optional last-minute no-show burn: consume ONE ticket from the customer's
+  // oldest active pack, flagged counts_as_visit=false so it never becomes a
+  // visit. Burns nothing by default.
+  if (input.burn_ticket && input.status === 'NO_SHOW') {
+    const activePack = (await listActivePacks(businessId)).find(
+      (p) => p.customer_id === existing.customerId,
+    )
+    if (!activePack) throw new Error('No active pack to burn')
+    await addRedemption(businessId, {
+      pack_id: activePack.id,
+      customer_id: existing.customerId,
+      redeemed_on: new Date().toISOString().slice(0, 10),
+      appointment_id: id,
+      source: 'no_show',
+      created_by: input.acting_staff_id,
+      counts_as_visit: false,
+    })
+  }
+
   return toPublic(row)
 }
 
