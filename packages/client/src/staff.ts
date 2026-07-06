@@ -42,15 +42,19 @@ export class StaffClient {
     await this.client.fetch(`/staff/${id}`, { method: 'DELETE' })
   }
 
-  async setPin(id: string, pin: string): Promise<void> {
+  // `actingStaffId` is the signed-in staff performing the change. The server
+  // gates it: you may set your own PIN, or an OWNER/ADMIN may set anyone's.
+  async setPin(id: string, pin: string, actingStaffId: string): Promise<void> {
     await this.client.fetch(`/staff/${id}/pin`, {
       method: 'PUT',
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin, acting_staff_id: actingStaffId }),
     })
   }
 
-  async removePin(id: string): Promise<void> {
-    await this.client.fetch(`/staff/${id}/pin`, { method: 'DELETE' })
+  // Query param, not a body: DELETE bodies get stripped by some proxies.
+  async removePin(id: string, actingStaffId: string): Promise<void> {
+    const qs = new URLSearchParams({ acting_staff_id: actingStaffId }).toString()
+    await this.client.fetch(`/staff/${id}/pin?${qs}`, { method: 'DELETE' })
   }
 
   async verifyPin(id: string, pin: string): Promise<{ valid: boolean; no_pin?: boolean }> {
