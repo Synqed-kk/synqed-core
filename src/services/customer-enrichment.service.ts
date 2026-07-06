@@ -40,7 +40,7 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
     with appt as (
       select customer_id, starts_at, title, staff_id
       from appointments
-      where business_id = $1::uuid and status::text <> 'CANCELLED'
+      where business_id = $1::uuid and status::text not in ('CANCELLED', 'NO_SHOW')
     ),
     kar as (
       select customer_id, created_at
