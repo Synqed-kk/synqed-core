@@ -3,6 +3,7 @@ import type { AppointmentStatus, AppointmentSource } from '@prisma/client'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
+  SetStatusInput,
 } from '../validations/appointment.js'
 
 export class AppointmentOverlapError extends Error {
@@ -193,6 +194,35 @@ export async function updateAppointment(
   }
 
   const row = await prisma.appointment.update({ where: { id }, data })
+  return toPublic(row)
+}
+
+/**
+ * Staff-set status change — the audited path. Records who/why/when and stamps
+ * statusSource=STAFF so the QuickReserve crawl won't overwrite the decision
+ * (see runQuickReserveSync + markOrphanedCancelled). burn_ticket handling is
+ * layered on in a follow-up.
+ */
+export async function setAppointmentStatus(
+  businessId: string,
+  id: string,
+  input: SetStatusInput,
+): Promise<AppointmentPublic> {
+  const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
+  if (!existing) throw new Error('Appointment not found')
+
+  const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
+  const row = await prisma.appointment.update({
+    where: { id },
+    data: {
+      status: input.status as AppointmentStatus,
+      statusSource: 'STAFF',
+      statusSetBy: input.acting_staff_id,
+      statusReason: input.reason ?? null,
+      statusSetAt: new Date(),
+      cancelledAt: terminal ? (existing.cancelledAt ?? new Date()) : null,
+    },
+  })
   return toPublic(row)
 }
 

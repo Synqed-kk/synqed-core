@@ -4,6 +4,7 @@ import {
   createAppointmentSchema,
   updateAppointmentSchema,
   listAppointmentsSchema,
+  setStatusSchema,
 } from '../validations/appointment.js'
 import * as appointmentService from '../services/appointment.service.js'
 import { AppointmentOverlapError } from '../services/appointment.service.js'
@@ -58,6 +59,30 @@ appointmentRoutes.put('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Appointment not found') {
       return c.json({ error: 'Appointment not found' }, 404)
+    }
+    throw err
+  }
+})
+
+appointmentRoutes.patch('/:id/status', async (c) => {
+  const businessId = c.get('businessId')
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = setStatusSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+
+  try {
+    const appointment = await appointmentService.setAppointmentStatus(
+      businessId,
+      c.req.param('id'),
+      parsed.data,
+    )
+    return c.json(appointment)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Appointment not found') {
+      return c.json({ error: 'Appointment not found' }, 404)
+    }
+    if (err instanceof Error && err.message === 'No active pack to burn') {
+      return c.json({ error: err.message }, 400)
     }
     throw err
   }

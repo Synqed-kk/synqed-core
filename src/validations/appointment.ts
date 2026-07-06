@@ -1,6 +1,17 @@
 import { z } from 'zod'
 
-export const appointmentStatusSchema = z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
+export const appointmentStatusSchema = z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])
+
+// Staff status change (dedicated audited path). Only the states a human sets.
+export const setStatusSchema = z
+  .object({
+    status: z.enum(['CANCELLED', 'NO_SHOW', 'SCHEDULED']),
+    reason: z.string().max(500).nullable().optional(),
+    acting_staff_id: z.string().uuid(),
+    burn_ticket: z.boolean().optional(),
+  })
+  .strict()
+export type SetStatusInput = z.infer<typeof setStatusSchema>
 export const appointmentSourceSchema = z.enum([
   'MANUAL',
   'QUICKRESERVE',
