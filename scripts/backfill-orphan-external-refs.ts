@@ -78,11 +78,15 @@ async function main() {
 
   const session = await qrLogin(storeSlug, creds.username, creds.password)
 
-  // 3. Fetch each distinct orphan date once, index reservations by exact startsAt.
+  // 3. Fetch each distinct orphan date once, index reservations by exact
+  //    startsAt AND by (date → all rows) for name-based near-miss reporting.
+  const norm = (s: string) => s.replace(/\s+/g, '') // QR mixes full/half-width spaces
   const dates = Array.from(new Set(scoped.map((o) => jstDate(o.starts_at))))
   const byStartMs = new Map<number, ReturnType<typeof mapReservation>[]>()
+  const byDate = new Map<string, ReturnType<typeof mapReservation>[]>()
   for (const date of dates) {
     const raw = await qrGetReservations(session, storeSlug, storeId, date)
+    const dayList: ReturnType<typeof mapReservation>[] = []
     for (const r of raw) {
       if (r.resolvedCustomerId == null) continue
       const m = mapReservation(r)
@@ -90,7 +94,9 @@ async function main() {
       const list = byStartMs.get(key) ?? []
       list.push(m)
       byStartMs.set(key, list)
+      dayList.push(m)
     }
+    byDate.set(date, dayList)
     console.log(`  fetched ${date}: ${raw.length} row(s)`)
   }
 
@@ -106,15 +112,28 @@ async function main() {
       | number
       | undefined
 
+    const orphanName = customer?.name ? norm(customer.name) : null
     const candidates = byStartMs.get(o.starts_at.getTime()) ?? []
-    // Prefer an exact QR-customer-id match; fall back to the sole candidate.
+    // Confident match at the exact instant: QR-customer-id, else exact name,
+    // else the sole candidate.
     const hit =
       candidates.find((c) => knownQrCustomerId != null && c.qrCustomerId === knownQrCustomerId) ??
+      candidates.find((c) => orphanName != null && norm(c.customerName) === orphanName) ??
       (candidates.length === 1 ? candidates[0] : undefined)
 
     if (!hit) {
+      // No confident exact-time hit. Surface same-date reservations for this
+      // customer at a DIFFERENT time — almost always an import time-drift the
+      // operator can reconcile by hand (we don't auto-link across times).
+      const date = jstDate(o.starts_at)
+      const nameNear = (byDate.get(date) ?? []).filter(
+        (c) => orphanName != null && norm(c.customerName) === orphanName,
+      )
+      const near = nameNear.length
+        ? ` | same-name that day: ${nameNear.map((c) => `${c.qrReservationId}@${c.startsAt.toISOString()}`).join(', ')}`
+        : ''
       console.log(
-        `  ✗ ${o.id}  ${o.starts_at.toISOString()}  ${customer?.name ?? '?'} — ${candidates.length} candidate(s), no confident match`,
+        `  ✗ ${o.id}  ${o.starts_at.toISOString()}  ${customer?.name ?? '?'} — ${candidates.length} exact-time candidate(s), no confident match${near}`,
       )
       continue
     }
