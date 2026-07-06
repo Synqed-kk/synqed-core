@@ -106,6 +106,24 @@ describe('PUT /appointments/:id — staff-set status + audit', () => {
     expect(row.title).toBe('カット')
   })
 
+  it('a NO_SHOW frees the slot — the same staff/time can be rebooked', async () => {
+    const { appt, staff } = await seedAppt()
+    await req('PUT', `/appointments/${appt.id}`, {
+      status: 'NO_SHOW',
+      status_reason: 'no-show-no-contact',
+      acting_staff_id: staff.id,
+    })
+
+    const customer2 = await seedTestCustomer({ email: 'rebook@example.com' })
+    const res = await req('POST', '/appointments', {
+      customer_id: customer2.id,
+      staff_id: staff.id,
+      starts_at: '2026-08-01T03:00:00Z',
+      ends_at: '2026-08-01T04:00:00Z',
+    })
+    expect(res.status).toBe(201)
+  })
+
   it('404s for an unknown appointment', async () => {
     const { staff } = await seedAppt()
     const res = await req(

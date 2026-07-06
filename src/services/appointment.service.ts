@@ -151,7 +151,9 @@ export async function createAppointment(
       // Per-store: a staff double-booking is only a conflict within the same
       // location. null-store bookings conflict only with other null-store ones.
       storeId: input.store_id ?? null,
-      status: { not: 'CANCELLED' },
+      // A terminal booking (cancelled or no-show) frees the slot — the customer
+      // isn't coming, so it must be rebookable.
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
     },
