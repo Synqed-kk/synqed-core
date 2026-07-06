@@ -692,7 +692,7 @@ async function findOrCreateCustomer(
       })
       return created.id
     } catch (e) {
-      if (isUniqueViolation(e, 'karuteNumber')) {
+      if (isUniqueViolation(e, 'karute_number')) {
         if (attempt < 4) continue
         throw new Error('findOrCreateCustomer: exhausted karuteNumber retries')
       }
