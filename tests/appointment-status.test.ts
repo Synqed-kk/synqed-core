@@ -51,6 +51,13 @@ describe('PATCH /appointments/:id/status — staff-set status + audit', () => {
     })
     expect(res.status).toBe(200)
 
+    // Audit trail must be exposed in the API response (Liam's UI reads it).
+    const json = await res.json()
+    expect(json.status_source).toBe('STAFF')
+    expect(json.status_set_by).toBe(staff.id)
+    expect(json.status_reason).toBe('無断キャンセル')
+    expect(json.status_set_at).not.toBeNull()
+
     const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(row.status).toBe('NO_SHOW')
     expect(row.statusSource).toBe('STAFF')
