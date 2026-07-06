@@ -16,6 +16,14 @@ export async function cleanupTestData() {
   await testPrisma.appointment.deleteMany({
     where: { businessId: TEST_BUSINESS_ID },
   })
+  // Pack money data references customers — clear it before customers or the
+  // customer delete FK-fails and leaves the whole run polluted.
+  await testPrisma.packRedemption.deleteMany({
+    where: { businessId: TEST_BUSINESS_ID },
+  })
+  await testPrisma.ticketPack.deleteMany({
+    where: { businessId: TEST_BUSINESS_ID },
+  })
   await testPrisma.staff.deleteMany({
     where: { businessId: TEST_BUSINESS_ID },
   })
