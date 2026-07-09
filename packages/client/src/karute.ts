@@ -20,6 +20,7 @@ export class KaruteRecordClient {
   async list(options?: ListKaruteRecordsOptions): Promise<ListKaruteRecordsResponse> {
     const params = new URLSearchParams()
     if (options?.customer_id) params.set('customer_id', options.customer_id)
+    if (options?.store_id) params.set('store_id', options.store_id)
     if (options?.staff_id) params.set('staff_id', options.staff_id)
     if (options?.recording_session_id)
       params.set('recording_session_id', options.recording_session_id)

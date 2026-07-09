@@ -51,16 +51,20 @@ describe('multi-store store_id', () => {
   })
 
   it('overlap guard is per-store: same staff+time in a different store does not conflict', async () => {
-    const c = await seedTestCustomer()
+    // Distinct customers per store: UNIQUE(business_id, customer_id, starts_at)
+    // (the QR twin-dedup rail) forbids one CUSTOMER holding two same-time
+    // bookings anywhere — this test is about the per-store STAFF guard.
+    const cA = await seedTestCustomer({ name: '客A', email: 'overlap-a@ex.com' })
+    const cB = await seedTestCustomer({ name: '客B', email: 'overlap-b@ex.com' })
     const s = await seedTestStaff()
-    const body = (store: string) => ({
-      customer_id: c.id, staff_id: s.id, store_id: store,
+    const body = (customer: string, store: string) => ({
+      customer_id: customer, staff_id: s.id, store_id: store,
       starts_at: '2026-07-02T02:00:00Z', ends_at: '2026-07-02T03:00:00Z',
     })
-    expect((await req('POST', '/appointments', body(A))).status).toBe(201)
-    expect((await req('POST', '/appointments', body(B))).status).toBe(201)
+    expect((await req('POST', '/appointments', body(cA.id, A))).status).toBe(201)
+    expect((await req('POST', '/appointments', body(cB.id, B))).status).toBe(201)
     // same store + overlap → conflict (409)
-    expect((await req('POST', '/appointments', body(A))).status).toBe(409)
+    expect((await req('POST', '/appointments', body(cB.id, A))).status).toBe(409)
   })
 
   it('filters customers by store via their events; business-wide when omitted', async () => {
