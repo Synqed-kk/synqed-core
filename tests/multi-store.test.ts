@@ -51,16 +51,20 @@ describe('multi-store store_id', () => {
   })
 
   it('overlap guard is per-store: same staff+time in a different store does not conflict', async () => {
-    const c = await seedTestCustomer()
+    // Distinct customers per store: UNIQUE(business_id, customer_id, starts_at)
+    // (the QR twin-dedup rail) forbids one CUSTOMER holding two same-time
+    // bookings anywhere — this test is about the per-store STAFF guard.
+    const cA = await seedTestCustomer({ name: '客A', email: 'overlap-a@ex.com' })
+    const cB = await seedTestCustomer({ name: '客B', email: 'overlap-b@ex.com' })
     const s = await seedTestStaff()
-    const body = (store: string) => ({
-      customer_id: c.id, staff_id: s.id, store_id: store,
+    const body = (customer: string, store: string) => ({
+      customer_id: customer, staff_id: s.id, store_id: store,
       starts_at: '2026-07-02T02:00:00Z', ends_at: '2026-07-02T03:00:00Z',
     })
-    expect((await req('POST', '/appointments', body(A))).status).toBe(201)
-    expect((await req('POST', '/appointments', body(B))).status).toBe(201)
+    expect((await req('POST', '/appointments', body(cA.id, A))).status).toBe(201)
+    expect((await req('POST', '/appointments', body(cB.id, B))).status).toBe(201)
     // same store + overlap → conflict (409)
-    expect((await req('POST', '/appointments', body(A))).status).toBe(409)
+    expect((await req('POST', '/appointments', body(cB.id, A))).status).toBe(409)
   })
 
   it('filters customers by store via their events; business-wide when omitted', async () => {
@@ -71,7 +75,12 @@ describe('multi-store store_id', () => {
     await testPrisma.customerVisit.create({ data: { businessId: TEST_BUSINESS_ID, customerId: inB.id, qrReservationId: 9002, usedAt: new Date('2026-05-01T01:00:00Z'), status: 'settled', storeId: B } })
 
     const scoped = await (await req('GET', `/customers?store_id=${A}`)).json()
-    expect(scoped.customers.map((c: { name: string }) => c.name)).toEqual(['店A客'])
+    // 来店なし has NO events anywhere → unassigned → visible in EVERY store
+    // lens (otherwise a freshly added customer is invisible on any store-scoped
+    // 顧客 list until their first booking, which reads as data loss).
+    expect(
+      scoped.customers.map((c: { name: string }) => c.name).sort(),
+    ).toEqual(['店A客', '来店なし'])
     const all = await (await req('GET', '/customers')).json()
     expect(all.total).toBe(3)
   })
