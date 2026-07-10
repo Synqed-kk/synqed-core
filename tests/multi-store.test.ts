@@ -75,7 +75,12 @@ describe('multi-store store_id', () => {
     await testPrisma.customerVisit.create({ data: { businessId: TEST_BUSINESS_ID, customerId: inB.id, qrReservationId: 9002, usedAt: new Date('2026-05-01T01:00:00Z'), status: 'settled', storeId: B } })
 
     const scoped = await (await req('GET', `/customers?store_id=${A}`)).json()
-    expect(scoped.customers.map((c: { name: string }) => c.name)).toEqual(['店A客'])
+    // 来店なし has NO events anywhere → unassigned → visible in EVERY store
+    // lens (otherwise a freshly added customer is invisible on any store-scoped
+    // 顧客 list until their first booking, which reads as data loss).
+    expect(
+      scoped.customers.map((c: { name: string }) => c.name).sort(),
+    ).toEqual(['店A客', '来店なし'])
     const all = await (await req('GET', '/customers')).json()
     expect(all.total).toBe(3)
   })
