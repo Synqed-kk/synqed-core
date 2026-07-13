@@ -75,12 +75,14 @@ describe('multi-store store_id', () => {
     await testPrisma.customerVisit.create({ data: { businessId: TEST_BUSINESS_ID, customerId: inB.id, qrReservationId: 9002, usedAt: new Date('2026-05-01T01:00:00Z'), status: 'settled', storeId: B } })
 
     const scoped = await (await req('GET', `/customers?store_id=${A}`)).json()
-    // 来店なし has NO events anywhere → unassigned → visible in EVERY store
-    // lens (otherwise a freshly added customer is invisible on any store-scoped
-    // 顧客 list until their first booking, which reads as data loss).
+    // Store lens = event-pinned ONLY. The short-lived everywhere-branch (an
+    // event-less customer passing every lens) let branch-restricted staff see
+    // other-store legacy imports — reverted; unassigned customers appear only
+    // in the unfiltered list until their first booking pins them (see
+    // customers-store-lens.test.ts for the full contract).
     expect(
-      scoped.customers.map((c: { name: string }) => c.name).sort(),
-    ).toEqual(['店A客', '来店なし'])
+      scoped.customers.map((c: { name: string }) => c.name),
+    ).toEqual(['店A客'])
     const all = await (await req('GET', '/customers')).json()
     expect(all.total).toBe(3)
   })

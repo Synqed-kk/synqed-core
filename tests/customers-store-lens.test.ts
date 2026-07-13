@@ -40,8 +40,8 @@ afterEach(async () => {
 
 describe('customer list store lens (no everywhere-branch)', () => {
   it('event-pinned customers stay store-scoped; event-less customers are in NO store lens', async () => {
-    const pinnedA = await seedTestCustomer({ name: '店舗A 太郎' })
-    const eventless = await seedTestCustomer({ name: '未来店 花子' })
+    const pinnedA = await seedTestCustomer({ name: '店舗A 太郎', email: 'lens-a@ex.com' })
+    const eventless = await seedTestCustomer({ name: '未来店 花子', email: 'lens-none@ex.com' })
     const staff = await seedTestStaff()
     await testPrisma.appointment.create({
       data: {
@@ -68,7 +68,7 @@ describe('customer list store lens (no everywhere-branch)', () => {
   })
 
   it('the UNFILTERED list still returns event-less customers', async () => {
-    const eventless = await seedTestCustomer({ name: '未来店 花子' })
+    const eventless = await seedTestCustomer({ name: '未来店 花子', email: 'lens-none@ex.com' })
     const all = await (await req('GET', '/customers')).json()
     expect(all.customers.map((c: { id: string }) => c.id)).toContain(
       eventless.id,
