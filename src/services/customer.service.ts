@@ -105,9 +105,13 @@ export async function listCustomers(
 
   // Store scope: customers have no store_id (business-wide identity); a customer
   // "belongs to" a store iff they have an event there. AND-ed within businessId.
-  // Customers with NO events anywhere are "unassigned" and appear in EVERY
-  // store lens — otherwise a freshly added customer is invisible on any
-  // store-scoped list until their first booking pins them to a branch.
+  // Event-less customers are NOT included in store lenses anymore: the old
+  // everywhere-branch (visits none + appointments none → pass every lens) let a
+  // branch-restricted staff see other-store legacy imports — real cross-store
+  // PII on the Ginza review login (2026-07-14). Trade-off, accepted: a freshly
+  // added customer appears only in the unfiltered (all-stores) list until their
+  // first booking pins them to a branch. Proper fix stays store_id-at-creation
+  // + backfill; this closes the leak until then.
   if (options.store_id) {
     where.AND = [
       ...(where.AND ?? []),
@@ -115,7 +119,6 @@ export async function listCustomers(
         OR: [
           { visits: { some: { storeId: options.store_id, status: { not: 'cancelled' } } } },
           { appointments: { some: { storeId: options.store_id, status: { not: 'CANCELLED' } } } },
-          { AND: [{ visits: { none: {} } }, { appointments: { none: {} } }] },
         ],
       },
     ]
