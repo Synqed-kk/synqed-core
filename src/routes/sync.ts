@@ -5,10 +5,13 @@ import * as syncService from '../services/sync.service.js'
 
 export const syncRoutes = new Hono<AppEnv>()
 
-// POST /v1/sync/cron/dispatch
+// GET|POST /v1/sync/cron/dispatch
 // Called by Vercel Cron every 15 min. Auth via CRON_SECRET header,
 // NOT the regular tenant-scoped API key — this is cross-tenant.
-syncRoutes.post('/cron/dispatch', async (c) => {
+// GET is required: Vercel Cron invokes with GET, so the original POST-only
+// route 404'd every tick and the schedule never actually ran. POST stays for
+// manual/scripted dispatch.
+syncRoutes.on(['GET', 'POST'], '/cron/dispatch', async (c) => {
   const auth = c.req.header('authorization') ?? ''
   const expected = `Bearer ${process.env.CRON_SECRET ?? ''}`
   if (!process.env.CRON_SECRET || auth !== expected) {
