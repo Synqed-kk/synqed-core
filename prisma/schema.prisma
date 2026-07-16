@@ -57,6 +57,7 @@ model Customer {
   photos       CustomerPhoto[]
   consents     RecordingConsent[]
   visits       CustomerVisit[]
+  entryEdits   KaruteEntryEdit[]
 
   @@unique([businessId, email])
   @@unique([businessId, karuteNumber])
@@ -390,6 +391,9 @@ model KaruteRecord {
   service            String?
   durationMinutes    Int?         @map("duration_minutes")
   sessionDate        DateTime?    @map("session_date") @db.Date
+  // Human overlay on aiSummary (the pencil). Readers use edited ?? ai; NO AI
+  // path ever writes it — regen keeps overwriting aiSummary and this survives.
+  editedSummary      String?      @map("edited_summary")
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -418,6 +422,15 @@ enum EntryCategory {
   OTHER
 }
 
+// Entry provenance: richer than isManual (kept for back-compat — it means
+// "human_created" exactly). AI → HUMAN_EDITED is a one-way door; the AI's
+// original text survives in originalAiContent.
+enum EntryAuthor {
+  AI
+  HUMAN_EDITED
+  HUMAN_CREATED
+}
+
 model KaruteEntry {
   id             String        @id @default(uuid()) @db.Uuid
   karuteRecordId String        @map("karute_record_id") @db.Uuid
@@ -428,6 +441,15 @@ model KaruteEntry {
   tags           String[]      @default([])
   sortOrder      Int           @default(0) @map("sort_order")
   isManual       Boolean       @default(false) @map("is_manual")
+  author         EntryAuthor   @default(AI)
+  // The AI's text as first extracted — set on the FIRST human edit of an AI
+  // entry and never overwritten, so the original always survives.
+  originalAiContent String?    @map("original_ai_content")
+  // Optimistic concurrency: updateEntry requires the caller's expected_version
+  // and 409s on mismatch (edit-vs-edit, edit-vs-regen races).
+  version        Int           @default(1)
+  // Soft delete: hidden from reads, never vanishes (customer-memory pattern).
+  deletedAt      DateTime?     @map("deleted_at") @db.Timestamptz()
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -435,6 +457,55 @@ model KaruteEntry {
 
   @@index([karuteRecordId, sortOrder])
   @@map("karute_entries")
+}
+
+// =============================================================================
+// KaruteEntryEdit — append-only audit + correction-pair log (the 監査ログ).
+// Written in the SAME transaction as every entry mutation. Doubles as the
+// eval/improvement dataset (subject to the per-business opt-out in
+// org_settings.settings.correction_data_opt_out). In-house use only — never
+// sent to model vendors (ToS/DPA line ships with the feature).
+// =============================================================================
+
+enum EntryEditAction {
+  CREATE
+  EDIT
+  DELETE
+  REGEN_REPLACE
+  ADOPT_AI
+  DISMISS_AI
+}
+
+model KaruteEntryEdit {
+  id             String          @id @default(uuid()) @db.Uuid
+  businessId     String          @map("business_id") @db.Uuid
+  // Lineage for privacy cascade: deleting the customer deletes their
+  // correction rows too. Nullable — record-level edits may have no customer.
+  customerId     String?         @map("customer_id") @db.Uuid
+  // Plain uuid, NO FK: the audit trail must survive record deletion.
+  karuteRecordId String          @map("karute_record_id") @db.Uuid
+  entryIdOld     String?         @map("entry_id_old") @db.Uuid
+  entryIdNew     String?         @map("entry_id_new") @db.Uuid
+  actorStaffId   String?         @map("actor_staff_id") @db.Uuid
+  action         EntryEditAction
+  category       EntryCategory?
+  contentBefore  String?         @map("content_before")
+  contentAfter   String?         @map("content_after")
+  authorBefore   EntryAuthor?    @map("author_before")
+  authorAfter    EntryAuthor?    @map("author_after")
+  // Groups one regen into ONE event (a regen is ~15 rows otherwise).
+  batchId        String?         @map("batch_id") @db.Uuid
+  // Stamped at write time so corrections attribute to prompt versions.
+  promptVersion  String?         @map("prompt_version")
+  model          String?
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz()
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([karuteRecordId])
+  @@index([batchId])
+  @@map("karute_entry_edits")
 }
 
 // =============================================================================
