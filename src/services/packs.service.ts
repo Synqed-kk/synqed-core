@@ -109,13 +109,33 @@ export async function listAllRedemptionPackIds(businessId: string): Promise<stri
 
 export async function listRecentRedemptions(
   businessId: string, since: string,
-): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
+): Promise<Array<{
+  customer_id: string; appointment_id: string | null; redeemed_on: string
+  pack_id: string; unit_price: number | null
+}>> {
   const rows = await prisma.packRedemption.findMany({
     where: { businessId, redeemedOn: { gte: new Date(since) } },
-    select: { customerId: true, appointmentId: true, redeemedOn: true },
+    select: { customerId: true, appointmentId: true, redeemedOn: true, packId: true },
     orderBy: { redeemedOn: 'asc' },
   })
-  return rows.map((r) => ({ customer_id: r.customerId, appointment_id: r.appointmentId, redeemed_on: ymd(r.redeemedOn) }))
+  // Price each redemption from its pack — by id, NOT status-filtered: a burn
+  // on a since-exhausted/cancelled pack still moved that money when it
+  // happened, and active-only pricing would silently drop exactly the packs
+  // most likely to have burned recently (the ones that just hit zero).
+  const packIds = [...new Set(rows.map((r) => r.packId))]
+  const packs = packIds.length
+    ? await prisma.ticketPack.findMany({
+        where: { businessId, id: { in: packIds } },
+        select: { id: true, unitPrice: true },
+      })
+    : []
+  const priceById = new Map(packs.map((p) => [p.id, p.unitPrice]))
+  // unit_price null = orphaned redemption (pack row gone) — consumers must
+  // treat the sum as unpriceable rather than skip the row (undercount).
+  return rows.map((r) => ({
+    customer_id: r.customerId, appointment_id: r.appointmentId, redeemed_on: ymd(r.redeemedOn),
+    pack_id: r.packId, unit_price: priceById.get(r.packId) ?? null,
+  }))
 }
 
 export interface AddRedemptionInput {

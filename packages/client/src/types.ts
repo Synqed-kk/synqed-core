@@ -445,6 +445,10 @@ export interface RecentRedemption {
   customer_id: string
   appointment_id: string | null
   redeemed_on: string
+  pack_id: string
+  /** Pack's unit price at read time; null = orphaned redemption (pack row
+   *  gone) — a ¥ sum over rows containing null is unpriceable, not zero. */
+  unit_price: number | null
 }
 
 export interface Lifecycle {
