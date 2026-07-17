@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/client.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
-import type { KaruteStatus, EntryCategory } from '@prisma/client'
+import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction, Prisma } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
@@ -17,6 +18,10 @@ export interface EntryPublic {
   tags: string[]
   sort_order: number
   is_manual: boolean
+  author: EntryAuthor
+  original_ai_content: string | null
+  version: number
+  deleted_at: string | null
   created_at: string
   updated_at: string
 }
@@ -31,6 +36,9 @@ export interface KaruteRecordPublic {
   recording_session_id: string | null
   status: KaruteStatus
   ai_summary: string | null
+  /** Human overlay (the pencil). Readers use edited_summary ?? ai_summary;
+   *  regen keeps writing ai_summary and never touches this. */
+  edited_summary: string | null
   transcript: string | null
   service: string | null
   duration_minutes: number | null
@@ -51,6 +59,7 @@ function toPublic(
     recordingSessionId: string | null
     status: KaruteStatus
     aiSummary: string | null
+    editedSummary: string | null
     transcript: string | null
     service: string | null
     durationMinutes: number | null
@@ -70,6 +79,7 @@ function toPublic(
     recording_session_id: row.recordingSessionId,
     status: row.status,
     ai_summary: row.aiSummary,
+    edited_summary: row.editedSummary,
     transcript: row.transcript,
     service: row.service,
     duration_minutes: row.durationMinutes,
@@ -90,6 +100,10 @@ function entryToPublic(row: {
   tags: string[]
   sortOrder: number
   isManual: boolean
+  author: EntryAuthor
+  originalAiContent: string | null
+  version: number
+  deletedAt: Date | null
   createdAt: Date
   updatedAt: Date
 }): EntryPublic {
@@ -103,6 +117,10 @@ function entryToPublic(row: {
     tags: row.tags,
     sort_order: row.sortOrder,
     is_manual: row.isManual,
+    author: row.author,
+    original_ai_content: row.originalAiContent,
+    version: row.version,
+    deleted_at: row.deletedAt ? row.deletedAt.toISOString() : null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -152,7 +170,7 @@ export async function listKaruteRecords(
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: pageSize,
-      include: { _count: { select: { entries: true } } },
+      include: { _count: { select: { entries: { where: { deletedAt: null } } } } },
     }),
     prisma.karuteRecord.count({ where }),
   ])
@@ -173,7 +191,7 @@ export async function getKaruteRecord(
   const row = await prisma.karuteRecord.findFirst({
     where: { id, businessId },
     include: {
-      entries: opts?.includeEntries ? { orderBy: { sortOrder: 'asc' } } : false,
+      entries: opts?.includeEntries ? { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } : false,
       recordingSession: opts?.includeSegments
         ? { include: { segments: { orderBy: { segmentIndex: 'asc' } } } }
         : false,
@@ -280,6 +298,7 @@ async function createKaruteRecordInner(
               tags: e.tags ?? [],
               sortOrder: e.sort_order ?? i,
               isManual: e.is_manual ?? false,
+              author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
             })),
           }
         : undefined,
@@ -294,7 +313,10 @@ export async function updateKaruteRecord(
   id: string,
   input: UpdateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
-  const existing = await prisma.karuteRecord.findFirst({ where: { id, businessId } })
+  const existing = await prisma.karuteRecord.findFirst({
+    where: { id, businessId },
+    include: { entries: { where: { deletedAt: null } } },
+  })
   if (!existing) throw new Error('Karute record not found')
 
   const data: Record<string, unknown> = {}
@@ -302,14 +324,56 @@ export async function updateKaruteRecord(
   if (input.appointment_id !== undefined) data.appointmentId = input.appointment_id
   if (input.status !== undefined) data.status = input.status
   if (input.ai_summary !== undefined) data.aiSummary = input.ai_summary
+  // Human overlay — only the pencil writes it (AI regen paths send ai_summary).
+  if (input.edited_summary !== undefined) data.editedSummary = input.edited_summary
   if (input.transcript !== undefined) data.transcript = input.transcript
   if (input.service !== undefined) data.service = input.service
   if (input.duration_minutes !== undefined) data.durationMinutes = input.duration_minutes
   if (input.session_date !== undefined)
     data.sessionDate = input.session_date ? new Date(input.session_date) : null
+  if (input.actor_staff_id !== undefined) data.lastEditedByStaffId = input.actor_staff_id
+
+  const auditRows: Prisma.KaruteEntryEditCreateManyInput[] = []
+  let replaceBatchId: string | undefined
+
+  // Summary overlay change → one audit row (entry ids null = record-level).
+  if (
+    input.edited_summary !== undefined &&
+    input.edited_summary !== existing.editedSummary
+  ) {
+    auditRows.push({
+      businessId,
+      customerId: existing.customerId,
+      karuteRecordId: id,
+      actorStaffId: input.actor_staff_id ?? null,
+      action: 'EDIT',
+      contentBefore: existing.editedSummary ?? existing.aiSummary,
+      contentAfter: input.edited_summary,
+    })
+  }
 
   if (input.entries !== undefined) {
-    // Full replace of entries
+    // Full replace of entries (atomic — nested write shares the update's
+    // transaction). One regen = ONE batch: every removed row logs its before-
+    // content and every created row its after-content under a shared batch_id,
+    // stamped with the prompt/model that produced it.
+    const batchId = randomUUID()
+    for (const old of existing.entries) {
+      auditRows.push({
+        businessId,
+        customerId: existing.customerId,
+        karuteRecordId: id,
+        entryIdOld: old.id,
+        actorStaffId: input.actor_staff_id ?? null,
+        action: 'REGEN_REPLACE',
+        category: old.category,
+        contentBefore: old.content,
+        authorBefore: old.author,
+        batchId,
+        promptVersion: input.prompt_version ?? null,
+        model: input.model ?? null,
+      })
+    }
     await prisma.karuteEntry.deleteMany({ where: { karuteRecordId: id } })
     data.entries = {
       create: input.entries.map((e, i) => ({
@@ -320,15 +384,41 @@ export async function updateKaruteRecord(
         tags: e.tags ?? [],
         sortOrder: e.sort_order ?? i,
         isManual: e.is_manual ?? false,
+        author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
       })),
     }
+    // New rows get their audit lines after the update (ids exist then).
+    replaceBatchId = batchId
   }
 
   const row = await prisma.karuteRecord.update({
     where: { id },
     data,
-    include: { entries: { orderBy: { sortOrder: 'asc' } } },
+    include: { entries: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
   })
+
+  if (replaceBatchId !== undefined) {
+    for (const created of row.entries) {
+      auditRows.push({
+        businessId,
+        customerId: row.customerId,
+        karuteRecordId: id,
+        entryIdNew: created.id,
+        actorStaffId: input.actor_staff_id ?? null,
+        action: 'REGEN_REPLACE',
+        category: created.category,
+        contentAfter: created.content,
+        authorAfter: created.author,
+        batchId: replaceBatchId,
+        promptVersion: input.prompt_version ?? null,
+        model: input.model ?? null,
+      })
+    }
+  }
+  if (auditRows.length > 0) {
+    await prisma.karuteEntryEdit.createMany({ data: auditRows })
+  }
+
   return toPublic(row, row.entries.map(entryToPublic))
 }
 
@@ -338,58 +428,296 @@ export async function deleteKaruteRecord(businessId: string, id: string): Promis
   await prisma.karuteRecord.delete({ where: { id } })
 }
 
+/** Optimistic-concurrency failure — routes map it to 409. */
+export class StaleEntryVersionError extends Error {
+  currentVersion: number
+  constructor(currentVersion: number) {
+    super('Entry was modified by someone else. Reload and retry.')
+    this.name = 'StaleEntryVersionError'
+    this.currentVersion = currentVersion
+  }
+}
+
+/** Who did it + what produced it — threaded into the audit row. */
+export interface EntryMutationMeta {
+  actor_staff_id?: string | null
+  /** Audit action override for the adopt/dismiss flows. */
+  action?: EntryEditAction
+  prompt_version?: string | null
+  model?: string | null
+}
+
+/** Entry edits are child-table writes — bump the parent so updated_at is a
+ *  usable anchor for edit-vs-regen and edit-vs-edit races, and record who. */
+function touchParent(
+  tx: Prisma.TransactionClient,
+  karuteRecordId: string,
+  actorStaffId?: string | null,
+) {
+  return tx.karuteRecord.update({
+    where: { id: karuteRecordId },
+    data: {
+      updatedAt: new Date(),
+      ...(actorStaffId ? { lastEditedByStaffId: actorStaffId } : {}),
+    },
+    select: { id: true },
+  })
+}
+
 export async function addEntry(
   businessId: string,
   karuteRecordId: string,
   input: EntryInput,
+  meta: EntryMutationMeta = {},
 ): Promise<EntryPublic> {
   // Verify karute record belongs to tenant
   const record = await prisma.karuteRecord.findFirst({
     where: { id: karuteRecordId, businessId },
-    select: { id: true },
+    select: { id: true, customerId: true },
   })
   if (!record) throw new Error('Karute record not found')
 
-  // Determine next sort order
+  // Determine next sort order (live rows only)
   const lastEntry = await prisma.karuteEntry.findFirst({
-    where: { karuteRecordId },
+    where: { karuteRecordId, deletedAt: null },
     orderBy: { sortOrder: 'desc' },
     select: { sortOrder: true },
   })
   const nextSortOrder = (lastEntry?.sortOrder ?? -1) + 1
 
-  const row = await prisma.karuteEntry.create({
-    data: {
-      karuteRecordId,
-      category: input.category,
-      content: input.content,
-      originalQuote: input.original_quote ?? null,
-      confidence: input.confidence ?? 0,
-      tags: input.tags ?? [],
-      sortOrder: input.sort_order ?? nextSortOrder,
-      isManual: input.is_manual ?? false,
-    },
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.karuteEntry.create({
+      data: {
+        karuteRecordId,
+        category: input.category,
+        content: input.content,
+        originalQuote: input.original_quote ?? null,
+        confidence: input.confidence ?? 0,
+        tags: input.tags ?? [],
+        sortOrder: input.sort_order ?? nextSortOrder,
+        isManual: input.is_manual ?? false,
+        author: (input.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
+      },
+    })
+    await tx.karuteEntryEdit.create({
+      data: {
+        businessId,
+        customerId: record.customerId,
+        karuteRecordId,
+        entryIdNew: row.id,
+        actorStaffId: meta.actor_staff_id ?? null,
+        action: meta.action ?? 'CREATE',
+        category: row.category,
+        contentAfter: row.content,
+        authorAfter: row.author,
+        promptVersion: meta.prompt_version ?? null,
+        model: meta.model ?? null,
+      },
+    })
+    await touchParent(tx, karuteRecordId, meta.actor_staff_id)
+    return entryToPublic(row)
   })
-  return entryToPublic(row)
+}
+
+export interface UpdateEntryPatch {
+  category?: EntryCategory
+  content?: string
+  original_quote?: string | null
+  tags?: string[]
+  sort_order?: number
+  /** REQUIRED optimistic-concurrency check: the version the editor loaded.
+   *  A mismatch throws StaleEntryVersionError (route → 409). */
+  expected_version: number
+}
+
+export async function updateEntry(
+  businessId: string,
+  karuteRecordId: string,
+  entryId: string,
+  patch: UpdateEntryPatch,
+  meta: EntryMutationMeta = {},
+): Promise<EntryPublic> {
+  const record = await prisma.karuteRecord.findFirst({
+    where: { id: karuteRecordId, businessId },
+    select: { id: true, customerId: true },
+  })
+  if (!record) throw new Error('Karute record not found')
+
+  const entry = await prisma.karuteEntry.findFirst({
+    where: { id: entryId, karuteRecordId, deletedAt: null },
+  })
+  if (!entry) throw new Error('Entry not found')
+  if (entry.version !== patch.expected_version) {
+    throw new StaleEntryVersionError(entry.version)
+  }
+
+  const contentChanging =
+    patch.content !== undefined && patch.content !== entry.content
+  const categoryChanging =
+    patch.category !== undefined && patch.category !== entry.category
+  const substantive = contentChanging || categoryChanging
+
+  // AI → HUMAN_EDITED is one-way; the AI's original text is captured on the
+  // FIRST substantive edit and never overwritten after.
+  const nextAuthor: EntryAuthor =
+    substantive && entry.author === 'AI' ? 'HUMAN_EDITED' : entry.author
+  const captureOriginal =
+    substantive && entry.author === 'AI' && entry.originalAiContent === null
+
+  return prisma.$transaction(async (tx) => {
+    // version guard in the WHERE clause too — closes the read-check/write race.
+    const updated = await tx.karuteEntry.updateMany({
+      where: { id: entryId, version: patch.expected_version },
+      data: {
+        ...(patch.category !== undefined ? { category: patch.category } : {}),
+        ...(patch.content !== undefined ? { content: patch.content } : {}),
+        ...(patch.original_quote !== undefined ? { originalQuote: patch.original_quote } : {}),
+        ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+        ...(patch.sort_order !== undefined ? { sortOrder: patch.sort_order } : {}),
+        author: nextAuthor,
+        ...(captureOriginal ? { originalAiContent: entry.content } : {}),
+        version: { increment: 1 },
+      },
+    })
+    if (updated.count === 0) throw new StaleEntryVersionError(entry.version)
+
+    await tx.karuteEntryEdit.create({
+      data: {
+        businessId,
+        customerId: record.customerId,
+        karuteRecordId,
+        entryIdOld: entryId,
+        entryIdNew: entryId,
+        actorStaffId: meta.actor_staff_id ?? null,
+        action: meta.action ?? 'EDIT',
+        category: patch.category ?? entry.category,
+        contentBefore: entry.content,
+        contentAfter: patch.content ?? entry.content,
+        authorBefore: entry.author,
+        authorAfter: nextAuthor,
+        promptVersion: meta.prompt_version ?? null,
+        model: meta.model ?? null,
+      },
+    })
+    await touchParent(tx, karuteRecordId, meta.actor_staff_id)
+
+    const row = await tx.karuteEntry.findUniqueOrThrow({ where: { id: entryId } })
+    return entryToPublic(row)
+  })
 }
 
 export async function deleteEntry(
   businessId: string,
   karuteRecordId: string,
   entryId: string,
+  meta: EntryMutationMeta = {},
 ): Promise<void> {
   // Verify karute record belongs to tenant (enforces tenant isolation for entry)
   const record = await prisma.karuteRecord.findFirst({
     where: { id: karuteRecordId, businessId },
-    select: { id: true },
+    select: { id: true, customerId: true },
   })
   if (!record) throw new Error('Karute record not found')
 
   const entry = await prisma.karuteEntry.findFirst({
-    where: { id: entryId, karuteRecordId },
-    select: { id: true },
+    where: { id: entryId, karuteRecordId, deletedAt: null },
   })
   if (!entry) throw new Error('Entry not found')
 
-  await prisma.karuteEntry.delete({ where: { id: entryId } })
+  // Soft delete: hidden from every read, never vanishes (customer-memory
+  // pattern) — the audit row carries what was removed and by whom.
+  await prisma.$transaction(async (tx) => {
+    await tx.karuteEntry.update({
+      where: { id: entryId },
+      data: { deletedAt: new Date() },
+    })
+    await tx.karuteEntryEdit.create({
+      data: {
+        businessId,
+        customerId: record.customerId,
+        karuteRecordId,
+        entryIdOld: entryId,
+        actorStaffId: meta.actor_staff_id ?? null,
+        action: meta.action ?? 'DELETE',
+        category: entry.category,
+        contentBefore: entry.content,
+        authorBefore: entry.author,
+        promptVersion: meta.prompt_version ?? null,
+        model: meta.model ?? null,
+      },
+    })
+    await touchParent(tx, karuteRecordId, meta.actor_staff_id)
+  })
+}
+
+export interface EntryEditPublic {
+  id: string
+  business_id: string
+  customer_id: string | null
+  karute_record_id: string
+  entry_id_old: string | null
+  entry_id_new: string | null
+  actor_staff_id: string | null
+  action: EntryEditAction
+  category: EntryCategory | null
+  content_before: string | null
+  content_after: string | null
+  author_before: EntryAuthor | null
+  author_after: EntryAuthor | null
+  batch_id: string | null
+  prompt_version: string | null
+  model: string | null
+  created_at: string
+}
+
+/** The 監査ログ read: newest first, filterable by record/customer. */
+export async function listEntryEdits(
+  businessId: string,
+  options: {
+    karute_record_id?: string
+    customer_id?: string
+    page?: number
+    page_size?: number
+  } = {},
+): Promise<{ entry_edits: EntryEditPublic[]; total: number; page: number; page_size: number }> {
+  const page = options.page ?? 1
+  const pageSize = Math.min(options.page_size ?? 50, 200)
+  const where: Record<string, unknown> = { businessId }
+  if (options.karute_record_id) where.karuteRecordId = options.karute_record_id
+  if (options.customer_id) where.customerId = options.customer_id
+
+  const [rows, total] = await Promise.all([
+    prisma.karuteEntryEdit.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.karuteEntryEdit.count({ where }),
+  ])
+
+  return {
+    entry_edits: rows.map((r) => ({
+      id: r.id,
+      business_id: r.businessId,
+      customer_id: r.customerId,
+      karute_record_id: r.karuteRecordId,
+      entry_id_old: r.entryIdOld,
+      entry_id_new: r.entryIdNew,
+      actor_staff_id: r.actorStaffId,
+      action: r.action,
+      category: r.category,
+      content_before: r.contentBefore,
+      content_after: r.contentAfter,
+      author_before: r.authorBefore,
+      author_after: r.authorAfter,
+      batch_id: r.batchId,
+      prompt_version: r.promptVersion,
+      model: r.model,
+      created_at: r.createdAt.toISOString(),
+    })),
+    total,
+    page,
+    page_size: pageSize,
+  }
 }

@@ -734,6 +734,16 @@ export type EntryCategory =
   | 'PRODUCT'
   | 'OTHER'
 
+export type EntryAuthor = 'AI' | 'HUMAN_EDITED' | 'HUMAN_CREATED'
+
+export type EntryEditAction =
+  | 'CREATE'
+  | 'EDIT'
+  | 'DELETE'
+  | 'REGEN_REPLACE'
+  | 'ADOPT_AI'
+  | 'DISMISS_AI'
+
 export interface KaruteEntry {
   id: string
   karute_record_id: string
@@ -744,8 +754,67 @@ export interface KaruteEntry {
   tags: string[]
   sort_order: number
   is_manual: boolean
+  /** Provenance: richer than is_manual. AI → HUMAN_EDITED is one-way. */
+  author: EntryAuthor
+  /** The AI's text as first extracted — set on the first human edit, never overwritten. */
+  original_ai_content: string | null
+  /** Optimistic-concurrency version; send back as expected_version on update. */
+  version: number
+  /** Soft delete: non-null rows are hidden from reads. */
+  deleted_at: string | null
   created_at: string
   updated_at: string
+}
+
+/** In-place entry edit. expected_version is REQUIRED — a stale value gets a
+ *  409 with { current_version } so the editor can reload-and-retry. */
+export interface UpdateKaruteEntryInput {
+  category?: EntryCategory
+  content?: string
+  original_quote?: string | null
+  tags?: string[]
+  sort_order?: number
+  expected_version: number
+  actor_staff_id?: string | null
+  /** Audit action override (adopt/dismiss flows). */
+  action?: EntryEditAction
+  prompt_version?: string | null
+  model?: string | null
+}
+
+/** Append-only audit + correction-pair row (the 監査ログ). */
+export interface KaruteEntryEdit {
+  id: string
+  business_id: string
+  customer_id: string | null
+  karute_record_id: string
+  entry_id_old: string | null
+  entry_id_new: string | null
+  actor_staff_id: string | null
+  action: EntryEditAction
+  category: EntryCategory | null
+  content_before: string | null
+  content_after: string | null
+  author_before: EntryAuthor | null
+  author_after: EntryAuthor | null
+  batch_id: string | null
+  prompt_version: string | null
+  model: string | null
+  created_at: string
+}
+
+export interface ListEntryEditsOptions {
+  karute_record_id?: string
+  customer_id?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ListEntryEditsResponse {
+  entry_edits: KaruteEntryEdit[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export interface KaruteEntryInput {
@@ -756,6 +825,8 @@ export interface KaruteEntryInput {
   tags?: string[]
   sort_order?: number
   is_manual?: boolean
+  /** Audit lineage for addEntry (who created it). */
+  actor_staff_id?: string | null
 }
 
 export interface KaruteRecord {
@@ -768,6 +839,9 @@ export interface KaruteRecord {
   recording_session_id: string | null
   status: KaruteStatus
   ai_summary: string | null
+  /** Human overlay (the pencil). Readers use edited_summary ?? ai_summary;
+   *  regen keeps writing ai_summary and never touches this. */
+  edited_summary: string | null
   transcript: string | null
   service: string | null
   duration_minutes: number | null
@@ -811,11 +885,18 @@ export interface UpdateKaruteRecordInput {
   appointment_id?: string | null
   status?: KaruteStatus
   ai_summary?: string | null
+  /** Human overlay — ONLY the pencil writes it; AI/regen paths never send it. */
+  edited_summary?: string | null
   transcript?: string | null
+  /** If present, atomically replaces ALL entries (audited as one REGEN_REPLACE batch). */
   entries?: KaruteEntryInput[]
   service?: string | null
   duration_minutes?: number | null
   session_date?: string | null
+  /** Audit lineage for the replace / summary edit. */
+  actor_staff_id?: string | null
+  prompt_version?: string | null
+  model?: string | null
 }
 
 export interface ListKaruteRecordsOptions {
