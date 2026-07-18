@@ -5,6 +5,7 @@ export { AppointmentClient } from './appointments.js'
 export { SyncClient } from './sync.js'
 export { RecordingClient } from './recordings.js'
 export { KaruteRecordClient } from './karute.js'
+export { AuditClient } from './audit.js'
 export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
@@ -72,6 +73,10 @@ export type {
   KaruteStatus,
   KaruteEntry,
   KaruteEntryInput,
+  AuditEventInput,
+  AuditEvent,
+  ListAuditOptions,
+  ListAuditResponse,
   UpdateKaruteEntryInput,
   EntryAuthor,
   EntryEditAction,

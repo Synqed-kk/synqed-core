@@ -58,7 +58,12 @@ packRoutes.post('/redemptions', async (c) => {
 })
 
 packRoutes.delete('/redemptions/:id', async (c) => {
-  return c.json(await packs.removeRedemption(c.get('businessId'), c.req.param('id')))
+  // removed_by records WHO undid the burn (query param — DELETE bodies are
+  // unreliable through proxies). Soft delete; reads exclude removed rows.
+  const removedBy = c.req.query('removed_by') ?? null
+  return c.json(
+    await packs.removeRedemption(c.get('businessId'), c.req.param('id'), removedBy),
+  )
 })
 
 // ─── customer_lifecycle ──────────────────────────────────────────────────────

@@ -96,14 +96,14 @@ export async function listRedemptionsByCustomer(
   businessId: string, customerId: string,
 ): Promise<Array<{ pack_id: string; redeemed_on: string }>> {
   const rows = await prisma.packRedemption.findMany({
-    where: { businessId, customerId }, select: { packId: true, redeemedOn: true },
+    where: { businessId, customerId, removedAt: null }, select: { packId: true, redeemedOn: true },
   })
   return rows.map((r) => ({ pack_id: r.packId, redeemed_on: ymd(r.redeemedOn) }))
 }
 
 /** All redemption pack_ids for the bulk usage aggregation. */
 export async function listAllRedemptionPackIds(businessId: string): Promise<string[]> {
-  const rows = await prisma.packRedemption.findMany({ where: { businessId }, select: { packId: true } })
+  const rows = await prisma.packRedemption.findMany({ where: { businessId, removedAt: null }, select: { packId: true } })
   return rows.map((r) => r.packId)
 }
 
@@ -114,7 +114,7 @@ export async function listRecentRedemptions(
   pack_id: string; unit_price: number | null
 }>> {
   const rows = await prisma.packRedemption.findMany({
-    where: { businessId, redeemedOn: { gte: new Date(since) } },
+    where: { businessId, removedAt: null, redeemedOn: { gte: new Date(since) } },
     select: { customerId: true, appointmentId: true, redeemedOn: true, packId: true },
     orderBy: { redeemedOn: 'asc' },
   })
@@ -158,8 +158,17 @@ export async function addRedemption(businessId: string, input: AddRedemptionInpu
   return { id: row.id }
 }
 
-export async function removeRedemption(businessId: string, id: string): Promise<{ ok: boolean }> {
-  const res = await prisma.packRedemption.deleteMany({ where: { id, businessId } })
+export async function removeRedemption(
+  businessId: string,
+  id: string,
+  removedBy?: string | null,
+): Promise<{ ok: boolean }> {
+  // Undo is a SOFT delete so WHO undid a 回数券 burn stays queryable
+  // (removed_by/removed_at) — reads exclude removed rows.
+  const res = await prisma.packRedemption.updateMany({
+    where: { id, businessId, removedAt: null },
+    data: { removedAt: new Date(), removedBy: removedBy ?? null },
+  })
   return { ok: res.count > 0 }
 }
 

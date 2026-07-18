@@ -27,6 +27,7 @@ export class CustomerClient {
     const params = new URLSearchParams()
     if (options?.search) params.set('search', options.search)
     if (options?.store_id) params.set('store_id', options.store_id)
+    if (options?.include_deleted) params.set('include_deleted', 'true')
     if (options?.ids && options.ids.length > 0) {
       params.set('ids', options.ids.join(','))
     }

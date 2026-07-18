@@ -27,6 +27,7 @@ export const createCustomerSchema = z.object({
   assigned_staff_id: z.string().uuid().nullish(),
   is_existing_customer: z.boolean().optional(),
   visit_count: z.number().int().min(0).optional(),
+  // Soft delete / restore: timestamp = delete, null = restore (30-day window).
 })
 
 export const updateCustomerSchema = z.object({
@@ -56,6 +57,8 @@ export const updateCustomerSchema = z.object({
   assigned_staff_id: z.string().uuid().nullish(),
   is_existing_customer: z.boolean().optional(),
   visit_count: z.number().int().min(0).optional(),
+  // Soft delete / restore: timestamp = delete, null = restore (30-day window).
+  deleted_at: z.string().datetime().nullish(),
 })
 
 export const upsertVisitsSchema = z.object({
@@ -84,6 +87,8 @@ export const listCustomersSchema = z.object({
     .max(5_000)
     .optional()
     .transform((s) => (s ? s.split(',').filter(Boolean) : undefined)),
+  // Recycle-bin opt-in: soft-deleted customers are hidden by default.
+  include_deleted: z.coerce.boolean().optional(),
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce.number().int().min(1).max(500).default(20),
   sort_by: z.enum(['name', 'created_at', 'updated_at']).default('name'),

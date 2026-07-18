@@ -59,8 +59,14 @@ export class PacksClient {
   async addRedemption(input: AddRedemptionInput): Promise<{ id: string }> {
     return this.client.fetch<{ id: string }>('/packs/redemptions', { method: 'POST', body: JSON.stringify(input) })
   }
-  async removeRedemption(id: string): Promise<{ ok: boolean }> {
-    return this.client.fetch<{ ok: boolean }>(`/packs/redemptions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  /** Undo a 回数券 burn. removed_by records WHO undid it (soft delete —
+   *  the redemption row survives with removed_at/removed_by). */
+  async removeRedemption(id: string, meta?: { removed_by?: string }): Promise<{ ok: boolean }> {
+    const qs = meta?.removed_by ? `?removed_by=${encodeURIComponent(meta.removed_by)}` : ''
+    return this.client.fetch<{ ok: boolean }>(
+      `/packs/redemptions/${encodeURIComponent(id)}${qs}`,
+      { method: 'DELETE' },
+    )
   }
 
   // customer_lifecycle

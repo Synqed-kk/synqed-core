@@ -425,7 +425,14 @@ export async function updateKaruteRecord(
 export async function deleteKaruteRecord(businessId: string, id: string): Promise<void> {
   const existing = await prisma.karuteRecord.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Karute record not found')
-  await prisma.karuteRecord.delete({ where: { id } })
+  // Liam ruling 2026-07-17: deleting a karute deletes its entry_edits too —
+  // audit_log is the surviving trail (its rows reference entry_edit_id in
+  // detail, which simply stops resolving). Service-level, not an FK, so
+  // entry_edits inserts stay lock-free on karute rows.
+  await prisma.$transaction([
+    prisma.karuteEntryEdit.deleteMany({ where: { karuteRecordId: id, businessId } }),
+    prisma.karuteRecord.delete({ where: { id } }),
+  ])
 }
 
 /** Optimistic-concurrency failure — routes map it to 409. */
