@@ -45,6 +45,7 @@ function toCustomer(row: any): Customer {
     is_existing_customer: row.isExistingCustomer,
     visit_count: row.visitCount,
     karute_number: row.karuteNumber ?? null,
+    deleted_at: row.deletedAt ? row.deletedAt.toISOString() : null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -56,6 +57,7 @@ export async function listCustomers(
     search?: string
     store_id?: string
     ids?: string[]
+    include_deleted?: boolean
     page?: number
     page_size?: number
     sort_by?: string
@@ -76,6 +78,9 @@ export async function listCustomers(
   const sortBy = sortByMap[options.sort_by ?? 'name'] ?? 'name'
 
   const where: any = { businessId }
+  // Soft-deleted customers are invisible by default (30-day recoverable
+  // window); the recycle-bin UI opts in with include_deleted.
+  if (!options.include_deleted) where.deletedAt = null
 
   // Batch-by-id mode: returns only the requested customers in a single shot.
   // Bypasses search/pagination because the caller already knows the exact set.
@@ -167,7 +172,7 @@ export async function countCustomersByStore(
     if (r.store_id) counts[r.store_id] = Number(r.n)
     else unassigned += Number(r.n)
   }
-  const total = await prisma.customer.count({ where: { businessId } })
+  const total = await prisma.customer.count({ where: { businessId, deletedAt: null } })
   return { counts, unassigned, total }
 }
 
@@ -314,6 +319,11 @@ export async function updateCustomer(
   if (input.date_of_birth !== undefined)
     data.dateOfBirth = input.date_of_birth ? new Date(input.date_of_birth) : null
   if (input.gender !== undefined) data.gender = input.gender
+  // Soft delete / restore (Liam ruling: never instant-delete; 30-day window).
+  // delete = set deleted_at, restore = null it. Hard delete stays DELETE /:id
+  // (the day-30 job) and runs the audit scrub.
+  if (input.deleted_at !== undefined)
+    data.deletedAt = input.deleted_at ? new Date(input.deleted_at) : null
   if (input.occupation !== undefined) data.occupation = input.occupation
   if (input.member_number !== undefined) data.memberNumber = input.member_number
   if (input.postal_code !== undefined) data.postalCode = input.postal_code
@@ -357,7 +367,26 @@ export async function deleteCustomer(
 
   if (!existing) throw new Error('Customer not found')
 
-  await prisma.customer.delete({ where: { id } })
+  // CORE OWNS THE CASCADE (decided 2026-07-17; the app used to pre-delete
+  // appointments one by one). Hard delete = the day-30 path: child rows that
+  // would block the FK go first, in one transaction. karute_entry_edits +
+  // photos + consents + visits cascade via their FKs; redemptions keep their
+  // rows (money history) with customer_id intact — they carry no name/PII.
+  await prisma.$transaction([
+    prisma.appointment.deleteMany({ where: { customerId: id, businessId } }),
+    prisma.customerLifecycle.deleteMany({ where: { customerId: id, businessId } }),
+    prisma.customer.delete({ where: { id } }),
+  ])
+
+  // Erasure: scrub this customer's audit rows (target hashed, label/detail
+  // nulled) through the ONE SECURITY DEFINER path. Best-effort AFTER the
+  // delete commits — a scrub hiccup must not resurrect the customer.
+  try {
+    const { scrubCustomer } = await import('./audit.service.js')
+    await scrubCustomer(businessId, id)
+  } catch (err) {
+    console.error('[deleteCustomer] audit scrub failed:', err)
+  }
 }
 
 export async function checkDuplicateName(

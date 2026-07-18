@@ -18,6 +18,7 @@ import { inviteRoutes } from './routes/invites.js'
 import { customerMemoryRoutes } from './routes/customer-memory.js'
 import { karuteOutcomeRoutes } from './routes/karute-outcomes.js'
 import { packRoutes } from './routes/packs.js'
+import { auditRoutes } from './routes/audit.js'
 import { aiCacheRoutes } from './routes/ai-cache.js'
 import { authMiddleware } from './middleware/auth.js'
 
@@ -51,6 +52,7 @@ app.route('/invites', inviteRoutes)
 app.route('/customer-memory', customerMemoryRoutes)
 app.route('/karute-outcomes', karuteOutcomeRoutes)
 app.route('/packs', packRoutes)
+app.route('/audit', auditRoutes)
 app.route('/ai-cache', aiCacheRoutes)
 
 app.get('/health', (c) => c.json({ status: 'ok' }))

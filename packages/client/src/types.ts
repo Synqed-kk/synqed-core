@@ -103,6 +103,8 @@ export interface UpdateCustomerInput {
   assigned_staff_id?: string | null
   is_existing_customer?: boolean
   visit_count?: number
+  /** Soft delete / restore: ISO timestamp = delete, null = restore (30-day window). */
+  deleted_at?: string | null
 }
 
 export interface CustomerVisit {
@@ -138,6 +140,8 @@ export interface ListCustomersOptions {
   // and skips search + pagination. Useful for resolving N customer names
   // without N round-trips.
   ids?: string[]
+  /** Recycle-bin opt-in: include soft-deleted customers (hidden by default). */
+  include_deleted?: boolean
   page?: number
   page_size?: number
   sort_by?: 'name' | 'created_at' | 'updated_at'
@@ -949,4 +953,60 @@ export interface AiRateLimitResult {
   costCap: number
   costUsed: number
   resetAt: string
+}
+
+// ── Audit log (監査ログ) ──────────────────────────────────────────────────────
+
+export interface AuditEventInput {
+  store_id?: string | null
+  actor_id?: string | null
+  actor_type: 'staff' | 'owner' | 'system' | 'dev'
+  actor_role?: string | null
+  category: string
+  action: string
+  target_type?: string | null
+  target_id?: string | null
+  target_label?: string | null
+  /** Capped server-side at ~2KB (truncated marker on overflow). */
+  detail?: unknown
+  /** Owner/dev cross-access flag — privileged access is one query. */
+  break_glass?: boolean
+  severity?: 'info' | 'warn' | 'critical'
+}
+
+export interface AuditEvent {
+  id: string
+  business_id: string
+  store_id: string | null
+  at: string
+  actor_id: string | null
+  actor_type: string
+  actor_role: string | null
+  category: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  target_label: string | null
+  detail: unknown
+  break_glass: boolean
+  severity: string
+}
+
+export interface ListAuditOptions {
+  category?: string
+  actor_id?: string
+  target_type?: string
+  target_id?: string
+  break_glass?: boolean
+  from?: string
+  to?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ListAuditResponse {
+  events: AuditEvent[]
+  total: number
+  page: number
+  page_size: number
 }

@@ -15,6 +15,10 @@ datasource db {
 model Customer {
   id              String   @id @default(uuid()) @db.Uuid
   businessId      String   @map("business_id") @db.Uuid
+  // Soft delete (30-day recoverable window). Reads exclude deleted rows by
+  // default; restore = null it inside the window; day-30 hard delete runs the
+  // audit scrub. Never instant-delete (Liam ruling 2026-07-17).
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz()
   name            String
   furigana        String?
   email           String?
@@ -523,6 +527,43 @@ model OrgSettings {
 }
 
 // =============================================================================
+// AuditLog — the real 監査ログ: who opened/edited/deleted/exported what.
+// Append-only, ENFORCED IN THE DB by a trigger (audit_log_block_mutation) —
+// the single exception is the SECURITY DEFINER erasure scrub
+// (audit_log_scrub_customer), which sets the session flag the trigger checks.
+// NO FKs on actor_id/target_id ON PURPOSE: inserts must never take locks on
+// customers/staff rows, and deletes must never fight the log. entry-level
+// before/after diffs stay in karute_entry_edits; an edit's audit row carries
+// entry_edit_id in `detail` to link them. Wave 3 (login/auth events) flows in
+// through the same shape — category is an open string, don't design it shut.
+// =============================================================================
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  storeId     String?  @map("store_id") @db.Uuid
+  at          DateTime @default(now()) @db.Timestamptz()
+  actorId     String?  @map("actor_id") @db.Uuid
+  actorType   String   @map("actor_type") // staff | owner | system | dev
+  actorRole   String?  @map("actor_role")
+  category    String // e.g. customer | karute | export | settings | permission | auth
+  action      String // e.g. view | edit | delete | restore | export | pin_change
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  targetLabel String?  @map("target_label")
+  detail      Json?
+  // Owner/dev cross-access flag — "show me every privileged access" is one query.
+  breakGlass  Boolean  @default(false) @map("break_glass")
+  severity    String   @default("info") // info | warn | critical
+
+  @@index([businessId, at])
+  @@index([businessId, actorId, at])
+  @@index([businessId, targetType, targetId, at])
+  @@index([businessId, category, at])
+  @@map("audit_log")
+}
+
+// =============================================================================
 // AiRequestLog — append-only log of AI API calls for per-business rate limiting
 // =============================================================================
 
@@ -703,6 +744,9 @@ model PackRedemption {
   countsAsVisit  Boolean  @default(true) @map("counts_as_visit")
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  // Undo is a soft delete so WHO undid a 回数券 burn stays queryable.
+  removedAt      DateTime? @map("removed_at") @db.Timestamptz()
+  removedBy      String?   @map("removed_by") @db.Uuid
 
   @@index([businessId, customerId])
   @@index([businessId, packId])
