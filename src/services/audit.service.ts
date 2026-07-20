@@ -10,6 +10,9 @@ export interface AuditEventInput {
   actor_id?: string | null
   actor_type: string
   actor_role?: string | null
+  /** Display-name snapshot; when omitted and actor_id is a staff/auth id,
+   *  the service resolves it from the staff roster at write time. */
+  actor_label?: string | null
   category: string
   action: string
   target_type?: string | null
@@ -28,6 +31,7 @@ export interface AuditEventPublic {
   actor_id: string | null
   actor_type: string
   actor_role: string | null
+  actor_label: string | null
   category: string
   action: string
   target_type: string | null
@@ -48,6 +52,7 @@ function toPublic(r: {
   actorId: string | null
   actorType: string
   actorRole: string | null
+  actorLabel: string | null
   category: string
   action: string
   targetType: string | null
@@ -65,6 +70,7 @@ function toPublic(r: {
     actor_id: r.actorId,
     actor_type: r.actorType,
     actor_role: r.actorRole,
+    actor_label: r.actorLabel,
     category: r.category,
     action: r.action,
     target_type: r.targetType,
@@ -89,6 +95,24 @@ export async function logEvent(
       detail = { truncated: true, head: raw.slice(0, DETAIL_CAP_BYTES) }
     }
   }
+  // Actor-name snapshot: copy the display name INTO the row (like
+  // target_label) so history survives staff deletion. Caller-supplied label
+  // wins; else resolve from the roster — actor_id may be a synqed staff id
+  // OR an auth user uuid (staff.user_id), the app sends the latter.
+  let actorLabel = input.actor_label ?? null
+  if (!actorLabel && input.actor_id) {
+    const staffRow = await prisma.staff
+      .findFirst({
+        where: {
+          businessId,
+          OR: [{ id: input.actor_id }, { userId: input.actor_id }],
+        },
+        select: { name: true },
+      })
+      .catch(() => null)
+    actorLabel = staffRow?.name ?? null
+  }
+
   const row = await prisma.auditLog.create({
     data: {
       businessId,
@@ -96,6 +120,7 @@ export async function logEvent(
       actorId: input.actor_id ?? null,
       actorType: input.actor_type,
       actorRole: input.actor_role ?? null,
+      actorLabel,
       category: input.category,
       action: input.action,
       targetType: input.target_type ?? null,
@@ -115,6 +140,14 @@ export interface ListAuditOptions {
   target_type?: string
   target_id?: string
   break_glass?: boolean
+  /** Exact-match severity filter (info | warn | critical). */
+  severity?: string
+  /** Store lens for the store-scoped manager view (rows may be null-store). */
+  store_id?: string
+  /** True → exclude view events ("everything except views" server-side, so
+   *  the summary strip's 変更/警告 totals stay exact past page one). A view is
+   *  any action named '*.view' or 'view' — the emitter's naming convention. */
+  exclude_views?: boolean
   from?: string
   to?: string
   page?: number
@@ -133,6 +166,11 @@ export async function listAuditLog(
   if (options.target_type) where.targetType = options.target_type
   if (options.target_id) where.targetId = options.target_id
   if (options.break_glass !== undefined) where.breakGlass = options.break_glass
+  if (options.severity) where.severity = options.severity
+  if (options.store_id) where.storeId = options.store_id
+  if (options.exclude_views) {
+    where.NOT = [{ action: { endsWith: '.view' } }, { action: 'view' }]
+  }
   if (options.from || options.to) {
     const at: Record<string, Date> = {}
     if (options.from) at.gte = new Date(options.from)

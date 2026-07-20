@@ -10,6 +10,7 @@ const logSchema = z.object({
   actor_id: z.string().uuid().nullable().optional(),
   actor_type: z.enum(['staff', 'owner', 'system', 'dev']),
   actor_role: z.string().nullable().optional(),
+  actor_label: z.string().max(200).nullable().optional(),
   category: z.string().min(1), // open set — wave 3 (auth) flows in later
   action: z.string().min(1),
   target_type: z.string().nullable().optional(),
@@ -26,6 +27,9 @@ const listSchema = z.object({
   target_type: z.string().optional(),
   target_id: z.string().optional(),
   break_glass: z.coerce.boolean().optional(),
+  severity: z.enum(['info', 'warn', 'critical']).optional(),
+  store_id: z.string().uuid().optional(),
+  exclude_views: z.coerce.boolean().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   page: z.coerce.number().int().min(1).optional(),
