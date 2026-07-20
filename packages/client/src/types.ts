@@ -962,6 +962,9 @@ export interface AuditEventInput {
   actor_id?: string | null
   actor_type: 'staff' | 'owner' | 'system' | 'dev'
   actor_role?: string | null
+  /** Display-name snapshot (like target_label). Omit and core resolves it
+   *  from the staff roster at write time. */
+  actor_label?: string | null
   category: string
   action: string
   target_type?: string | null
@@ -982,6 +985,7 @@ export interface AuditEvent {
   actor_id: string | null
   actor_type: string
   actor_role: string | null
+  actor_label: string | null
   category: string
   action: string
   target_type: string | null
@@ -998,6 +1002,13 @@ export interface ListAuditOptions {
   target_type?: string
   target_id?: string
   break_glass?: boolean
+  /** Exact-match severity (info | warn | critical). */
+  severity?: 'info' | 'warn' | 'critical'
+  /** Store lens for the store-scoped manager view. */
+  store_id?: string
+  /** True → server-side "everything except views" (actions '*.view'/'view'),
+   *  so summary counts stay exact past page one. */
+  exclude_views?: boolean
   from?: string
   to?: string
   page?: number

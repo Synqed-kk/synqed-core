@@ -546,6 +546,10 @@ model AuditLog {
   actorId     String?  @map("actor_id") @db.Uuid
   actorType   String   @map("actor_type") // staff | owner | system | dev
   actorRole   String?  @map("actor_role")
+  // Write-time SNAPSHOT of the actor's display name (like target_label) — a
+  // deleted staff member's history keeps their name instead of showing 不明.
+  // Deliberately no FK, deliberately not resolved at read time.
+  actorLabel  String?  @map("actor_label")
   category    String // e.g. customer | karute | export | settings | permission | auth
   action      String // e.g. view | edit | delete | restore | export | pin_change
   targetType  String?  @map("target_type")

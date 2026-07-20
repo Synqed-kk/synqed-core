@@ -83,6 +83,50 @@ describe('audit_log', () => {
     ).rejects.toThrow(/append-only/)
   })
 
+  it('actor_label: caller value wins; else resolved from the roster at write time', async () => {
+    const staff = await seedTestStaff()
+    // No label sent — core snapshots the roster name.
+    const auto = await (
+      await req('POST', '/audit', {
+        actor_id: staff.id,
+        actor_type: 'staff',
+        category: 'customer',
+        action: 'customer.edit',
+      })
+    ).json()
+    expect(auto.actor_label).toBe(staff.name)
+    // Caller label wins over the roster.
+    const explicit = await (
+      await req('POST', '/audit', {
+        actor_id: staff.id,
+        actor_type: 'staff',
+        actor_label: '明示ラベル',
+        category: 'customer',
+        action: 'customer.edit',
+      })
+    ).json()
+    expect(explicit.actor_label).toBe('明示ラベル')
+  })
+
+  it('severity / exclude_views / store_id filters', async () => {
+    const A = '11111111-1111-1111-1111-111111111111'
+    await req('POST', '/audit', { actor_type: 'staff', category: 'customer', action: 'customer.view', severity: 'info', store_id: A })
+    await req('POST', '/audit', { actor_type: 'staff', category: 'customer', action: 'customer.edit', severity: 'warn', store_id: A })
+    await req('POST', '/audit', { actor_type: 'staff', category: 'auth', action: 'auth.pin_lockout', severity: 'critical' })
+
+    const warns = await (await req('GET', '/audit?severity=warn')).json()
+    expect(warns.total).toBe(1)
+    expect(warns.events[0].action).toBe('customer.edit')
+
+    // "Everything except views" — the summary strip's 変更/警告 counts.
+    const noViews = await (await req('GET', '/audit?exclude_views=true')).json()
+    expect(noViews.total).toBe(2)
+    expect(noViews.events.every((e: { action: string }) => !e.action.endsWith('.view'))).toBe(true)
+
+    const storeA = await (await req('GET', `/audit?store_id=${A}`)).json()
+    expect(storeA.total).toBe(2)
+  })
+
   it('caps oversized detail at ~2KB with a truncation marker', async () => {
     const res = await req('POST', '/audit', {
       actor_type: 'system',
