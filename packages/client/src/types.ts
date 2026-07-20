@@ -1021,3 +1021,28 @@ export interface ListAuditResponse {
   page: number
   page_size: number
 }
+
+// ── Recording jobs (server-side recording→karute pipeline) ───────────────────
+
+export type RecordingJobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'
+
+export interface RecordingJob {
+  id: string
+  business_id: string
+  recording_session_id: string
+  status: RecordingJobStatus
+  attempts: number
+  max_attempts: number
+  last_error: string | null
+  /** Worker-owned shape (audio path, save inputs, acting staff). */
+  payload: unknown
+  karute_record_id: string | null
+  claimed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EnqueueRecordingJobInput {
+  recording_session_id: string
+  payload: Record<string, unknown>
+}
