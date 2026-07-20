@@ -527,6 +527,44 @@ model OrgSettings {
 }
 
 // =============================================================================
+// RecordingJob — server-side recording→karute pipeline state (Liam ask
+// 2026-07-19). The job row is the durable anchor: the client uploads audio,
+// enqueues, and polls; a karute-side worker claims and runs
+// transcribe→extract→summarize→save. UNIQUE(recording_session_id) is the
+// idempotency rail — re-enqueue of the same recording returns the same job.
+// Claim/complete/fail are cross-tenant (trusted server key) because the worker
+// sweeps all businesses; enqueue/status are tenant-scoped.
+// =============================================================================
+
+enum RecordingJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model RecordingJob {
+  id                 String             @id @default(uuid()) @db.Uuid
+  businessId         String             @map("business_id") @db.Uuid
+  recordingSessionId String             @unique @map("recording_session_id") @db.Uuid
+  status             RecordingJobStatus @default(QUEUED)
+  attempts           Int                @default(0)
+  maxAttempts        Int                @default(3) @map("max_attempts")
+  lastError          String?            @map("last_error")
+  // Everything the worker needs to run without the client: audio path, the
+  // save inputs, the acting staff. Shape owned by the karute worker.
+  payload            Json
+  karuteRecordId     String?            @map("karute_record_id") @db.Uuid
+  claimedAt          DateTime?          @map("claimed_at") @db.Timestamptz()
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([status, createdAt])
+  @@index([businessId, createdAt])
+  @@map("recording_jobs")
+}
+
+// =============================================================================
 // AuditLog — the real 監査ログ: who opened/edited/deleted/exported what.
 // Append-only, ENFORCED IN THE DB by a trigger (audit_log_block_mutation) —
 // the single exception is the SECURITY DEFINER erasure scrub

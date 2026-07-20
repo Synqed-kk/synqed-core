@@ -6,6 +6,7 @@ export { SyncClient } from './sync.js'
 export { RecordingClient } from './recordings.js'
 export { KaruteRecordClient } from './karute.js'
 export { AuditClient } from './audit.js'
+export { RecordingJobClient } from './recording-jobs.js'
 export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
@@ -75,6 +76,9 @@ export type {
   KaruteEntryInput,
   AuditEventInput,
   AuditEvent,
+  RecordingJob,
+  RecordingJobStatus,
+  EnqueueRecordingJobInput,
   ListAuditOptions,
   ListAuditResponse,
   UpdateKaruteEntryInput,

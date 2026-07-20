@@ -16,6 +16,7 @@ import { KaruteOutcomeClient } from './karute-outcomes.js'
 import { PacksClient } from './packs.js'
 import { AiCacheClient } from './ai-cache.js'
 import { AuditClient } from './audit.js'
+import { RecordingJobClient } from './recording-jobs.js'
 
 export class SynqedClient {
   private baseUrl: string
@@ -39,6 +40,7 @@ export class SynqedClient {
   public packs: PacksClient
   public aiCache: AiCacheClient
   public audit: AuditClient
+  public recordingJobs: RecordingJobClient
 
   constructor(config: SynqedClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
@@ -61,6 +63,7 @@ export class SynqedClient {
     this.packs = new PacksClient(this)
     this.aiCache = new AiCacheClient(this)
     this.audit = new AuditClient(this)
+    this.recordingJobs = new RecordingJobClient(this)
   }
 
   async fetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -80,6 +83,24 @@ export class SynqedClient {
     }
 
     return res.json() as Promise<T>
+  }
+
+  /** Raw variant for callers that must branch on status (e.g. 204 = empty
+   *  queue). Same auth headers; only non-2xx throws. */
+  async fetchRaw(path: string, init?: RequestInit): Promise<Response> {
+    const url = `${this.baseUrl}/v1${path}`
+    const headers: Record<string, string> = {
+      'x-api-key': this.apiKey,
+      'x-business-id': this.businessId,
+      'Content-Type': 'application/json',
+      ...(init?.headers as Record<string, string>),
+    }
+    const res = await fetch(url, { ...init, headers })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }))
+      throw new SynqedError(res.status, (body as { error?: string }).error ?? 'Request failed')
+    }
+    return res
   }
 
   async fetchMultipart<T>(path: string, formData: FormData): Promise<T> {
