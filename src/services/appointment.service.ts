@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
+import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
@@ -236,85 +236,120 @@ export async function updateAppointment(
   id: string,
   input: UpdateAppointmentInput,
 ): Promise<AppointmentPublic> {
-  const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
-  if (!existing) throw new Error('Appointment not found')
-
-  const data: Record<string, unknown> = {}
-  if (input.customer_id !== undefined) data.customerId = input.customer_id
-  if (input.staff_id !== undefined) data.staffId = input.staff_id
-  if (input.starts_at !== undefined) data.startsAt = new Date(input.starts_at)
-  if (input.ends_at !== undefined) data.endsAt = new Date(input.ends_at)
-  if (input.duration_minutes !== undefined) data.durationMinutes = input.duration_minutes
-  if (input.title !== undefined) data.title = input.title
-  if (input.notes !== undefined) data.notes = input.notes
-  if (input.status !== undefined) {
-    data.status = input.status
-    // A status change through the app is a staff decision — stamp the audit
-    // trail (who/why/when) and mark statusSource=STAFF so the QuickReserve crawl
-    // won't overwrite it (see sync.service stripStaffLockedStatus).
-    data.statusSource = 'STAFF'
-    data.statusSetBy = input.acting_staff_id ?? null
-    data.statusReason = input.status_reason ?? null
-    data.statusSetAt = new Date()
-    const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
-    if (terminal && !existing.cancelledAt) {
-      data.cancelledAt = new Date()
-    } else if (!terminal && existing.cancelledAt) {
-      data.cancelledAt = null
+  // Everything data-building needs from the row is read FRESH at write time
+  // (see below) — a pre-lock snapshot must never decide slot semantics.
+  const buildData = (row: { cancelledAt: Date | null }): Record<string, unknown> => {
+    const data: Record<string, unknown> = {}
+    if (input.customer_id !== undefined) data.customerId = input.customer_id
+    if (input.staff_id !== undefined) data.staffId = input.staff_id
+    if (input.starts_at !== undefined) data.startsAt = new Date(input.starts_at)
+    if (input.ends_at !== undefined) data.endsAt = new Date(input.ends_at)
+    if (input.duration_minutes !== undefined) data.durationMinutes = input.duration_minutes
+    if (input.title !== undefined) data.title = input.title
+    if (input.notes !== undefined) data.notes = input.notes
+    if (input.status !== undefined) {
+      data.status = input.status
+      // A status change through the app is a staff decision — stamp the audit
+      // trail (who/why/when) and mark statusSource=STAFF so the QuickReserve crawl
+      // won't overwrite it (see sync.service stripStaffLockedStatus).
+      data.statusSource = 'STAFF'
+      data.statusSetBy = input.acting_staff_id ?? null
+      data.statusReason = input.status_reason ?? null
+      data.statusSetAt = new Date()
+      const terminal = input.status === 'CANCELLED' || input.status === 'NO_SHOW'
+      if (terminal && !row.cancelledAt) {
+        data.cancelledAt = new Date()
+      } else if (!terminal && row.cancelledAt) {
+        data.cancelledAt = null
+      }
     }
+    return data
   }
 
   // Reschedule/reassign guard. createAppointment refuses an overlapping slot,
   // but nothing stopped an UPDATE from moving a booking onto an occupied one —
   // a customer reschedule (SYNQED Reserve) or a calendar drag could silently
-  // double-book a staff member. Same per-staff/per-store window query as
-  // create, excluding self; runs only when the update changes the occupied
-  // slot (time/staff) or revives a terminal booking into one.
-  const effStaffId = input.staff_id ?? existing.staffId
-  const effStartsAt = input.starts_at !== undefined ? new Date(input.starts_at) : existing.startsAt
-  const effEndsAt = input.ends_at !== undefined ? new Date(input.ends_at) : existing.endsAt
-  // A single-field time update can invert the window (starts_at moved past the
-  // existing ends_at): the overlap predicate can never match an inverted range,
-  // so it would slip through the guard AND be invisible to every future
-  // overlap query. Reject before it can persist — but only when this update
-  // touches the times: a notes-only edit or a plain cancel of a legacy row
-  // that is ALREADY inverted (pre-fix API) must not 400 on unrelated fields.
-  if (
-    (input.starts_at !== undefined || input.ends_at !== undefined) &&
-    effEndsAt.getTime() <= effStartsAt.getTime()
-  ) {
-    throw new InvalidTimeRangeError()
-  }
-  const effStatus = input.status ?? existing.status
-  const wasTerminal = existing.status === 'CANCELLED' || existing.status === 'NO_SHOW'
-  const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'
-  const slotChanged =
-    effStaffId !== existing.staffId ||
-    effStartsAt.getTime() !== existing.startsAt.getTime() ||
-    effEndsAt.getTime() !== existing.endsAt.getTime()
+  // double-book a staff member. Whether the guard is needed is decided by the
+  // INPUT SHAPE (which fields the update touches), never by comparing against
+  // a pre-lock snapshot — a stale compare could wave through a write that
+  // races another writer on the same row.
+  const touchesSlot =
+    input.staff_id !== undefined ||
+    input.starts_at !== undefined ||
+    input.ends_at !== undefined ||
+    input.status !== undefined
 
-  const needsGuard = staysActive && (slotChanged || wasTerminal)
-
-  // Same DB backstop as create: the partial unique index on
-  // (business_id, customer_id, starts_at) also fires on UPDATE — without this
-  // catch a same-customer collision surfaced as a raw P2002 → 500.
-  // Guarded writes take the same per-staff lock as create (target staff — the
-  // slot being CLAIMED; freeing the old one can't conflict), so a concurrent
-  // create/update pair racing for one free slot serializes instead of both
-  // passing the check. Unguarded writes (metadata/cancel) skip the lock.
   try {
-    const write = (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) =>
-      tx.appointment.update({ where: { id }, data })
-    const row = needsGuard
-      ? await withStaffSlotLock(businessId, effStaffId, async (tx) => {
+    if (!touchesSlot) {
+      // Metadata-only (title/notes/customer/duration label): slot semantics
+      // cannot change — no lock. P2002 stays possible via customer_id.
+      const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
+      if (!existing) throw new Error('Appointment not found')
+      const row = await prisma.appointment.update({ where: { id }, data: buildData(existing) })
+      return toPublic(row)
+    }
+
+    // Slot-touching updates serialize on the TARGET staff — the slot being
+    // claimed. With an explicit staff_id the key is exact by construction.
+    // Without one, the current staff is read, locked, then RE-READ inside the
+    // lock: if a concurrent reassignment moved the row, the key is stale and
+    // the attempt retries under the new staff's lock (verifier trace: a
+    // reassign + time-change pair could otherwise commit a window never
+    // validated against the final staff).
+    let lockKey: string
+    if (input.staff_id !== undefined) {
+      lockKey = input.staff_id
+    } else {
+      const guess = await prisma.appointment.findFirst({
+        where: { id, businessId },
+        select: { staffId: true },
+      })
+      if (!guess) throw new Error('Appointment not found')
+      lockKey = guess.staffId
+    }
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const out: { row: Appointment } | { retryKey: string } = await withStaffSlotLock(
+        businessId,
+        lockKey,
+        async (tx) => {
+        const fresh = await tx.appointment.findFirst({ where: { id, businessId } })
+        if (!fresh) throw new Error('Appointment not found')
+        const effStaffId = input.staff_id ?? fresh.staffId
+        if (effStaffId !== lockKey) return { retryKey: effStaffId }
+
+        const effStartsAt =
+          input.starts_at !== undefined ? new Date(input.starts_at) : fresh.startsAt
+        const effEndsAt = input.ends_at !== undefined ? new Date(input.ends_at) : fresh.endsAt
+        // A single-field time update can invert the window (starts_at moved past
+        // the existing ends_at): the overlap predicate can never match an
+        // inverted range, so it would slip through the guard AND be invisible to
+        // every future overlap query. Reject before it can persist — but only
+        // when this update touches the times: a plain cancel of a legacy row
+        // that is ALREADY inverted (pre-fix API) must not 400 on other fields.
+        if (
+          (input.starts_at !== undefined || input.ends_at !== undefined) &&
+          effEndsAt.getTime() <= effStartsAt.getTime()
+        ) {
+          throw new InvalidTimeRangeError()
+        }
+        const effStatus = input.status ?? fresh.status
+        const wasTerminal = fresh.status === 'CANCELLED' || fresh.status === 'NO_SHOW'
+        const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'
+        const slotChanged =
+          effStaffId !== fresh.staffId ||
+          effStartsAt.getTime() !== fresh.startsAt.getTime() ||
+          effEndsAt.getTime() !== fresh.endsAt.getTime()
+
+        if (staysActive && (slotChanged || wasTerminal)) {
           const overlapping = await tx.appointment.findFirst({
             where: {
               businessId,
               staffId: effStaffId,
               // update can't move a booking between stores (no store_id in the
-              // schema), so the store scope is the existing row's — same per-store
-              // conflict semantics as create.
-              storeId: existing.storeId,
+              // schema), so the store scope is the existing row's — same
+              // per-store conflict semantics as create.
+              storeId: fresh.storeId,
               status: { notIn: ['CANCELLED', 'NO_SHOW'] },
               id: { not: id },
               startsAt: { lt: effEndsAt },
@@ -323,11 +358,20 @@ export async function updateAppointment(
             select: { id: true },
           })
           if (overlapping) throw new AppointmentOverlapError()
-          return write(tx)
-        })
-      : await write(prisma)
-    return toPublic(row)
+        }
+
+        return { row: await tx.appointment.update({ where: { id }, data: buildData(fresh) }) }
+      })
+      if ('row' in out) return toPublic(out.row)
+      lockKey = out.retryKey
+    }
+    // 3 consecutive mid-flight reassignments — practically unreachable; the
+    // 409 asks the caller to retry rather than writing unvalidated.
+    throw new AppointmentOverlapError()
   } catch (e) {
+    // Same DB backstop as create: the partial unique index on
+    // (business_id, customer_id, starts_at) also fires on UPDATE — without
+    // this catch a same-customer collision surfaced as a raw P2002 → 500.
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
     throw e
   }
