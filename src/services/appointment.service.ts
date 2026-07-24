@@ -232,8 +232,52 @@ export async function updateAppointment(
     }
   }
 
-  const row = await prisma.appointment.update({ where: { id }, data })
-  return toPublic(row)
+  // Reschedule/reassign guard. createAppointment refuses an overlapping slot,
+  // but nothing stopped an UPDATE from moving a booking onto an occupied one —
+  // a customer reschedule (SYNQED Reserve) or a calendar drag could silently
+  // double-book a staff member. Same per-staff/per-store window query as
+  // create, excluding self; runs only when the update changes the occupied
+  // slot (time/staff) or revives a terminal booking into one.
+  const effStaffId = input.staff_id ?? existing.staffId
+  const effStartsAt = input.starts_at !== undefined ? new Date(input.starts_at) : existing.startsAt
+  const effEndsAt = input.ends_at !== undefined ? new Date(input.ends_at) : existing.endsAt
+  const effStatus = input.status ?? existing.status
+  const wasTerminal = existing.status === 'CANCELLED' || existing.status === 'NO_SHOW'
+  const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'
+  const slotChanged =
+    effStaffId !== existing.staffId ||
+    effStartsAt.getTime() !== existing.startsAt.getTime() ||
+    effEndsAt.getTime() !== existing.endsAt.getTime()
+
+  if (staysActive && (slotChanged || wasTerminal)) {
+    const overlapping = await prisma.appointment.findFirst({
+      where: {
+        businessId,
+        staffId: effStaffId,
+        // update can't move a booking between stores (no store_id in the
+        // schema), so the store scope is the existing row's — same per-store
+        // conflict semantics as create.
+        storeId: existing.storeId,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        id: { not: id },
+        startsAt: { lt: effEndsAt },
+        endsAt: { gt: effStartsAt },
+      },
+      select: { id: true },
+    })
+    if (overlapping) throw new AppointmentOverlapError()
+  }
+
+  // Same DB backstop as create: the partial unique index on
+  // (business_id, customer_id, starts_at) also fires on UPDATE — without this
+  // catch a same-customer collision surfaced as a raw P2002 → 500.
+  try {
+    const row = await prisma.appointment.update({ where: { id }, data })
+    return toPublic(row)
+  } catch (e) {
+    if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
+    throw e
+  }
 }
 
 export async function deleteAppointment(businessId: string, id: string): Promise<void> {

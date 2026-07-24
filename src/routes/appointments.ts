@@ -62,6 +62,9 @@ appointmentRoutes.put('/:id', async (c) => {
     if (err instanceof Error && err.message === 'Appointment not found') {
       return c.json({ error: 'Appointment not found' }, 404)
     }
+    if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
+      return c.json({ error: err.message }, 409)
+    }
     throw err
   }
 })
