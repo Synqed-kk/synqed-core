@@ -12,6 +12,7 @@ import { orgSettingsRoutes } from './routes/org-settings.js'
 import { aiRateLimitRoutes } from './routes/ai-rate-limit.js'
 import { adminRoutes } from './routes/admin.js'
 import { storeRoutes } from './routes/stores.js'
+import { menuRoutes } from './routes/menus.js'
 import { entitlementRoutes } from './routes/entitlements.js'
 import { staffStoreRoutes } from './routes/staff-stores.js'
 import { inviteRoutes } from './routes/invites.js'
@@ -47,6 +48,7 @@ app.route('/org-settings', orgSettingsRoutes)
 app.route('/ai-rate-limit', aiRateLimitRoutes)
 app.route('/admin', adminRoutes)
 app.route('/stores', storeRoutes)
+app.route('/menus', menuRoutes)
 app.route('/entitlements', entitlementRoutes)
 app.route('/staff-stores', staffStoreRoutes)
 app.route('/invites', inviteRoutes)

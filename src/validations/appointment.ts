@@ -19,6 +19,11 @@ export const createAppointmentSchema = z.object({
   duration_minutes: z.number().int().min(1).max(1440).optional(),
   title: z.string().max(500).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
+  // Booked-menu snapshot: the menu + the price the customer agreed to at
+  // write time (soft reference — no FK; see the Menu model note).
+  menu_id: z.string().uuid().nullable().optional(),
+  booked_price_amount: z.number().int().min(0).nullable().optional(),
+  booked_price_currency: z.string().length(3).nullable().optional(),
   status: appointmentStatusSchema.optional(),
   source: appointmentSourceSchema.optional(),
 })

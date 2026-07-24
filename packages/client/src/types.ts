@@ -532,6 +532,9 @@ export interface Appointment {
   duration_minutes: number | null
   title: string | null
   notes: string | null
+  menu_id: string | null
+  booked_price_amount: number | null
+  booked_price_currency: string | null
   status: AppointmentStatus
   source: AppointmentSource
   external_refs: Record<string, unknown>
@@ -549,8 +552,80 @@ export interface CreateAppointmentInput {
   duration_minutes?: number
   title?: string | null
   notes?: string | null
+  menu_id?: string | null
+  booked_price_amount?: number | null
+  booked_price_currency?: string | null
   status?: AppointmentStatus
   source?: AppointmentSource
+}
+
+// ── Menus ────────────────────────────────────────────────────────────────────
+// The bookable service catalog. price_list_amount = 税込 list price (band
+// ceiling / display baseline); price_min_amount = band floor (null = fixed
+// price). Money is integer amount + explicit currency.
+export interface Menu {
+  id: string
+  business_id: string
+  store_id: string | null
+  name: string
+  description: string | null
+  category: string | null
+  category_display_order: number
+  display_order: number
+  duration_minutes: number
+  price_list_amount: number
+  price_min_amount: number | null
+  currency: string
+  tax_included: boolean
+  nomination_allowed: boolean
+  online_visible: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMenuInput {
+  store_id?: string | null
+  name: string
+  description?: string | null
+  category?: string | null
+  category_display_order?: number
+  display_order?: number
+  duration_minutes: number
+  price_list_amount: number
+  price_min_amount?: number | null
+  currency?: string
+  tax_included?: boolean
+  nomination_allowed?: boolean
+  online_visible?: boolean
+  active?: boolean
+}
+
+export interface UpdateMenuInput {
+  store_id?: string | null
+  name?: string
+  description?: string | null
+  category?: string | null
+  category_display_order?: number
+  display_order?: number
+  duration_minutes?: number
+  price_list_amount?: number
+  price_min_amount?: number | null
+  currency?: string
+  tax_included?: boolean
+  nomination_allowed?: boolean
+  online_visible?: boolean
+  active?: boolean
+}
+
+export interface ListMenusOptions {
+  store_id?: string
+  active?: boolean
+  online_visible?: boolean
+}
+
+export interface ListMenusResponse {
+  menus: Menu[]
 }
 
 export interface UpdateAppointmentInput {

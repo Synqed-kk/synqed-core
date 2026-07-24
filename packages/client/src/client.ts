@@ -8,6 +8,7 @@ import { KaruteRecordClient } from './karute.js'
 import { OrgSettingsClient } from './org-settings.js'
 import { AiRateLimitClient } from './ai-rate-limit.js'
 import { StoreClient } from './stores.js'
+import { MenuClient } from './menus.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
 import { InviteClient } from './invites.js'
@@ -32,6 +33,7 @@ export class SynqedClient {
   public orgSettings: OrgSettingsClient
   public aiRateLimit: AiRateLimitClient
   public stores: StoreClient
+  public menus: MenuClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
   public invites: InviteClient
@@ -55,6 +57,7 @@ export class SynqedClient {
     this.orgSettings = new OrgSettingsClient(this)
     this.aiRateLimit = new AiRateLimitClient(this)
     this.stores = new StoreClient(this)
+    this.menus = new MenuClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
     this.invites = new InviteClient(this)
