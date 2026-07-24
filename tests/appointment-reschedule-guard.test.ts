@@ -177,6 +177,55 @@ describe('Appointments — reschedule/reassign overlap guard', () => {
     expect(res.status).toBe(200)
   })
 
+  it('exactly one winner when two requests race for the same free slot', async () => {
+    // The advisory-lock serialization: both requests used to pass the
+    // check-then-write gap and both commit. 5 rounds — every round must
+    // produce exactly one 201 and one 409.
+    const staff = await seedTestStaff()
+    for (let round = 0; round < 5; round++) {
+      const cA = await seedTestCustomer({ email: `guard-race-${round}a@example.com` })
+      const cB = await seedTestCustomer({ email: `guard-race-${round}b@example.com` })
+      const slot = {
+        starts_at: `2026-06-0${round + 1}T10:00:00Z`,
+        ends_at: `2026-06-0${round + 1}T11:00:00Z`,
+      }
+      const [r1, r2] = await Promise.all([
+        req('POST', '/appointments', { customer_id: cA.id, staff_id: staff.id, ...slot }),
+        req('POST', '/appointments', { customer_id: cB.id, staff_id: staff.id, ...slot }),
+      ])
+      const statuses = [r1.status, r2.status].sort()
+      expect(statuses).toEqual([201, 409])
+    }
+  })
+
+  it('exactly one winner when a create and a reschedule race for the same free slot', async () => {
+    const staff = await seedTestStaff()
+    for (let round = 0; round < 5; round++) {
+      const cA = await seedTestCustomer({ email: `guard-race2-${round}a@example.com` })
+      const cB = await seedTestCustomer({ email: `guard-race2-${round}b@example.com` })
+      const target = {
+        starts_at: `2026-06-1${round}T10:00:00Z`,
+        ends_at: `2026-06-1${round}T11:00:00Z`,
+      }
+      const movable = await seedTestAppointment({
+        customerId: cB.id,
+        staffId: staff.id,
+        startsAt: new Date(`2026-06-1${round}T14:00:00Z`),
+        endsAt: new Date(`2026-06-1${round}T15:00:00Z`),
+      })
+      const [r1, r2] = await Promise.all([
+        req('POST', '/appointments', { customer_id: cA.id, staff_id: staff.id, ...target }),
+        req('PUT', `/appointments/${movable.id}`, target),
+      ])
+      // One of the two must win, the other must 409 — create wins → PUT 409,
+      // or PUT wins (200) → create 409. Both-succeed is the raced double-book.
+      const okCount = [r1.status, r2.status].filter((s) => s === 200 || s === 201).length
+      const conflictCount = [r1.status, r2.status].filter((s) => s === 409).length
+      expect(okCount).toBe(1)
+      expect(conflictCount).toBe(1)
+    }
+  })
+
   it('400 when a single-field time update inverts the window', async () => {
     // starts_at moved past the existing ends_at: an inverted range satisfies
     // no overlap predicate, so without the explicit check it persisted garbage

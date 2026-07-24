@@ -152,6 +152,24 @@ export async function getAppointment(
   return row ? toPublic(row) : null
 }
 
+/** Serialize slot writes per (business, staff): the overlap check and the
+ *  write it protects run as check-then-write, so two concurrent requests for
+ *  the same free slot could both pass the check and both commit. The advisory
+ *  xact lock makes the pair atomic per staff member — it releases on
+ *  commit/rollback and (being transaction-scoped) survives pgbouncer
+ *  transaction pooling. The QR crawl writes directly via Prisma and is
+ *  unaffected; its own dedup is the customer-slot unique index. */
+function withStaffSlotLock<T>(
+  businessId: string,
+  staffId: string,
+  fn: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${businessId}:${staffId}`}, 0))`
+    return fn(tx)
+  })
+}
+
 export async function createAppointment(
   businessId: string,
   input: CreateAppointmentInput,
@@ -164,45 +182,47 @@ export async function createAppointment(
     throw new InvalidTimeRangeError()
   }
 
-  const overlapping = await prisma.appointment.findFirst({
-    where: {
-      businessId,
-      staffId: input.staff_id,
-      // Per-store: a staff double-booking is only a conflict within the same
-      // location. null-store bookings conflict only with other null-store ones.
-      storeId: input.store_id ?? null,
-      // A terminal booking (cancelled or no-show) frees the slot — the customer
-      // isn't coming, so it must be rebookable.
-      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-      startsAt: { lt: endsAt },
-      endsAt: { gt: startsAt },
-    },
-    select: { id: true },
-  })
-
-  if (overlapping) throw new AppointmentOverlapError()
-
-  // A customer can't be in two chairs at once: UNIQUE(business_id, customer_id,
-  // starts_at) enforces one booking per customer per instant (and is what lets
-  // the QR crawl adopt a manual row instead of twinning it — see sync.service).
-  // The per-staff overlap check above can't catch a same-customer/same-time
-  // booking under a DIFFERENT staff, so the DB constraint is the backstop.
-  // Surface that collision as a clean 409 rather than a raw P2002 → 500.
   try {
-    const row = await prisma.appointment.create({
-      data: {
-        businessId,
-        customerId: input.customer_id,
-        staffId: input.staff_id,
-        storeId: input.store_id ?? null,
-        startsAt,
-        endsAt,
-        durationMinutes: input.duration_minutes ?? null,
-        title: input.title ?? null,
-        notes: input.notes ?? null,
-        status: input.status ?? 'SCHEDULED',
-        source: input.source ?? 'MANUAL',
-      },
+    const row = await withStaffSlotLock(businessId, input.staff_id, async (tx) => {
+      const overlapping = await tx.appointment.findFirst({
+        where: {
+          businessId,
+          staffId: input.staff_id,
+          // Per-store: a staff double-booking is only a conflict within the same
+          // location. null-store bookings conflict only with other null-store ones.
+          storeId: input.store_id ?? null,
+          // A terminal booking (cancelled or no-show) frees the slot — the customer
+          // isn't coming, so it must be rebookable.
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { id: true },
+      })
+
+      if (overlapping) throw new AppointmentOverlapError()
+
+      // A customer can't be in two chairs at once: UNIQUE(business_id, customer_id,
+      // starts_at) enforces one booking per customer per instant (and is what lets
+      // the QR crawl adopt a manual row instead of twinning it — see sync.service).
+      // The per-staff overlap check above can't catch a same-customer/same-time
+      // booking under a DIFFERENT staff, so the DB constraint is the backstop.
+      // Surface that collision as a clean 409 rather than a raw P2002 → 500.
+      return tx.appointment.create({
+        data: {
+          businessId,
+          customerId: input.customer_id,
+          staffId: input.staff_id,
+          storeId: input.store_id ?? null,
+          startsAt,
+          endsAt,
+          durationMinutes: input.duration_minutes ?? null,
+          title: input.title ?? null,
+          notes: input.notes ?? null,
+          status: input.status ?? 'SCHEDULED',
+          source: input.source ?? 'MANUAL',
+        },
+      })
     })
     return toPublic(row)
   } catch (e) {
@@ -273,30 +293,39 @@ export async function updateAppointment(
     effStartsAt.getTime() !== existing.startsAt.getTime() ||
     effEndsAt.getTime() !== existing.endsAt.getTime()
 
-  if (staysActive && (slotChanged || wasTerminal)) {
-    const overlapping = await prisma.appointment.findFirst({
-      where: {
-        businessId,
-        staffId: effStaffId,
-        // update can't move a booking between stores (no store_id in the
-        // schema), so the store scope is the existing row's — same per-store
-        // conflict semantics as create.
-        storeId: existing.storeId,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        id: { not: id },
-        startsAt: { lt: effEndsAt },
-        endsAt: { gt: effStartsAt },
-      },
-      select: { id: true },
-    })
-    if (overlapping) throw new AppointmentOverlapError()
-  }
+  const needsGuard = staysActive && (slotChanged || wasTerminal)
 
   // Same DB backstop as create: the partial unique index on
   // (business_id, customer_id, starts_at) also fires on UPDATE — without this
   // catch a same-customer collision surfaced as a raw P2002 → 500.
+  // Guarded writes take the same per-staff lock as create (target staff — the
+  // slot being CLAIMED; freeing the old one can't conflict), so a concurrent
+  // create/update pair racing for one free slot serializes instead of both
+  // passing the check. Unguarded writes (metadata/cancel) skip the lock.
   try {
-    const row = await prisma.appointment.update({ where: { id }, data })
+    const write = (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) =>
+      tx.appointment.update({ where: { id }, data })
+    const row = needsGuard
+      ? await withStaffSlotLock(businessId, effStaffId, async (tx) => {
+          const overlapping = await tx.appointment.findFirst({
+            where: {
+              businessId,
+              staffId: effStaffId,
+              // update can't move a booking between stores (no store_id in the
+              // schema), so the store scope is the existing row's — same per-store
+              // conflict semantics as create.
+              storeId: existing.storeId,
+              status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+              id: { not: id },
+              startsAt: { lt: effEndsAt },
+              endsAt: { gt: effStartsAt },
+            },
+            select: { id: true },
+          })
+          if (overlapping) throw new AppointmentOverlapError()
+          return write(tx)
+        })
+      : await write(prisma)
     return toPublic(row)
   } catch (e) {
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
