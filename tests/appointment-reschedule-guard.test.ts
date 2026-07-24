@@ -177,6 +177,63 @@ describe('Appointments — reschedule/reassign overlap guard', () => {
     expect(res.status).toBe(200)
   })
 
+  it('400 when a single-field time update inverts the window', async () => {
+    // starts_at moved past the existing ends_at: an inverted range satisfies
+    // no overlap predicate, so without the explicit check it persisted garbage
+    // that every future conflict query was blind to (verifier finding).
+    const customer = await seedTestCustomer({ email: 'guard-9@example.com' })
+    const staff = await seedTestStaff()
+    const appt = await seedTestAppointment({
+      customerId: customer.id,
+      staffId: staff.id,
+      startsAt: new Date('2026-05-10T10:00:00Z'),
+      endsAt: new Date('2026-05-10T11:00:00Z'),
+    })
+
+    const res = await req('PUT', `/appointments/${appt.id}`, {
+      starts_at: '2026-05-10T12:00:00Z',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('400 when create is given an inverted window', async () => {
+    const customer = await seedTestCustomer({ email: 'guard-10@example.com' })
+    const staff = await seedTestStaff()
+
+    const res = await req('POST', '/appointments', {
+      customer_id: customer.id,
+      staff_id: staff.id,
+      starts_at: '2026-05-10T11:00:00Z',
+      ends_at: '2026-05-10T10:00:00Z',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('200 when cancelling with a time change onto an occupied slot (terminal never occupies)', async () => {
+    const c1 = await seedTestCustomer({ email: 'guard-11a@example.com' })
+    const c2 = await seedTestCustomer({ email: 'guard-11b@example.com' })
+    const staff = await seedTestStaff()
+    await seedTestAppointment({
+      customerId: c1.id,
+      staffId: staff.id,
+      startsAt: new Date('2026-05-10T10:00:00Z'),
+      endsAt: new Date('2026-05-10T11:00:00Z'),
+    })
+    const cancelled = await seedTestAppointment({
+      customerId: c2.id,
+      staffId: staff.id,
+      startsAt: new Date('2026-05-10T12:00:00Z'),
+      endsAt: new Date('2026-05-10T13:00:00Z'),
+    })
+
+    const res = await req('PUT', `/appointments/${cancelled.id}`, {
+      status: 'CANCELLED',
+      starts_at: '2026-05-10T10:00:00Z',
+      ends_at: '2026-05-10T11:00:00Z',
+    })
+    expect(res.status).toBe(200)
+  })
+
   it('409 (not 500) when a reschedule collides with the same customer\'s other booking', async () => {
     // The partial unique index (business, customer, starts_at) also fires on
     // UPDATE; without the catch this surfaced as a raw P2002 → 500.

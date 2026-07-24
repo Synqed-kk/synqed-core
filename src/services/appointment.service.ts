@@ -13,6 +13,13 @@ export class AppointmentOverlapError extends Error {
   }
 }
 
+export class InvalidTimeRangeError extends Error {
+  constructor(message = 'ends_at must be after starts_at.') {
+    super(message)
+    this.name = 'InvalidTimeRangeError'
+  }
+}
+
 export class CustomerSlotConflictError extends Error {
   constructor(message = 'This customer already has a booking at this time.') {
     super(message)
@@ -151,6 +158,11 @@ export async function createAppointment(
 ): Promise<AppointmentPublic> {
   const startsAt = new Date(input.starts_at)
   const endsAt = new Date(input.ends_at)
+  // Same inverted-window rejection as update — an inverted range slips every
+  // overlap predicate (nothing can satisfy lt/gt both ways) and persists garbage.
+  if (endsAt.getTime() <= startsAt.getTime()) {
+    throw new InvalidTimeRangeError()
+  }
 
   const overlapping = await prisma.appointment.findFirst({
     where: {
@@ -241,6 +253,13 @@ export async function updateAppointment(
   const effStaffId = input.staff_id ?? existing.staffId
   const effStartsAt = input.starts_at !== undefined ? new Date(input.starts_at) : existing.startsAt
   const effEndsAt = input.ends_at !== undefined ? new Date(input.ends_at) : existing.endsAt
+  // A single-field time update can invert the window (starts_at moved past the
+  // existing ends_at): the overlap predicate can never match an inverted range,
+  // so it would slip through the guard AND be invisible to every future
+  // overlap query. Reject before it can persist.
+  if (effEndsAt.getTime() <= effStartsAt.getTime()) {
+    throw new InvalidTimeRangeError()
+  }
   const effStatus = input.status ?? existing.status
   const wasTerminal = existing.status === 'CANCELLED' || existing.status === 'NO_SHOW'
   const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'

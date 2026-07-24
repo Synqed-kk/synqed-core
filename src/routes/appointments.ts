@@ -9,6 +9,7 @@ import * as appointmentService from '../services/appointment.service.js'
 import {
   AppointmentOverlapError,
   CustomerSlotConflictError,
+  InvalidTimeRangeError,
 } from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
@@ -41,6 +42,9 @@ appointmentRoutes.post('/', async (c) => {
     if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
       return c.json({ error: err.message }, 409)
     }
+    if (err instanceof InvalidTimeRangeError) {
+      return c.json({ error: err.message }, 400)
+    }
     throw err
   }
 })
@@ -64,6 +68,9 @@ appointmentRoutes.put('/:id', async (c) => {
     }
     if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
       return c.json({ error: err.message }, 409)
+    }
+    if (err instanceof InvalidTimeRangeError) {
+      return c.json({ error: err.message }, 400)
     }
     throw err
   }
