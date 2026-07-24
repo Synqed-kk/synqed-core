@@ -313,7 +313,36 @@ export async function updateAppointment(
         businessId,
         lockKey,
         async (tx) => {
-        const fresh = await tx.appointment.findFirst({ where: { id, businessId } })
+        // FOR UPDATE, not a plain SELECT: two writers to the SAME row under
+        // DIFFERENT advisory keys (reassign racing a time-change) never meet
+        // on an advisory lock — the row lock is what serializes them. The
+        // second writer blocks here until the first commits, reads the
+        // committed row, and the key-mismatch retry below handles the rest.
+        // Advisory lock is always taken before the row lock, so wait chains
+        // stay linear (no deadlock cycle).
+        const freshRows = await tx.$queryRaw<
+          Array<{
+            staff_id: string
+            store_id: string | null
+            status: AppointmentStatus
+            starts_at: Date
+            ends_at: Date
+            cancelled_at: Date | null
+          }>
+        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at
+          FROM appointments
+          WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
+          FOR UPDATE`
+        const fresh = freshRows[0]
+          ? {
+              staffId: freshRows[0].staff_id,
+              storeId: freshRows[0].store_id,
+              status: freshRows[0].status,
+              startsAt: freshRows[0].starts_at,
+              endsAt: freshRows[0].ends_at,
+              cancelledAt: freshRows[0].cancelled_at,
+            }
+          : null
         if (!fresh) throw new Error('Appointment not found')
         const effStaffId = input.staff_id ?? fresh.staffId
         if (effStaffId !== lockKey) return { retryKey: effStaffId }
