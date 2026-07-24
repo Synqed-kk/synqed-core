@@ -256,8 +256,13 @@ export async function updateAppointment(
   // A single-field time update can invert the window (starts_at moved past the
   // existing ends_at): the overlap predicate can never match an inverted range,
   // so it would slip through the guard AND be invisible to every future
-  // overlap query. Reject before it can persist.
-  if (effEndsAt.getTime() <= effStartsAt.getTime()) {
+  // overlap query. Reject before it can persist — but only when this update
+  // touches the times: a notes-only edit or a plain cancel of a legacy row
+  // that is ALREADY inverted (pre-fix API) must not 400 on unrelated fields.
+  if (
+    (input.starts_at !== undefined || input.ends_at !== undefined) &&
+    effEndsAt.getTime() <= effStartsAt.getTime()
+  ) {
     throw new InvalidTimeRangeError()
   }
   const effStatus = input.status ?? existing.status
