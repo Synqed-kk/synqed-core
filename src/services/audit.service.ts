@@ -169,7 +169,11 @@ export async function listAuditLog(
   if (options.severity) where.severity = options.severity
   if (options.store_id) where.storeId = options.store_id
   if (options.exclude_views) {
-    where.NOT = [{ action: { endsWith: '.view' } }, { action: 'view' }]
+    // '_view' widen (karute proposal 7/27): the app's audit-log-open row was
+    // historically spelled privacy.audit_log_view — those rows are hidden by
+    // the app's client belt but still counted here, drifting total/hasMore.
+    // New rows are '.view'-spelled; this closes the historical class.
+    where.NOT = [{ action: { endsWith: '.view' } }, { action: { endsWith: '_view' } }, { action: 'view' }]
   }
   if (options.from || options.to) {
     const at: Record<string, Date> = {}

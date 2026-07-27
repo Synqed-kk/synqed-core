@@ -113,6 +113,10 @@ describe('audit_log', () => {
     await req('POST', '/audit', { actor_type: 'staff', category: 'customer', action: 'customer.view', severity: 'info', store_id: A })
     await req('POST', '/audit', { actor_type: 'staff', category: 'customer', action: 'customer.edit', severity: 'warn', store_id: A })
     await req('POST', '/audit', { actor_type: 'staff', category: 'auth', action: 'auth.pin_lockout', severity: 'critical' })
+    // Historical app spelling (pre-7/27 privacy.audit_log_view rows) — the
+    // '_view' suffix must be excluded exactly like '.view' or the app feed's
+    // total/hasMore drift on rows its client belt hides.
+    await req('POST', '/audit', { actor_type: 'staff', category: 'privacy', action: 'privacy.audit_log_view', severity: 'info' })
 
     const warns = await (await req('GET', '/audit?severity=warn')).json()
     expect(warns.total).toBe(1)
@@ -121,7 +125,11 @@ describe('audit_log', () => {
     // "Everything except views" — the summary strip's 変更/警告 counts.
     const noViews = await (await req('GET', '/audit?exclude_views=true')).json()
     expect(noViews.total).toBe(2)
-    expect(noViews.events.every((e: { action: string }) => !e.action.endsWith('.view'))).toBe(true)
+    expect(
+      noViews.events.every(
+        (e: { action: string }) => !e.action.endsWith('.view') && !e.action.endsWith('_view'),
+      ),
+    ).toBe(true)
 
     const storeA = await (await req('GET', `/audit?store_id=${A}`)).json()
     expect(storeA.total).toBe(2)
