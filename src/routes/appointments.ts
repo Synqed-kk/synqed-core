@@ -9,6 +9,8 @@ import * as appointmentService from '../services/appointment.service.js'
 import {
   AppointmentOverlapError,
   CustomerSlotConflictError,
+  InvalidTimeRangeError,
+  SlotContentionError,
 } from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
@@ -41,6 +43,14 @@ appointmentRoutes.post('/', async (c) => {
     if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
       return c.json({ error: err.message }, 409)
     }
+    if (err instanceof InvalidTimeRangeError) {
+      return c.json({ error: err.message }, 400)
+    }
+    if (err instanceof SlotContentionError) {
+      // Retryable — not a taken slot. 503 + Retry-After keeps it distinct from
+      // the 409 that callers surface to customers as SLOT_TAKEN.
+      return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
+    }
     throw err
   }
 })
@@ -61,6 +71,15 @@ appointmentRoutes.put('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Appointment not found') {
       return c.json({ error: 'Appointment not found' }, 404)
+    }
+    if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
+      return c.json({ error: err.message }, 409)
+    }
+    if (err instanceof InvalidTimeRangeError) {
+      return c.json({ error: err.message }, 400)
+    }
+    if (err instanceof SlotContentionError) {
+      return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
     }
     throw err
   }
