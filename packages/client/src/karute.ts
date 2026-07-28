@@ -113,11 +113,19 @@ export class KaruteRecordClient {
   async deleteEntry(
     karuteRecordId: string,
     entryId: string,
-    meta?: { actor_staff_id?: string; action?: EntryEditAction },
+    meta?: {
+      actor_staff_id?: string
+      action?: EntryEditAction
+      /** CAS: the version the deleter loaded — stale deletes 409 with
+       *  current_version instead of removing unseen content. */
+      expected_version?: number
+    },
   ): Promise<void> {
     const params = new URLSearchParams()
     if (meta?.actor_staff_id) params.set('actor_staff_id', meta.actor_staff_id)
     if (meta?.action) params.set('action', meta.action)
+    if (meta?.expected_version !== undefined)
+      params.set('expected_version', String(meta.expected_version))
     const qs = params.toString()
     await this.client.fetch(
       `/karute-records/${karuteRecordId}/entries/${entryId}${qs ? `?${qs}` : ''}`,

@@ -618,6 +618,12 @@ export async function deleteEntry(
   karuteRecordId: string,
   entryId: string,
   meta: EntryMutationMeta = {},
+  /** Optimistic-concurrency check, same contract as updateEntry: the version
+   *  the deleter LOOKED AT. A concurrent edit bumps version, so a stale delete
+   *  409s instead of silently removing content the deleter never saw.
+   *  Optional until every caller sends it (regen's fresh-read pass predates
+   *  this); enforced atomically whenever present. */
+  expectedVersion?: number,
 ): Promise<void> {
   // Verify karute record belongs to tenant (enforces tenant isolation for entry)
   const record = await prisma.karuteRecord.findFirst({
@@ -630,14 +636,24 @@ export async function deleteEntry(
     where: { id: entryId, karuteRecordId, deletedAt: null },
   })
   if (!entry) throw new Error('Entry not found')
+  if (expectedVersion !== undefined && entry.version !== expectedVersion) {
+    throw new StaleEntryVersionError(entry.version)
+  }
 
   // Soft delete: hidden from every read, never vanishes (customer-memory
   // pattern) — the audit row carries what was removed and by whom.
   await prisma.$transaction(async (tx) => {
-    await tx.karuteEntry.update({
-      where: { id: entryId },
+    // Version guard in the WHERE too (when supplied) — closes the
+    // read-check/write race exactly like updateEntry's CAS.
+    const deleted = await tx.karuteEntry.updateMany({
+      where: {
+        id: entryId,
+        deletedAt: null,
+        ...(expectedVersion !== undefined ? { version: expectedVersion } : {}),
+      },
       data: { deletedAt: new Date() },
     })
+    if (deleted.count === 0) throw new StaleEntryVersionError(entry.version)
     await tx.karuteEntryEdit.create({
       data: {
         businessId,

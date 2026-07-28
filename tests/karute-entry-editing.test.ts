@@ -200,3 +200,57 @@ describe('entry editing core', () => {
     expect(after).toBe(0)
   })
 })
+
+describe('deleteEntry version check (CAS parity with updateEntry)', () => {
+  it('correct expected_version deletes; stale 409s with current_version and leaves the row', async () => {
+    const { staff, rec, entry } = await seedRecordWithAiEntry()
+
+    // Bump the version with an edit (v1 → v2).
+    await req('PATCH', `/karute-records/${rec.id}/entries/${entry.id}`, {
+      content: '編集済み内容',
+      expected_version: 1,
+      actor_staff_id: staff.id,
+    })
+
+    // Delete with the version the deleter LOADED before the edit — stale.
+    const stale = await req(
+      'DELETE',
+      `/karute-records/${rec.id}/entries/${entry.id}?expected_version=1&actor_staff_id=${staff.id}`,
+    )
+    expect(stale.status).toBe(409)
+    expect((await stale.json()).current_version).toBe(2)
+
+    // Entry still readable — the stale delete removed nothing.
+    const read = await (await req('GET', `/karute-records/${rec.id}`)).json()
+    expect(read.entries.find((e: { id: string }) => e.id === entry.id)).toBeTruthy()
+
+    // Fresh version deletes cleanly.
+    const ok = await req(
+      'DELETE',
+      `/karute-records/${rec.id}/entries/${entry.id}?expected_version=2&actor_staff_id=${staff.id}`,
+    )
+    expect(ok.status).toBe(200)
+    const after = await (await req('GET', `/karute-records/${rec.id}`)).json()
+    expect(after.entries.find((e: { id: string }) => e.id === entry.id)).toBeUndefined()
+  })
+
+  it('omitted expected_version keeps the legacy unguarded delete working', async () => {
+    const { staff, rec, entry } = await seedRecordWithAiEntry()
+    const res = await req(
+      'DELETE',
+      `/karute-records/${rec.id}/entries/${entry.id}?actor_staff_id=${staff.id}`,
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('malformed expected_version 400s without touching the entry', async () => {
+    const { rec, entry } = await seedRecordWithAiEntry()
+    const res = await req(
+      'DELETE',
+      `/karute-records/${rec.id}/entries/${entry.id}?expected_version=abc`,
+    )
+    expect(res.status).toBe(400)
+    const read = await (await req('GET', `/karute-records/${rec.id}`)).json()
+    expect(read.entries.find((e: { id: string }) => e.id === entry.id)).toBeTruthy()
+  })
+})
