@@ -24,6 +24,8 @@ export class AuditClient {
     const params = new URLSearchParams()
     if (options?.category) params.set('category', options.category)
     if (options?.actor_id) params.set('actor_id', options.actor_id)
+    if (options?.actor_staff_ref) params.set('actor_staff_ref', options.actor_staff_ref)
+    if (options?.request_id) params.set('request_id', options.request_id)
     if (options?.target_type) params.set('target_type', options.target_type)
     if (options?.target_id) params.set('target_id', options.target_id)
     if (options?.break_glass !== undefined) params.set('break_glass', String(options.break_glass))

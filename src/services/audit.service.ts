@@ -13,6 +13,11 @@ export interface AuditEventInput {
   /** Display-name snapshot; when omitted and actor_id is a staff/auth id,
    *  the service resolves it from the staff roster at write time. */
   actor_label?: string | null
+  /** Permanent staff CARD id. When omitted and actor_id resolves to a roster
+   *  row (by card id OR login uuid), the service stamps the card id. */
+  actor_staff_ref?: string | null
+  /** Correlates the several rows one action writes. */
+  request_id?: string | null
   category: string
   action: string
   target_type?: string | null
@@ -32,6 +37,8 @@ export interface AuditEventPublic {
   actor_type: string
   actor_role: string | null
   actor_label: string | null
+  actor_staff_ref: string | null
+  request_id: string | null
   category: string
   action: string
   target_type: string | null
@@ -53,6 +60,8 @@ function toPublic(r: {
   actorType: string
   actorRole: string | null
   actorLabel: string | null
+  actorStaffRef: string | null
+  requestId: string | null
   category: string
   action: string
   targetType: string | null
@@ -71,6 +80,8 @@ function toPublic(r: {
     actor_type: r.actorType,
     actor_role: r.actorRole,
     actor_label: r.actorLabel,
+    actor_staff_ref: r.actorStaffRef,
+    request_id: r.requestId,
     category: r.category,
     action: r.action,
     target_type: r.targetType,
@@ -100,17 +111,22 @@ export async function logEvent(
   // wins; else resolve from the roster — actor_id may be a synqed staff id
   // OR an auth user uuid (staff.user_id), the app sends the latter.
   let actorLabel = input.actor_label ?? null
-  if (!actorLabel && input.actor_id) {
+  // Always store identity under the permanent CARD id: actor_id may be either
+  // the card id or the login uuid (staff.user_id) — one roster lookup serves
+  // both the label snapshot and the durable actor_staff_ref.
+  let actorStaffRef = input.actor_staff_ref ?? null
+  if ((!actorLabel || !actorStaffRef) && input.actor_id) {
     const staffRow = await prisma.staff
       .findFirst({
         where: {
           businessId,
           OR: [{ id: input.actor_id }, { userId: input.actor_id }],
         },
-        select: { name: true },
+        select: { id: true, name: true },
       })
       .catch(() => null)
-    actorLabel = staffRow?.name ?? null
+    actorLabel = actorLabel ?? staffRow?.name ?? null
+    actorStaffRef = actorStaffRef ?? staffRow?.id ?? null
   }
 
   const row = await prisma.auditLog.create({
@@ -121,6 +137,8 @@ export async function logEvent(
       actorType: input.actor_type,
       actorRole: input.actor_role ?? null,
       actorLabel,
+      actorStaffRef,
+      requestId: input.request_id ?? null,
       category: input.category,
       action: input.action,
       targetType: input.target_type ?? null,
@@ -137,6 +155,9 @@ export async function logEvent(
 export interface ListAuditOptions {
   category?: string
   actor_id?: string
+  /** Durable staff filter: matches the permanent card id stamped at write. */
+  actor_staff_ref?: string
+  request_id?: string
   target_type?: string
   target_id?: string
   break_glass?: boolean
@@ -163,6 +184,8 @@ export async function listAuditLog(
   const where: Record<string, unknown> = { businessId }
   if (options.category) where.category = options.category
   if (options.actor_id) where.actorId = options.actor_id
+  if (options.actor_staff_ref) where.actorStaffRef = options.actor_staff_ref
+  if (options.request_id) where.requestId = options.request_id
   if (options.target_type) where.targetType = options.target_type
   if (options.target_id) where.targetId = options.target_id
   if (options.break_glass !== undefined) where.breakGlass = options.break_glass
