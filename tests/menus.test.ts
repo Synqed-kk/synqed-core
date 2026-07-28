@@ -98,6 +98,15 @@ describe('Menus — the bookable catalog', () => {
     const activeOnly = await (await req('GET', '/menus?active=true')).json()
     expect(activeOnly.menus).toHaveLength(0)
 
+    // ?active=false must return the RETIRED set — z.coerce.boolean() would
+    // have turned "false" into true and returned the active set instead.
+    const retiredOnly = await (await req('GET', '/menus?active=false')).json()
+    expect(retiredOnly.menus).toHaveLength(1)
+    expect(retiredOnly.menus[0].id).toBe(created.id)
+
+    const bogus = await req('GET', '/menus?active=maybe')
+    expect(bogus.status).toBe(400)
+
     const del = await req('DELETE', `/menus/${created.id}`)
     expect(del.status).toBe(404)
   })

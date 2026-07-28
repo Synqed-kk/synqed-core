@@ -51,10 +51,17 @@ export const updateMenuSchema = z
 // Cross-field band validity on partial updates is checked in the service
 // against the row's effective values (zod can't see the existing row).
 
+// NOT z.coerce.boolean(): Boolean("false") === true, so ?active=false would
+// filter for active menus. Query params arrive as strings — parse explicitly.
+const queryBool = z
+  .enum(['true', 'false'])
+  .transform((v) => v === 'true')
+  .optional()
+
 export const listMenusSchema = z.object({
   store_id: z.string().uuid().optional(),
-  active: z.coerce.boolean().optional(),
-  online_visible: z.coerce.boolean().optional(),
+  active: queryBool,
+  online_visible: queryBool,
 })
 
 export type CreateMenuInput = z.infer<typeof createMenuSchema>

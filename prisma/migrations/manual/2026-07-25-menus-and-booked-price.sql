@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS menus (
   CONSTRAINT menus_duration_positive CHECK (duration_minutes > 0)
 );
 
+-- Deny-all to anon; the app connects as a bypassrls role (matches every table).
+ALTER TABLE menus ENABLE ROW LEVEL SECURITY;
+
 CREATE INDEX IF NOT EXISTS menus_business_id_active_idx ON menus (business_id, active);
 CREATE INDEX IF NOT EXISTS menus_business_id_store_id_idx ON menus (business_id, store_id);
 
