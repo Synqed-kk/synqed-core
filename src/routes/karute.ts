@@ -166,15 +166,29 @@ karuteRoutes.delete('/:id/entries/:entryId', async (c) => {
     actor_staff_id: c.req.query('actor_staff_id'),
     action: c.req.query('action'),
   })
+  // Same CAS contract as PATCH: the version the deleter loaded. Optional
+  // until every caller sends it; enforced when present.
+  const rawVersion = c.req.query('expected_version')
+  let expectedVersion: number | undefined
+  if (rawVersion !== undefined) {
+    expectedVersion = Number(rawVersion)
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      return c.json({ error: 'expected_version must be a non-negative integer' }, 400)
+    }
+  }
   try {
     await karuteService.deleteEntry(
       businessId,
       karuteRecordId,
       entryId,
       meta.success ? meta.data : {},
+      expectedVersion,
     )
     return c.json({ success: true })
   } catch (err) {
+    if (err instanceof karuteService.StaleEntryVersionError) {
+      return c.json({ error: err.message, current_version: err.currentVersion }, 409)
+    }
     if (
       err instanceof Error &&
       (err.message === 'Karute record not found' || err.message === 'Entry not found')
