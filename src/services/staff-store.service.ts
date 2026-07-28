@@ -62,6 +62,20 @@ export async function setStaffStores(
   return { ok: true }
 }
 
+/** Every staff→store assignment for the business in ONE read, keyed by the
+ *  canonical staff card id. A staff with no rows works in every store — same
+ *  semantics as getStaffStores; absent keys mean exactly that. Replaces the
+ *  app's one-call-per-staff roster loop. */
+export async function getAllStaffStores(businessId: string): Promise<Record<string, string[]>> {
+  const rows = await prisma.staffStore.findMany({
+    where: { businessId },
+    select: { staffId: true, storeId: true },
+  })
+  const assignments: Record<string, string[]> = {}
+  for (const r of rows) (assignments[r.staffId] ??= []).push(r.storeId)
+  return assignments
+}
+
 /** Per-store staff counts for the business (a staff in N stores counts in each). */
 export async function staffCountsByStore(businessId: string): Promise<Record<string, number>> {
   const rows = await prisma.staffStore.groupBy({
