@@ -916,3 +916,20 @@ model AiCache {
   @@index([expiresAt])
   @@map("ai_cache")
 }
+
+// =============================================================================
+// IdempotencyKey — dedup store for retried appointment creates. Claim row is
+// inserted before the create and completed with the appointment id after; a
+// duplicate request replays the stored appointment instead of double-booking.
+// =============================================================================
+
+model IdempotencyKey {
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  key           String
+  appointmentId String?  @map("appointment_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@unique([businessId, key])
+  @@map("idempotency_keys")
+}

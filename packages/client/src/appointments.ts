@@ -29,10 +29,18 @@ export class AppointmentClient {
     return this.client.fetch<Appointment>(`/appointments/${id}`)
   }
 
-  async create(input: CreateAppointmentInput): Promise<Appointment> {
+  async create(
+    input: CreateAppointmentInput,
+    options?: { idempotencyKey?: string },
+  ): Promise<Appointment> {
     return this.client.fetch<Appointment>('/appointments', {
       method: 'POST',
       body: JSON.stringify(input),
+      // Same key on a retry replays the created appointment (200) instead of
+      // double-booking; core stores the key server-side.
+      ...(options?.idempotencyKey
+        ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
+        : {}),
     })
   }
 

@@ -6,6 +6,7 @@ import {
   listAppointmentsSchema,
 } from '../validations/appointment.js'
 import * as appointmentService from '../services/appointment.service.js'
+import * as idempotencyService from '../services/idempotency.service.js'
 import {
   AppointmentOverlapError,
   CustomerSlotConflictError,
@@ -35,11 +36,41 @@ appointmentRoutes.post('/', async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
   const parsed = createAppointmentSchema.safeParse(body)
+  // Validation runs before the key is claimed: a 400 never consumes the key.
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+
+  // Idempotency-Key dedup: a retried create with the same key replays the
+  // appointment the first attempt made instead of double-booking (claim →
+  // create → complete; see idempotency.service.ts for the race protocol).
+  const idemKey = c.req.header('Idempotency-Key')
+  let claimId: string | null = null
+  if (idemKey) {
+    const claim = await idempotencyService.claimKey(businessId, idemKey)
+    if (claim.kind === 'replay') {
+      const existing = await appointmentService.getAppointment(businessId, claim.appointmentId)
+      if (existing) return c.json(existing, 200)
+      return c.json(
+        { error: 'The appointment created under this Idempotency-Key no longer exists.', code: 'IDEMPOTENT_REPLAY_GONE' },
+        409,
+      )
+    }
+    if (claim.kind === 'in_flight') {
+      return c.json(
+        { error: 'The original request with this Idempotency-Key is still in progress. Retry.', code: 'IDEMPOTENT_IN_FLIGHT' },
+        503,
+        { 'Retry-After': '1' },
+      )
+    }
+    claimId = claim.claimId
+  }
+
   try {
     const appointment = await appointmentService.createAppointment(businessId, parsed.data)
+    if (claimId) await idempotencyService.completeKey(claimId, appointment.id)
     return c.json(appointment, 201)
   } catch (err) {
+    // A failed create must not poison the key — release so a retry can run.
+    if (claimId) await idempotencyService.releaseKey(claimId).catch(() => {})
     if (err instanceof AppointmentOverlapError || err instanceof CustomerSlotConflictError) {
       return c.json({ error: err.message }, 409)
     }
