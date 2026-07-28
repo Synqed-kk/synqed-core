@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation } from '../db/prisma-errors.js'
 import type {
@@ -17,6 +18,18 @@ export class InvalidTimeRangeError extends Error {
   constructor(message = 'ends_at must be after starts_at.') {
     super(message)
     this.name = 'InvalidTimeRangeError'
+  }
+}
+
+/** Lock contention, not a taken slot: the write was refused because it could
+ *  not be validated in time (advisory-lock queue timeout or repeated mid-flight
+ *  reassignment), so the caller should simply retry — the slot may well be
+ *  free. Distinct from AppointmentOverlapError so callers don't tell the
+ *  customer "slot taken" when the truth is "try again". */
+export class SlotContentionError extends Error {
+  constructor(message = 'Could not validate the slot due to concurrent updates. Retry the request.') {
+    super(message)
+    this.name = 'SlotContentionError'
   }
 }
 
@@ -164,10 +177,24 @@ function withStaffSlotLock<T>(
   staffId: string,
   fn: (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>,
 ): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${businessId}:${staffId}`}, 0))`
-    return fn(tx)
-  })
+  return prisma
+    .$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${businessId}:${staffId}`}, 0))`
+        return fn(tx)
+      },
+      // The advisory lock waits unboundedly, but Prisma's interactive-transaction
+      // defaults (maxWait 2s / timeout 5s) would turn a queue behind one slow
+      // writer into a raw P2028 → 500. Give the queue room, and translate the
+      // timeout into the retryable contention error instead of a server error.
+      { maxWait: 5_000, timeout: 15_000 },
+    )
+    .catch((e: unknown) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2028') {
+        throw new SlotContentionError()
+      }
+      throw e
+    })
 }
 
 export async function createAppointment(
@@ -394,9 +421,9 @@ export async function updateAppointment(
       if ('row' in out) return toPublic(out.row)
       lockKey = out.retryKey
     }
-    // 3 consecutive mid-flight reassignments — practically unreachable; the
-    // 409 asks the caller to retry rather than writing unvalidated.
-    throw new AppointmentOverlapError()
+    // 3 consecutive mid-flight reassignments — practically unreachable; fail
+    // closed and ask the caller to retry rather than writing unvalidated.
+    throw new SlotContentionError()
   } catch (e) {
     // Same DB backstop as create: the partial unique index on
     // (business_id, customer_id, starts_at) also fires on UPDATE — without
