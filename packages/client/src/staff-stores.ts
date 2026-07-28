@@ -9,6 +9,12 @@ export class StaffStoreClient {
     return this.client.fetch<StaffStoreCountsResponse>('/staff-stores/counts')
   }
 
+  /** Every staff→store assignment in one call, keyed by staff card id.
+   *  Absent key = no rows = works in every store. */
+  async list(): Promise<{ assignments: Record<string, string[]> }> {
+    return this.client.fetch<{ assignments: Record<string, string[]> }>('/staff-stores')
+  }
+
   /** The store ids a staff member is assigned to (empty = every store). */
   async get(staffId: string): Promise<StaffStoresResponse> {
     return this.client.fetch<StaffStoresResponse>(`/staff-stores/${staffId}`)

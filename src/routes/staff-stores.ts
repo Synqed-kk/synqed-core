@@ -11,6 +11,14 @@ staffStoreRoutes.get('/counts', async (c) => {
   return c.json({ counts })
 })
 
+// Every assignment for the business in one call (bulk roster read).
+// Registered before '/:staffId' — a literal path must not be eaten by the param.
+staffStoreRoutes.get('/', async (c) => {
+  const businessId = c.get('businessId')
+  const assignments = await staffStoreService.getAllStaffStores(businessId)
+  return c.json({ assignments })
+})
+
 // The store ids a staff member is assigned to.
 staffStoreRoutes.get('/:staffId', async (c) => {
   const businessId = c.get('businessId')
