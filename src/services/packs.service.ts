@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { logEventIn, type AuditEventInput } from '../services/audit.service.js'
 
 // 回数券 (ticket-pack) subsystem data access — business-scoped. The karute app
 // keeps the usage aggregation (FIFO / 残 counts); core serves the rows. No
@@ -144,16 +145,31 @@ export interface AddRedemptionInput {
   counts_as_visit?: boolean
 }
 
-export async function addRedemption(businessId: string, input: AddRedemptionInput): Promise<{ id: string }> {
-  const row = await prisma.packRedemption.create({
-    data: {
-      businessId, packId: input.pack_id, customerId: input.customer_id,
-      redeemedOn: new Date(input.redeemed_on), appointmentId: input.appointment_id ?? null,
-      karuteRecordId: input.karute_record_id ?? null, source: input.source ?? 'manual',
-      createdBy: input.created_by ?? null,
-      countsAsVisit: input.counts_as_visit ?? true,
-    },
-    select: { id: true },
+export async function addRedemption(
+  businessId: string,
+  input: AddRedemptionInput,
+  /** A1: when supplied, the audit row commits in the SAME transaction as the
+   *  burn — a crash can no longer record the burn without its trail. */
+  audit?: AuditEventInput,
+): Promise<{ id: string }> {
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.packRedemption.create({
+      data: {
+        businessId, packId: input.pack_id, customerId: input.customer_id,
+        redeemedOn: new Date(input.redeemed_on), appointmentId: input.appointment_id ?? null,
+        karuteRecordId: input.karute_record_id ?? null, source: input.source ?? 'manual',
+        createdBy: input.created_by ?? null,
+        countsAsVisit: input.counts_as_visit ?? true,
+      },
+      select: { id: true },
+    })
+    if (audit) {
+      await logEventIn(tx, businessId, {
+        ...audit,
+        target_id: audit.target_id ?? created.id,
+      })
+    }
+    return created
   })
   return { id: row.id }
 }
@@ -162,14 +178,21 @@ export async function removeRedemption(
   businessId: string,
   id: string,
   removedBy?: string | null,
+  audit?: AuditEventInput,
 ): Promise<{ ok: boolean }> {
   // Undo is a SOFT delete so WHO undid a 回数券 burn stays queryable
   // (removed_by/removed_at) — reads exclude removed rows.
-  const res = await prisma.packRedemption.updateMany({
-    where: { id, businessId, removedAt: null },
-    data: { removedAt: new Date(), removedBy: removedBy ?? null },
+  return prisma.$transaction(async (tx) => {
+    const res = await tx.packRedemption.updateMany({
+      where: { id, businessId, removedAt: null },
+      data: { removedAt: new Date(), removedBy: removedBy ?? null },
+    })
+    // No-op undo writes no trail — nothing changed.
+    if (audit && res.count > 0) {
+      await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
+    }
+    return { ok: res.count > 0 }
   })
-  return { ok: res.count > 0 }
 }
 
 // ─── customer_lifecycle ──────────────────────────────────────────────────────

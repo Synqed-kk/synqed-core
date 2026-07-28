@@ -2,26 +2,10 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types/api.js'
 import * as auditService from '../services/audit.service.js'
+import { auditEventSchema } from '../validations/audit.js'
 
 export const auditRoutes = new Hono<AppEnv>()
 
-const logSchema = z.object({
-  store_id: z.string().uuid().nullable().optional(),
-  actor_id: z.string().uuid().nullable().optional(),
-  actor_type: z.enum(['staff', 'owner', 'system', 'dev']),
-  actor_role: z.string().nullable().optional(),
-  actor_label: z.string().max(200).nullable().optional(),
-  actor_staff_ref: z.string().uuid().nullable().optional(),
-  request_id: z.string().max(100).nullable().optional(),
-  category: z.string().min(1), // open set — wave 3 (auth) flows in later
-  action: z.string().min(1),
-  target_type: z.string().nullable().optional(),
-  target_id: z.string().nullable().optional(),
-  target_label: z.string().nullable().optional(),
-  detail: z.unknown().optional(),
-  break_glass: z.boolean().optional(),
-  severity: z.enum(['info', 'warn', 'critical']).optional(),
-})
 
 // NOT z.coerce.boolean(): Boolean('false') === true, so ?break_glass=false /
 // ?exclude_views=false would silently mean true (same class as the menus fix).
@@ -51,7 +35,7 @@ const listSchema = z.object({
 auditRoutes.post('/', async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
-  const parsed = logSchema.safeParse(body)
+  const parsed = auditEventSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   const event = await auditService.logEvent(businessId, parsed.data)
   return c.json(event, 201)

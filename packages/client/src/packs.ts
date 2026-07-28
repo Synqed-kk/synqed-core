@@ -1,5 +1,6 @@
 import type { SynqedClient } from './client.js'
 import type {
+  AuditEventInput,
   Pack,
   ActivePack,
   CreatePackInput,
@@ -56,16 +57,30 @@ export class PacksClient {
     )
     return r.redemptions
   }
-  async addRedemption(input: AddRedemptionInput): Promise<{ id: string }> {
-    return this.client.fetch<{ id: string }>('/packs/redemptions', { method: 'POST', body: JSON.stringify(input) })
+  /** options.audit (A1): the audit row commits in the SAME core transaction
+   *  as the burn — replaces the separate audit.log() call for money actions. */
+  async addRedemption(
+    input: AddRedemptionInput,
+    options?: { audit?: AuditEventInput },
+  ): Promise<{ id: string }> {
+    const body = options?.audit ? { ...input, audit: options.audit } : input
+    return this.client.fetch<{ id: string }>('/packs/redemptions', { method: 'POST', body: JSON.stringify(body) })
   }
   /** Undo a 回数券 burn. removed_by records WHO undid it (soft delete —
    *  the redemption row survives with removed_at/removed_by). */
-  async removeRedemption(id: string, meta?: { removed_by?: string }): Promise<{ ok: boolean }> {
+  async removeRedemption(
+    id: string,
+    meta?: { removed_by?: string; audit?: AuditEventInput },
+  ): Promise<{ ok: boolean }> {
     const qs = meta?.removed_by ? `?removed_by=${encodeURIComponent(meta.removed_by)}` : ''
     return this.client.fetch<{ ok: boolean }>(
       `/packs/redemptions/${encodeURIComponent(id)}${qs}`,
-      { method: 'DELETE' },
+      {
+        method: 'DELETE',
+        // A1 audit rides the body; proxies that strip DELETE bodies degrade
+        // to the untrailed behavior server-side.
+        ...(meta?.audit ? { body: JSON.stringify({ audit: meta.audit }) } : {}),
+      },
     )
   }
 

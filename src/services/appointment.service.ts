@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation } from '../db/prisma-errors.js'
@@ -274,6 +275,9 @@ export async function updateAppointment(
   businessId: string,
   id: string,
   input: UpdateAppointmentInput,
+  /** A1: when supplied, the audit row commits in the SAME transaction as the
+   *  booking change — no crash window between action and trail. */
+  audit?: AuditEventInput,
 ): Promise<AppointmentPublic> {
   // Everything data-building needs from the row is read FRESH at write time
   // (see below) — a pre-lock snapshot must never decide slot semantics.
@@ -324,7 +328,11 @@ export async function updateAppointment(
       // cannot change — no lock. P2002 stays possible via customer_id.
       const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
       if (!existing) throw new Error('Appointment not found')
-      const row = await prisma.appointment.update({ where: { id }, data: buildData(existing) })
+      const row = await prisma.$transaction(async (tx) => {
+        const updated = await tx.appointment.update({ where: { id }, data: buildData(existing) })
+        if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
+        return updated
+      })
       return toPublic(row)
     }
 
@@ -428,7 +436,9 @@ export async function updateAppointment(
           if (overlapping) throw new AppointmentOverlapError()
         }
 
-        return { row: await tx.appointment.update({ where: { id }, data: buildData(fresh) }) }
+        const updated = await tx.appointment.update({ where: { id }, data: buildData(fresh) })
+        if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
+        return { row: updated }
       })
       if ('row' in out) return toPublic(out.row)
       lockKey = out.retryKey

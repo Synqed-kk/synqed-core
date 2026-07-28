@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types/api.js'
 import * as packs from '../services/packs.service.js'
+import { auditEventSchema } from '../validations/audit.js'
 
 export const packRoutes = new Hono<AppEnv>()
 
@@ -54,15 +55,32 @@ packRoutes.post('/redemptions', async (c) => {
   if (typeof b.pack_id !== 'string' || typeof b.customer_id !== 'string' || typeof b.redeemed_on !== 'string') {
     return c.json({ error: 'pack_id, customer_id, redeemed_on required' }, 400)
   }
-  return c.json(await packs.addRedemption(c.get('businessId'), b), 201)
+  // A1: optional audit payload commits atomically with the burn.
+  const { audit: rawAudit, ...input } = b
+  let audit
+  if (rawAudit !== undefined) {
+    const parsedAudit = auditEventSchema.safeParse(rawAudit)
+    if (!parsedAudit.success) return c.json({ error: parsedAudit.error.issues[0].message }, 400)
+    audit = parsedAudit.data
+  }
+  return c.json(await packs.addRedemption(c.get('businessId'), input, audit), 201)
 })
 
 packRoutes.delete('/redemptions/:id', async (c) => {
   // removed_by records WHO undid the burn (query param — DELETE bodies are
   // unreliable through proxies). Soft delete; reads exclude removed rows.
   const removedBy = c.req.query('removed_by') ?? null
+  // A1 audit rides the (optional) JSON body — proxies that drop DELETE bodies
+  // simply degrade to the untrailed behavior.
+  const b = await c.req.json().catch(() => ({}))
+  let audit
+  if (b && b.audit !== undefined) {
+    const parsedAudit = auditEventSchema.safeParse(b.audit)
+    if (!parsedAudit.success) return c.json({ error: parsedAudit.error.issues[0].message }, 400)
+    audit = parsedAudit.data
+  }
   return c.json(
-    await packs.removeRedemption(c.get('businessId'), c.req.param('id'), removedBy),
+    await packs.removeRedemption(c.get('businessId'), c.req.param('id'), removedBy, audit),
   )
 })
 
