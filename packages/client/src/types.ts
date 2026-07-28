@@ -1040,6 +1040,8 @@ export interface AuditEventInput {
   /** Display-name snapshot (like target_label). Omit and core resolves it
    *  from the staff roster at write time. */
   actor_label?: string | null
+  actor_staff_ref?: string | null
+  request_id?: string | null
   category: string
   action: string
   target_type?: string | null
@@ -1058,6 +1060,8 @@ export interface AuditEvent {
   store_id: string | null
   at: string
   actor_id: string | null
+  actor_staff_ref: string | null
+  request_id: string | null
   actor_type: string
   actor_role: string | null
   actor_label: string | null
@@ -1074,6 +1078,8 @@ export interface AuditEvent {
 export interface ListAuditOptions {
   category?: string
   actor_id?: string
+  actor_staff_ref?: string
+  request_id?: string
   target_type?: string
   target_id?: string
   break_glass?: boolean

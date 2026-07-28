@@ -645,9 +645,17 @@ model AuditLog {
   // Owner/dev cross-access flag — "show me every privileged access" is one query.
   breakGlass  Boolean  @default(false) @map("break_glass")
   severity    String   @default("info") // info | warn | critical
+  // Durable actor identity = the permanent staff CARD id (assignments store
+  // under the card even when actor_id is a login uuid — see logEvent). Real
+  // column, not detail JSON: labels collide and detail is scrubbed on
+  // customer deletion.
+  actorStaffRef String? @map("actor_staff_ref") @db.Uuid
+  // Correlates the several rows one action writes (mutation + views etc.).
+  requestId     String? @map("request_id")
 
   @@index([businessId, at])
   @@index([businessId, actorId, at])
+  @@index([businessId, actorStaffRef, at])
   @@index([businessId, targetType, targetId, at])
   @@index([businessId, category, at])
   @@map("audit_log")

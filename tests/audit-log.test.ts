@@ -249,3 +249,98 @@ describe('removeRedemption records WHO', () => {
     expect(row?.removedBy).toBe(staff.id)
   })
 })
+
+describe('audit_log — actor_staff_ref + request_id (A3/A4)', () => {
+  it('stamps the staff CARD id from either identity form of actor_id', async () => {
+    const staff = await seedTestStaff({ userId: '99999999-0000-0000-0000-000000000009' })
+
+    // card id form
+    const byCard = await (
+      await req('POST', '/audit', {
+        actor_id: staff.id,
+        actor_type: 'staff',
+        category: 'customer',
+        action: 'edit',
+      })
+    ).json()
+    expect(byCard.actor_staff_ref).toBe(staff.id)
+
+    // login uuid form — still stored under the card
+    const byLogin = await (
+      await req('POST', '/audit', {
+        actor_id: '99999999-0000-0000-0000-000000000009',
+        actor_type: 'staff',
+        category: 'customer',
+        action: 'edit',
+      })
+    ).json()
+    expect(byLogin.actor_staff_ref).toBe(staff.id)
+  })
+
+  it('caller-supplied actor_staff_ref wins; unresolvable actor_id stays null', async () => {
+    const staff = await seedTestStaff()
+    const explicit = await (
+      await req('POST', '/audit', {
+        actor_id: '99999999-0000-0000-0000-000000000001', // no roster match
+        actor_staff_ref: staff.id,
+        actor_type: 'staff',
+        category: 'customer',
+        action: 'edit',
+      })
+    ).json()
+    expect(explicit.actor_staff_ref).toBe(staff.id)
+
+    const orphan = await (
+      await req('POST', '/audit', {
+        actor_id: '99999999-0000-0000-0000-000000000001',
+        actor_type: 'system',
+        category: 'sync',
+        action: 'run',
+      })
+    ).json()
+    expect(orphan.actor_staff_ref).toBeNull()
+  })
+
+  it('actor_staff_ref + request_id filter the list; request_id round-trips', async () => {
+    const s1 = await seedTestStaff()
+    const s2 = await seedTestStaff({ name: '別スタッフ' })
+    await req('POST', '/audit', {
+      actor_id: s1.id, actor_type: 'staff', category: 'customer', action: 'edit',
+      request_id: 'req-corr-1',
+    })
+    await req('POST', '/audit', {
+      actor_id: s1.id, actor_type: 'staff', category: 'karute', action: 'view',
+      request_id: 'req-corr-1',
+    })
+    await req('POST', '/audit', {
+      actor_id: s2.id, actor_type: 'staff', category: 'customer', action: 'edit',
+    })
+
+    const byStaff = await (await req('GET', `/audit?actor_staff_ref=${s1.id}`)).json()
+    expect(byStaff.total).toBe(2)
+    expect(byStaff.events.every((e: { actor_staff_ref: string }) => e.actor_staff_ref === s1.id)).toBe(true)
+
+    const byReq = await (await req('GET', '/audit?request_id=req-corr-1')).json()
+    expect(byReq.total).toBe(2)
+    expect(byReq.events.every((e: { request_id: string }) => e.request_id === 'req-corr-1')).toBe(true)
+  })
+
+  it('boolean query params: explicit false means false (regression for coerce)', async () => {
+    const staff = await seedTestStaff()
+    await req('POST', '/audit', {
+      actor_id: staff.id, actor_type: 'staff', category: 'karute', action: 'record.view',
+    })
+    await req('POST', '/audit', {
+      actor_id: staff.id, actor_type: 'staff', category: 'customer', action: 'edit',
+    })
+
+    const excluded = await (await req('GET', '/audit?exclude_views=true')).json()
+    expect(excluded.total).toBe(1)
+    // false must include views — z.coerce.boolean() turned "false" into true.
+    const included = await (await req('GET', '/audit?exclude_views=false')).json()
+    expect(included.total).toBe(2)
+
+    const bogus = await req('GET', '/audit?exclude_views=maybe')
+    expect(bogus.status).toBe(400)
+  })
+})

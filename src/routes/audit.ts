@@ -11,6 +11,8 @@ const logSchema = z.object({
   actor_type: z.enum(['staff', 'owner', 'system', 'dev']),
   actor_role: z.string().nullable().optional(),
   actor_label: z.string().max(200).nullable().optional(),
+  actor_staff_ref: z.string().uuid().nullable().optional(),
+  request_id: z.string().max(100).nullable().optional(),
   category: z.string().min(1), // open set — wave 3 (auth) flows in later
   action: z.string().min(1),
   target_type: z.string().nullable().optional(),
@@ -21,15 +23,24 @@ const logSchema = z.object({
   severity: z.enum(['info', 'warn', 'critical']).optional(),
 })
 
+// NOT z.coerce.boolean(): Boolean('false') === true, so ?break_glass=false /
+// ?exclude_views=false would silently mean true (same class as the menus fix).
+const queryBool = z
+  .enum(['true', 'false'])
+  .transform((v) => v === 'true')
+  .optional()
+
 const listSchema = z.object({
   category: z.string().optional(),
   actor_id: z.string().uuid().optional(),
+  actor_staff_ref: z.string().uuid().optional(),
+  request_id: z.string().optional(),
   target_type: z.string().optional(),
   target_id: z.string().optional(),
-  break_glass: z.coerce.boolean().optional(),
+  break_glass: queryBool,
   severity: z.enum(['info', 'warn', 'critical']).optional(),
   store_id: z.string().uuid().optional(),
-  exclude_views: z.coerce.boolean().optional(),
+  exclude_views: queryBool,
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   page: z.coerce.number().int().min(1).optional(),
