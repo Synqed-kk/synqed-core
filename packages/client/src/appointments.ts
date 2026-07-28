@@ -1,5 +1,6 @@
 import type { SynqedClient } from './client.js'
 import type {
+  AuditEventInput,
   Appointment,
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -44,10 +45,17 @@ export class AppointmentClient {
     })
   }
 
-  async update(id: string, input: UpdateAppointmentInput): Promise<Appointment> {
+  /** options.audit (A1): the audit row commits in the SAME core transaction
+   *  as the booking change — replaces the separate audit.log() call. */
+  async update(
+    id: string,
+    input: UpdateAppointmentInput,
+    options?: { audit?: AuditEventInput },
+  ): Promise<Appointment> {
+    const body = options?.audit ? { ...input, audit: options.audit } : input
     return this.client.fetch<Appointment>(`/appointments/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
     })
   }
 

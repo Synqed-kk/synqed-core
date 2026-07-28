@@ -7,6 +7,7 @@ import {
 } from '../validations/appointment.js'
 import * as appointmentService from '../services/appointment.service.js'
 import * as idempotencyService from '../services/idempotency.service.js'
+import { auditEventSchema } from '../validations/audit.js'
 import {
   AppointmentOverlapError,
   CustomerSlotConflictError,
@@ -88,15 +89,23 @@ appointmentRoutes.post('/', async (c) => {
 
 appointmentRoutes.put('/:id', async (c) => {
   const businessId = c.get('businessId')
-  const body = await c.req.json().catch(() => ({}))
+  const { audit: rawAudit, ...body } = await c.req.json().catch(() => ({}))
   const parsed = updateAppointmentSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  // A1: optional audit payload commits atomically with the update.
+  let audit
+  if (rawAudit !== undefined) {
+    const parsedAudit = auditEventSchema.safeParse(rawAudit)
+    if (!parsedAudit.success) return c.json({ error: parsedAudit.error.issues[0].message }, 400)
+    audit = parsedAudit.data
+  }
 
   try {
     const appointment = await appointmentService.updateAppointment(
       businessId,
       c.req.param('id'),
       parsed.data,
+      audit,
     )
     return c.json(appointment)
   } catch (err) {

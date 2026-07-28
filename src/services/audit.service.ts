@@ -93,10 +93,14 @@ function toPublic(r: {
   }
 }
 
-export async function logEvent(
-  businessId: string,
-  input: AuditEventInput,
-): Promise<AuditEventPublic> {
+/** The slice of the prisma client the audit writers need — satisfied by both
+ *  the root client and an interactive-transaction client. */
+type AuditDb = {
+  staff: { findFirst: typeof prisma.staff.findFirst }
+  auditLog: { create: typeof prisma.auditLog.create }
+}
+
+async function buildAuditData(businessId: string, input: AuditEventInput, db: AuditDb) {
   // Cap detail at ~2KB so a runaway payload can't bloat the log; truncation is
   // recorded so the reader knows it happened.
   let detail = input.detail
@@ -116,7 +120,7 @@ export async function logEvent(
   // both the label snapshot and the durable actor_staff_ref.
   let actorStaffRef = input.actor_staff_ref ?? null
   if ((!actorLabel || !actorStaffRef) && input.actor_id) {
-    const staffRow = await prisma.staff
+    const staffRow = await db.staff
       .findFirst({
         where: {
           businessId,
@@ -129,27 +133,45 @@ export async function logEvent(
     actorStaffRef = actorStaffRef ?? staffRow?.id ?? null
   }
 
+  return {
+    businessId,
+    storeId: input.store_id ?? null,
+    actorId: input.actor_id ?? null,
+    actorType: input.actor_type,
+    actorRole: input.actor_role ?? null,
+    actorLabel,
+    actorStaffRef,
+    requestId: input.request_id ?? null,
+    category: input.category,
+    action: input.action,
+    targetType: input.target_type ?? null,
+    targetId: input.target_id ?? null,
+    targetLabel: input.target_label ?? null,
+    detail: detail === undefined ? undefined : (detail as Prisma.InputJsonValue),
+    breakGlass: input.break_glass ?? false,
+    severity: input.severity ?? 'info',
+  }
+}
+
+export async function logEvent(
+  businessId: string,
+  input: AuditEventInput,
+): Promise<AuditEventPublic> {
   const row = await prisma.auditLog.create({
-    data: {
-      businessId,
-      storeId: input.store_id ?? null,
-      actorId: input.actor_id ?? null,
-      actorType: input.actor_type,
-      actorRole: input.actor_role ?? null,
-      actorLabel,
-      actorStaffRef,
-      requestId: input.request_id ?? null,
-      category: input.category,
-      action: input.action,
-      targetType: input.target_type ?? null,
-      targetId: input.target_id ?? null,
-      targetLabel: input.target_label ?? null,
-      detail: detail === undefined ? undefined : (detail as Prisma.InputJsonValue),
-      breakGlass: input.break_glass ?? false,
-      severity: input.severity ?? 'info',
-    },
+    data: await buildAuditData(businessId, input, prisma),
   })
   return toPublic(row)
+}
+
+/** Transactional variant: write the audit row on the SAME client as the
+ *  mutation it describes, so a crash between action and trail is impossible
+ *  (A1 — money actions). Pass the interactive-transaction client. */
+export async function logEventIn(
+  tx: AuditDb,
+  businessId: string,
+  input: AuditEventInput,
+): Promise<void> {
+  await tx.auditLog.create({ data: await buildAuditData(businessId, input, tx) })
 }
 
 export interface ListAuditOptions {
