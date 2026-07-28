@@ -6,6 +6,10 @@ export const TEST_BUSINESS_ID = '00000000-0000-0000-0000-000000000001'
 export const TEST_API_KEY = 'karute-dev-key-change-me'
 
 export async function cleanupTestData() {
+  // Menus have no FK relations (appointments soft-reference them)
+  await testPrisma.menu.deleteMany({
+    where: { businessId: TEST_BUSINESS_ID },
+  })
   // Order matters: delete FK children before parents
   await testPrisma.karuteEntry.deleteMany({
     where: { karuteRecord: { businessId: TEST_BUSINESS_ID } },

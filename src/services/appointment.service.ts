@@ -51,6 +51,9 @@ export interface AppointmentPublic {
   duration_minutes: number | null
   title: string | null
   notes: string | null
+  menu_id: string | null
+  booked_price_amount: number | null
+  booked_price_currency: string | null
   status: AppointmentStatus
   source: AppointmentSource
   external_refs: unknown
@@ -74,6 +77,9 @@ function toPublic(row: {
   durationMinutes: number | null
   title: string | null
   notes: string | null
+  menuId: string | null
+  bookedPriceAmount: number | null
+  bookedPriceCurrency: string | null
   status: AppointmentStatus
   source: AppointmentSource
   externalRefs: unknown
@@ -96,6 +102,9 @@ function toPublic(row: {
     duration_minutes: row.durationMinutes,
     title: row.title,
     notes: row.notes,
+    menu_id: row.menuId,
+    booked_price_amount: row.bookedPriceAmount,
+    booked_price_currency: row.bookedPriceCurrency,
     status: row.status,
     source: row.source,
     external_refs: row.externalRefs,
@@ -246,6 +255,9 @@ export async function createAppointment(
           durationMinutes: input.duration_minutes ?? null,
           title: input.title ?? null,
           notes: input.notes ?? null,
+          menuId: input.menu_id ?? null,
+          bookedPriceAmount: input.booked_price_amount ?? null,
+          bookedPriceCurrency: input.booked_price_currency ?? null,
           status: input.status ?? 'SCHEDULED',
           source: input.source ?? 'MANUAL',
         },

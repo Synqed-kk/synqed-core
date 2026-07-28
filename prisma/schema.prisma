@@ -208,6 +208,47 @@ enum AppointmentSource {
   OTHER
 }
 
+// =============================================================================
+// Menu — the bookable service catalog (SYNQED Reserve's menu source of truth).
+// Shaped to serve the Reserve customer contract (MenuPublic) + the band
+// pricing engine: price_list = the 税込 list price (= band ceiling, the
+// display baseline); price_min = the band floor (NULL = fixed price, no
+// discounting). Money is integer minor-unit-free amounts + explicit currency —
+// never a hardcoded yen assumption (multi-country roadmap).
+// =============================================================================
+model Menu {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessId           String   @map("business_id") @db.Uuid
+  // NULL = offered at every store; set = store-specific menu.
+  storeId              String?  @map("store_id") @db.Uuid
+  name                 String
+  description          String?
+  category             String?
+  // Owner-set section order for the booking UI — course displayOrder alone
+  // can't express it (courses interleave across categories).
+  categoryDisplayOrder Int      @default(0) @map("category_display_order")
+  displayOrder         Int      @default(0) @map("display_order")
+  durationMinutes      Int      @map("duration_minutes")
+  priceListAmount      Int      @map("price_list_amount")
+  priceMinAmount       Int?     @map("price_min_amount")
+  currency             String   @default("JPY")
+  taxIncluded          Boolean  @default(true) @map("tax_included")
+  // 指名 offered for THIS menu (first-visit menus typically false — the
+  // customer flow then never shows staff and rejects staffed writes).
+  nominationAllowed    Boolean  @default(true) @map("nomination_allowed")
+  // Visible on the public booking surface (vs staff-side-only menus).
+  onlineVisible        Boolean  @default(true) @map("online_visible")
+  // Retirement flag — menus are never hard-deleted (booked appointments
+  // reference them; house rule: no hard delete).
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId, active])
+  @@index([businessId, storeId])
+  @@map("menus")
+}
+
 model Appointment {
   id              String            @id @default(uuid()) @db.Uuid
   businessId      String            @map("business_id") @db.Uuid
@@ -219,6 +260,13 @@ model Appointment {
   durationMinutes Int?              @map("duration_minutes")
   title           String?
   notes           String?
+  // The booked menu + the price the customer AGREED TO at booking time —
+  // a snapshot, deliberately not an FK (menu edits/retirement must never
+  // rewrite what an existing booking promised). NULL on rows that predate
+  // menus or come from writers without catalog context (QR crawl, manual).
+  menuId              String? @map("menu_id") @db.Uuid
+  bookedPriceAmount   Int?    @map("booked_price_amount")
+  bookedPriceCurrency String? @map("booked_price_currency")
   status          AppointmentStatus @default(SCHEDULED)
   source          AppointmentSource @default(MANUAL)
   // External system references. Shape: { quickreserve: { reservationId: 12345, rid: "abc" } }

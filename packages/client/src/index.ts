@@ -10,6 +10,7 @@ export { RecordingJobClient } from './recording-jobs.js'
 export { OrgSettingsClient } from './org-settings.js'
 export { AiRateLimitClient } from './ai-rate-limit.js'
 export { StoreClient } from './stores.js'
+export { MenuClient } from './menus.js'
 export { EntitlementClient } from './entitlements.js'
 export { StaffStoreClient } from './staff-stores.js'
 export { InviteClient } from './invites.js'
@@ -105,6 +106,13 @@ export type {
   CreateStoreInput,
   UpdateStoreInput,
   ListStoresResponse,
+
+  // Menus
+  Menu,
+  CreateMenuInput,
+  UpdateMenuInput,
+  ListMenusOptions,
+  ListMenusResponse,
 
   // Entitlements
   Entitlement,
