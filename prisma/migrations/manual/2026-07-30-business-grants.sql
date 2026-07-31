@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS business_grants (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id  uuid NOT NULL,
   staff_id     uuid NOT NULL,
-  grant        "BusinessGrantType" NOT NULL,
+  "grant"      "BusinessGrantType" NOT NULL,
   granted_by   uuid,
   created_at   timestamptz NOT NULL DEFAULT now(),
   revoked_at   timestamptz,
@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS business_grants_business_id_staff_id_idx
   ON business_grants (business_id, staff_id);
 -- One LIVE grant of a type per staff — regrant after revoke stays possible.
 CREATE UNIQUE INDEX IF NOT EXISTS business_grants_live_unique
-  ON business_grants (business_id, staff_id, grant)
+  ON business_grants (business_id, staff_id, "grant")
   WHERE revoked_at IS NULL;
 
 COMMIT;
