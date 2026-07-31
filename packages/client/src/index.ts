@@ -154,3 +154,4 @@ export type {
 } from './types.js'
 export { PricingClient } from './pricing.js'
 export { BusinessGrantClient } from './business-grants.js'
+export { StorePolicyClient } from './store-policies.js'
