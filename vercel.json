@@ -2,9 +2,18 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.js" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.js"
+    }
   ],
   "crons": [
-    { "path": "/v1/sync/cron/dispatch", "schedule": "*/15 * * * *" }
+    {
+      "path": "/v1/sync/cron/dispatch",
+      "schedule": "*/15 * * * *"
+    }
+  ],
+  "regions": [
+    "hnd1"
   ]
 }
