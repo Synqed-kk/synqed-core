@@ -1,5 +1,6 @@
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
+import { computeBookedPrice } from './pricing.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation } from '../db/prisma-errors.js'
@@ -219,6 +220,33 @@ export async function createAppointment(
     throw new InvalidTimeRangeError()
   }
 
+  // Price of record is decided HERE (Liam item 2): when a menu rides the
+  // booking, core recomputes the slot price from the ACTIVE pricing rules.
+  // The computed price is the CEILING of what the caller may book — a staff
+  // side can still record an agreed discount (the #55 design), but only
+  // within [menu floor, computed price]: a client can never inflate the price
+  // of record or undercut the band. The lookup also validates the menu
+  // belongs to this business (closes #55's unvalidated-menu gap). Menu-less
+  // bookings (legacy/free-text) keep the caller's values untouched.
+  let bookedPrice: { amount: number; currency: string } | null = null
+  if (input.menu_id) {
+    const computed = await computeBookedPrice(
+      businessId,
+      input.store_id ?? null,
+      input.menu_id,
+      startsAt,
+    )
+    if (!computed) throw new Error('Menu not found')
+    // Discount clamp: an EXPLICIT band floor binds agreed discounts; a menu
+    // without one keeps free-form staff discounts (#55's agreed-price test) —
+    // the computed price stays the hard ceiling either way.
+    const asked = input.booked_price_amount ?? computed.amount
+    bookedPrice = {
+      amount: Math.min(computed.amount, Math.max(computed.explicitFloor ?? 0, asked)),
+      currency: computed.currency,
+    }
+  }
+
   try {
     const row = await withStaffSlotLock(businessId, input.staff_id, async (tx) => {
       const overlapping = await tx.appointment.findFirst({
@@ -257,8 +285,9 @@ export async function createAppointment(
           title: input.title ?? null,
           notes: input.notes ?? null,
           menuId: input.menu_id ?? null,
-          bookedPriceAmount: input.booked_price_amount ?? null,
-          bookedPriceCurrency: input.booked_price_currency ?? null,
+          // Menu bookings: server truth (computed above). Menu-less: caller's.
+          bookedPriceAmount: bookedPrice ? bookedPrice.amount : (input.booked_price_amount ?? null),
+          bookedPriceCurrency: bookedPrice ? bookedPrice.currency : (input.booked_price_currency ?? null),
           status: input.status ?? 'SCHEDULED',
           source: input.source ?? 'MANUAL',
         },

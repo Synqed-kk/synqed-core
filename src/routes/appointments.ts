@@ -83,6 +83,9 @@ appointmentRoutes.post('/', async (c) => {
       // the 409 that callers surface to customers as SLOT_TAKEN.
       return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
     }
+    if (err instanceof Error && err.message === 'Menu not found') {
+      return c.json({ error: err.message }, 404)
+    }
     throw err
   }
 })

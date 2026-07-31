@@ -9,6 +9,8 @@ import { OrgSettingsClient } from './org-settings.js'
 import { AiRateLimitClient } from './ai-rate-limit.js'
 import { StoreClient } from './stores.js'
 import { MenuClient } from './menus.js'
+import { PricingClient } from './pricing.js'
+import { BusinessGrantClient } from './business-grants.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
 import { InviteClient } from './invites.js'
@@ -34,6 +36,8 @@ export class SynqedClient {
   public aiRateLimit: AiRateLimitClient
   public stores: StoreClient
   public menus: MenuClient
+  public pricing: PricingClient
+  public businessGrants: BusinessGrantClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
   public invites: InviteClient
@@ -58,6 +62,8 @@ export class SynqedClient {
     this.aiRateLimit = new AiRateLimitClient(this)
     this.stores = new StoreClient(this)
     this.menus = new MenuClient(this)
+    this.pricing = new PricingClient(this)
+    this.businessGrants = new BusinessGrantClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
     this.invites = new InviteClient(this)

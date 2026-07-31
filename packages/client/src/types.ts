@@ -1127,3 +1127,37 @@ export interface EnqueueRecordingJobInput {
   recording_session_id: string
   payload: Record<string, unknown>
 }
+
+// ── Business grants (org-level capabilities) ─────────────────────────────────
+
+export interface BusinessGrant {
+  id: string
+  staff_id: string
+  grant: 'HQ_ADMIN'
+  granted_by: string | null
+  created_at: string
+}
+
+// ── Pricing rules ────────────────────────────────────────────────────────────
+
+export type PricingWeekday = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
+
+export interface PricingRules {
+  /** weekday → hour("0".."23") → multiplier; absent = 1.0 */
+  grid?: Partial<Record<PricingWeekday, Record<string, number>>>
+  /** inclusive JST calendar-date promos; first match wins over the grid */
+  promos?: Array<{ from: string; to: string; multiplier: number; label?: string }>
+  flex?: number
+}
+
+export interface PricingRuleSet {
+  id: string
+  business_id: string
+  store_id: string
+  menu_id: string | null
+  version: number
+  status: 'ACTIVE' | 'SUPERSEDED'
+  rules: PricingRules
+  created_by: string | null
+  created_at: string
+}
