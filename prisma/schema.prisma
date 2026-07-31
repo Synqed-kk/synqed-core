@@ -1001,3 +1001,32 @@ model PricingRuleSet {
   @@index([businessId, storeId, menuId, status])
   @@map("pricing_rule_sets")
 }
+
+// =============================================================================
+// StoreBookingPolicy — per-store booking-acceptance terms (Liam item 3): how
+// far ahead bookings open, the same-day cutoff, and cancellation fee terms.
+// One row per store; absent row = platform defaults (see policy.service).
+// Reserve's BFF reads this when it builds the public calendar; the Business
+// dashboard edits it (HQ-gated). These lived hardcoded in the reserve app.
+// =============================================================================
+
+model StoreBookingPolicy {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessId           String   @map("business_id") @db.Uuid
+  storeId              String   @unique @map("store_id") @db.Uuid
+  // How many days ahead a customer can book (calendar horizon).
+  bookingOpenDays      Int      @default(30) @map("booking_open_days")
+  // Bookings must be made at least this many minutes before the slot.
+  cutoffMinutes        Int      @default(0) @map("cutoff_minutes")
+  // Cancellation is free until N hours before the start...
+  cancelFreeUntilHours Int      @default(24) @map("cancel_free_until_hours")
+  // ...then this % of the booked price applies, and no-show pays this %.
+  cancelLatePct        Int      @default(0) @map("cancel_late_pct")
+  noShowPct            Int      @default(0) @map("no_show_pct")
+  updatedBy            String?  @map("updated_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("store_booking_policies")
+}

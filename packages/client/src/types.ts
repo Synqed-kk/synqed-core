@@ -1161,3 +1161,27 @@ export interface PricingRuleSet {
   created_by: string | null
   created_at: string
 }
+
+// ── Store booking policy ─────────────────────────────────────────────────────
+
+export interface StoreBookingPolicy {
+  store_id: string
+  booking_open_days: number
+  cutoff_minutes: number
+  cancel_free_until_hours: number
+  cancel_late_pct: number
+  no_show_pct: number
+  source: 'custom' | 'default'
+  updated_by: string | null
+  updated_at: string | null
+}
+
+export interface SetStoreBookingPolicyInput {
+  booking_open_days?: number
+  cutoff_minutes?: number
+  cancel_free_until_hours?: number
+  cancel_late_pct?: number
+  no_show_pct?: number
+  acting_staff_id: string
+  audit?: AuditEventInput
+}
