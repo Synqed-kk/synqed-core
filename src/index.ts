@@ -15,6 +15,8 @@ import { storeRoutes } from './routes/stores.js'
 import { menuRoutes } from './routes/menus.js'
 import { entitlementRoutes } from './routes/entitlements.js'
 import { staffStoreRoutes } from './routes/staff-stores.js'
+import { businessGrantRoutes } from './routes/business-grants.js'
+import { pricingRuleRoutes } from './routes/pricing-rules.js'
 import { inviteRoutes } from './routes/invites.js'
 import { customerMemoryRoutes } from './routes/customer-memory.js'
 import { karuteOutcomeRoutes } from './routes/karute-outcomes.js'
@@ -51,6 +53,8 @@ app.route('/stores', storeRoutes)
 app.route('/menus', menuRoutes)
 app.route('/entitlements', entitlementRoutes)
 app.route('/staff-stores', staffStoreRoutes)
+app.route('/business-grants', businessGrantRoutes)
+app.route('/pricing-rules', pricingRuleRoutes)
 app.route('/invites', inviteRoutes)
 app.route('/customer-memory', customerMemoryRoutes)
 app.route('/karute-outcomes', karuteOutcomeRoutes)

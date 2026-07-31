@@ -941,3 +941,63 @@ model IdempotencyKey {
   @@unique([businessId, key])
   @@map("idempotency_keys")
 }
+
+// =============================================================================
+// BusinessGrant — org-level capabilities separate from per-store staff roles
+// (approved permission design). First grant: HQ_ADMIN = "manage brand settings
+// across stores" — the authz floor under pricing rules / acceptance policy /
+// messaging templates. Soft-revoke keeps who-held-what reconstructable.
+// =============================================================================
+
+enum BusinessGrantType {
+  HQ_ADMIN
+}
+
+model BusinessGrant {
+  id         String            @id @default(uuid()) @db.Uuid
+  businessId String            @map("business_id") @db.Uuid
+  staffId    String            @map("staff_id") @db.Uuid
+  grant      BusinessGrantType
+  grantedBy  String?           @map("granted_by") @db.Uuid
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  revokedAt  DateTime?         @map("revoked_at") @db.Timestamptz()
+  revokedBy  String?           @map("revoked_by") @db.Uuid
+
+  @@index([businessId, staffId])
+  @@map("business_grants")
+}
+
+// =============================================================================
+// PricingRuleSet — WHEN the price moves inside the menu band (menus own the
+// band itself: price_list = ceiling, price_min = floor). Per store × menu
+// (menu NULL = the store-wide default set), append-only versions: saving
+// supersedes the previous ACTIVE row, rollback re-issues an old version as a
+// new one — price history stays reconstructable and rollback is one write.
+// scope_type is future-proofing for store GROUPS (urban/suburban tiers).
+// =============================================================================
+
+enum PricingScopeType {
+  STORE
+}
+
+enum PricingRuleStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+model PricingRuleSet {
+  id         String            @id @default(uuid()) @db.Uuid
+  businessId String            @map("business_id") @db.Uuid
+  scopeType  PricingScopeType  @default(STORE) @map("scope_type")
+  storeId    String            @map("store_id") @db.Uuid
+  menuId     String?           @map("menu_id") @db.Uuid
+  version    Int
+  status     PricingRuleStatus @default(ACTIVE)
+  // { grid?: {mon..sun: {"0".."23": mult}}, promos?: [{from,to,multiplier,label?}], flex? }
+  rules      Json
+  createdBy  String?           @map("created_by") @db.Uuid
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, storeId, menuId, status])
+  @@map("pricing_rule_sets")
+}

@@ -152,3 +152,5 @@ export type {
   AddVisitDismissalInput,
   VisitDismissal,
 } from './types.js'
+export { PricingClient } from './pricing.js'
+export { BusinessGrantClient } from './business-grants.js'
