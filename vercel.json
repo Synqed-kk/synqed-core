@@ -7,6 +7,12 @@
       "destination": "/index.js"
     }
   ],
+  "crons": [
+    {
+      "path": "/v1/sync/cron/dispatch",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "regions": [
     "sin1"
   ]
