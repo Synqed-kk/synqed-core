@@ -98,15 +98,29 @@ export class CustomerClient {
   async uploadPhoto(
     id: string,
     file: File,
-    options: { category?: string; caption?: string } = {},
+    options: {
+      category?: string
+      caption?: string
+      /** Session linkage — photo taken DURING a session (all optional). */
+      recording_session_id?: string
+      captured_by_staff_id?: string
+      taken_with_consent?: boolean
+      /** Same key on a retry replays the stored photo instead of duplicating. */
+      idempotencyKey?: string
+    } = {},
   ): Promise<CustomerPhoto> {
     const formData = new FormData()
     formData.append('file', file)
     if (options.category) formData.append('category', options.category)
     if (options.caption) formData.append('caption', options.caption)
+    if (options.recording_session_id) formData.append('recording_session_id', options.recording_session_id)
+    if (options.captured_by_staff_id) formData.append('captured_by_staff_id', options.captured_by_staff_id)
+    if (options.taken_with_consent !== undefined)
+      formData.append('taken_with_consent', String(options.taken_with_consent))
     return this.client.fetchMultipart<CustomerPhoto>(
       `/customers/${id}/photos`,
       formData,
+      options.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : undefined,
     )
   }
 

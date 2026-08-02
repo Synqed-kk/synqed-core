@@ -138,12 +138,20 @@ model CustomerPhoto {
   storagePath String   @map("storage_path")
   category    String   @default("general")
   caption     String?
+  // Session linkage (photo-session design 2026-08-02): photos taken DURING a
+  // session carry where/who/consent. All optional — pre-linkage clients and
+  // rows are untouched. Session delete keeps the photo (SET NULL).
+  recordingSessionId String?  @map("recording_session_id") @db.Uuid
+  capturedByStaffId  String?  @map("captured_by_staff_id") @db.Uuid
+  takenWithConsent   Boolean  @default(false) @map("taken_with_consent")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  recordingSession RecordingSession? @relation(fields: [recordingSessionId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
   @@index([customerId, createdAt])
+  @@index([recordingSessionId])
   @@map("customer_photos")
 }
 
@@ -386,6 +394,7 @@ model RecordingSession {
 
   segments     TranscriptionSegment[]
   karuteRecord KaruteRecord?
+  photos       CustomerPhoto[]
 
   @@index([businessId, createdAt])
   @@index([customerId])
@@ -932,13 +941,17 @@ model AiCache {
 // =============================================================================
 
 model IdempotencyKey {
-  id            String   @id @default(uuid()) @db.Uuid
-  businessId    String   @map("business_id") @db.Uuid
-  key           String
-  appointmentId String?  @map("appointment_id") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  // Which endpoint family owns the key ('appointment' | 'photo' | ...) — the
+  // same client key can exist under different scopes without colliding.
+  scope      String   @default("appointment")
+  key        String
+  // The created row's id (appointment, photo, ...) — replay returns it.
+  targetId   String?  @map("target_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  @@unique([businessId, key])
+  @@unique([businessId, scope, key])
   @@map("idempotency_keys")
 }
 

@@ -48,7 +48,7 @@ appointmentRoutes.post('/', async (c) => {
   if (idemKey) {
     const claim = await idempotencyService.claimKey(businessId, idemKey)
     if (claim.kind === 'replay') {
-      const existing = await appointmentService.getAppointment(businessId, claim.appointmentId)
+      const existing = await appointmentService.getAppointment(businessId, claim.targetId)
       if (existing) return c.json(existing, 200)
       return c.json(
         { error: 'The appointment created under this Idempotency-Key no longer exists.', code: 'IDEMPOTENT_REPLAY_GONE' },
