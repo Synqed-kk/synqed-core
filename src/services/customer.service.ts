@@ -456,6 +456,9 @@ export interface CustomerPhotoDto {
   storage_path: string
   category: string
   caption: string | null
+  recording_session_id: string | null
+  captured_by_staff_id: string | null
+  taken_with_consent: boolean
   created_at: string
   signed_url: string | null
 }
@@ -466,6 +469,9 @@ async function toCustomerPhotoDto(row: {
   storagePath: string
   category: string
   caption: string | null
+  recordingSessionId: string | null
+  capturedByStaffId: string | null
+  takenWithConsent: boolean
   createdAt: Date
 }): Promise<CustomerPhotoDto> {
   const storage = getStorage()
@@ -478,6 +484,9 @@ async function toCustomerPhotoDto(row: {
     storage_path: row.storagePath,
     category: row.category,
     caption: row.caption,
+    recording_session_id: row.recordingSessionId,
+    captured_by_staff_id: row.capturedByStaffId,
+    taken_with_consent: row.takenWithConsent,
     created_at: row.createdAt.toISOString(),
     signed_url: data?.signedUrl ?? null,
   }
@@ -504,13 +513,56 @@ export async function listPhotos(
   return { photos }
 }
 
+/** Replay read for the photo idempotency path. */
+export async function getPhoto(
+  businessId: string,
+  customerId: string,
+  photoId: string,
+): Promise<CustomerPhotoDto | null> {
+  const row = await prisma.customerPhoto.findFirst({
+    where: { id: photoId, customerId, businessId },
+  })
+  return row ? toCustomerPhotoDto(row) : null
+}
+
 export async function uploadPhoto(
   businessId: string,
   customerId: string,
   file: File,
-  options: { category?: string; caption?: string | null } = {},
+  options: {
+    category?: string
+    caption?: string | null
+    /** Session linkage (photo-session design): all optional, validated to
+     *  belong to this business. Staff accepts either identity form and is
+     *  stored under the card id (house rule). */
+    recording_session_id?: string | null
+    captured_by_staff_id?: string | null
+    taken_with_consent?: boolean
+  } = {},
 ): Promise<CustomerPhotoDto> {
   await assertCustomer(businessId, customerId)
+
+  let recordingSessionId: string | null = null
+  if (options.recording_session_id) {
+    const session = await prisma.recordingSession.findFirst({
+      where: { id: options.recording_session_id, businessId },
+      select: { id: true },
+    })
+    if (!session) throw new Error('Recording session not found')
+    recordingSessionId = session.id
+  }
+  let capturedByStaffId: string | null = null
+  if (options.captured_by_staff_id) {
+    const staff = await prisma.staff.findFirst({
+      where: {
+        businessId,
+        OR: [{ id: options.captured_by_staff_id }, { userId: options.captured_by_staff_id }],
+      },
+      select: { id: true },
+    })
+    if (!staff) throw new Error('Staff not found')
+    capturedByStaffId = staff.id
+  }
 
   const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
   const id = crypto.randomUUID()
@@ -530,6 +582,9 @@ export async function uploadPhoto(
       storagePath,
       category: options.category ?? 'general',
       caption: options.caption ?? null,
+      recordingSessionId,
+      capturedByStaffId,
+      takenWithConsent: options.taken_with_consent ?? false,
     },
   })
 

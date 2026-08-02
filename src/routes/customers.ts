@@ -7,6 +7,7 @@ import {
   upsertVisitsSchema,
 } from '../validations/customer.js'
 import * as customerService from '../services/customer.service.js'
+import * as idempotencyService from '../services/idempotency.service.js'
 import { customerEnrichment } from '../services/customer-enrichment.service.js'
 
 export const customerRoutes = new Hono<AppEnv>()
@@ -134,7 +135,10 @@ customerRoutes.get('/:id/photos', async (c) => {
   }
 })
 
-// POST /v1/customers/:id/photos  (multipart: file, optional category, caption)
+// POST /v1/customers/:id/photos  (multipart: file, optional category/caption
+// + session linkage: recording_session_id, captured_by_staff_id,
+// taken_with_consent). Idempotency-Key header dedups retried uploads — the
+// mobile retry added for the intermittent 502 must never store twice.
 customerRoutes.post('/:id/photos', async (c) => {
   const businessId = c.get('businessId')
   const id = c.req.param('id')
@@ -144,15 +148,50 @@ customerRoutes.post('/:id/photos', async (c) => {
 
   const category = formData.get('category')
   const caption = formData.get('caption')
+  const recordingSessionId = formData.get('recording_session_id')
+  const capturedByStaffId = formData.get('captured_by_staff_id')
+  const takenWithConsent = formData.get('taken_with_consent')
+
+  const idemKey = c.req.header('Idempotency-Key')
+  let claimId: string | null = null
+  if (idemKey) {
+    const claim = await idempotencyService.claimKey(businessId, idemKey, 'photo')
+    if (claim.kind === 'replay') {
+      const existing = await customerService.getPhoto(businessId, id, claim.targetId)
+      if (existing) return c.json(existing, 200)
+      return c.json(
+        { error: 'The photo created under this Idempotency-Key no longer exists.', code: 'IDEMPOTENT_REPLAY_GONE' },
+        409,
+      )
+    }
+    if (claim.kind === 'in_flight') {
+      return c.json(
+        { error: 'The original upload with this Idempotency-Key is still in progress. Retry.', code: 'IDEMPOTENT_IN_FLIGHT' },
+        503,
+        { 'Retry-After': '1' },
+      )
+    }
+    claimId = claim.claimId
+  }
 
   try {
     const photo = await customerService.uploadPhoto(businessId, id, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : null,
+      recording_session_id: typeof recordingSessionId === 'string' && recordingSessionId ? recordingSessionId : null,
+      captured_by_staff_id: typeof capturedByStaffId === 'string' && capturedByStaffId ? capturedByStaffId : null,
+      taken_with_consent: takenWithConsent === 'true',
     })
+    if (claimId) await idempotencyService.completeKey(claimId, photo.id)
     return c.json(photo)
   } catch (err) {
-    if (err instanceof Error && err.message === 'Customer not found') {
+    if (claimId) await idempotencyService.releaseKey(claimId).catch(() => {})
+    if (
+      err instanceof Error &&
+      (err.message === 'Customer not found' ||
+        err.message === 'Recording session not found' ||
+        err.message === 'Staff not found')
+    ) {
       return c.json({ error: err.message }, 404)
     }
     throw err

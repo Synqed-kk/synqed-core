@@ -7,16 +7,24 @@ const STALE_CLAIM_MS = 60_000
 
 export type ClaimResult =
   | { kind: 'claimed'; claimId: string }
-  | { kind: 'replay'; appointmentId: string }
+  | { kind: 'replay'; targetId: string }
   | { kind: 'in_flight' }
 
-/** Claim an Idempotency-Key for this business, or resolve what the previous
- *  holder did with it. Exactly one concurrent caller wins the claim; the rest
- *  see replay (done) or in_flight (not done yet — retry shortly). */
-export async function claimKey(businessId: string, key: string): Promise<ClaimResult> {
+/** Endpoint family owning the key — the same client key never collides
+ *  across scopes. */
+export type IdempotencyScope = 'appointment' | 'photo'
+
+/** Claim an Idempotency-Key for this business+scope, or resolve what the
+ *  previous holder did with it. Exactly one concurrent caller wins the claim;
+ *  the rest see replay (done) or in_flight (not done yet — retry shortly). */
+export async function claimKey(
+  businessId: string,
+  key: string,
+  scope: IdempotencyScope = 'appointment',
+): Promise<ClaimResult> {
   try {
     const row = await prisma.idempotencyKey.create({
-      data: { businessId, key },
+      data: { businessId, scope, key },
       select: { id: true },
     })
     return { kind: 'claimed', claimId: row.id }
@@ -25,18 +33,18 @@ export async function claimKey(businessId: string, key: string): Promise<ClaimRe
   }
 
   const existing = await prisma.idempotencyKey.findUnique({
-    where: { businessId_key: { businessId, key } },
-    select: { id: true, appointmentId: true, createdAt: true },
+    where: { businessId_scope_key: { businessId, scope, key } },
+    select: { id: true, targetId: true, createdAt: true },
   })
   // Deleted between our insert-conflict and this read (loser's release):
   // treat as in-flight and let the caller retry the whole claim.
   if (!existing) return { kind: 'in_flight' }
-  if (existing.appointmentId) return { kind: 'replay', appointmentId: existing.appointmentId }
+  if (existing.targetId) return { kind: 'replay', targetId: existing.targetId }
 
   // Stale claim takeover — guarded UPDATE so only one taker wins.
   if (Date.now() - existing.createdAt.getTime() > STALE_CLAIM_MS) {
     const taken = await prisma.idempotencyKey.updateMany({
-      where: { id: existing.id, appointmentId: null, createdAt: existing.createdAt },
+      where: { id: existing.id, targetId: null, createdAt: existing.createdAt },
       data: { createdAt: new Date() },
     })
     if (taken.count === 1) return { kind: 'claimed', claimId: existing.id }
@@ -44,12 +52,12 @@ export async function claimKey(businessId: string, key: string): Promise<ClaimRe
   return { kind: 'in_flight' }
 }
 
-/** Record the created appointment on the claim — from here on the key replays. */
-export async function completeKey(claimId: string, appointmentId: string): Promise<void> {
-  await prisma.idempotencyKey.update({ where: { id: claimId }, data: { appointmentId } })
+/** Record the created row on the claim — from here on the key replays. */
+export async function completeKey(claimId: string, targetId: string): Promise<void> {
+  await prisma.idempotencyKey.update({ where: { id: claimId }, data: { targetId } })
 }
 
 /** The create failed — free the key so a retry can attempt it fresh. */
 export async function releaseKey(claimId: string): Promise<void> {
-  await prisma.idempotencyKey.deleteMany({ where: { id: claimId, appointmentId: null } })
+  await prisma.idempotencyKey.deleteMany({ where: { id: claimId, targetId: null } })
 }

@@ -115,7 +115,11 @@ export class SynqedClient {
     return res
   }
 
-  async fetchMultipart<T>(path: string, formData: FormData): Promise<T> {
+  async fetchMultipart<T>(
+    path: string,
+    formData: FormData,
+    init?: { headers?: Record<string, string> },
+  ): Promise<T> {
     const url = `${this.baseUrl}/v1${path}`
     const res = await fetch(url, {
       method: 'POST',
@@ -123,6 +127,7 @@ export class SynqedClient {
         'x-api-key': this.apiKey,
         'x-business-id': this.businessId,
         // NO Content-Type — fetch sets multipart boundary automatically
+        ...init?.headers,
       },
       body: formData,
     })

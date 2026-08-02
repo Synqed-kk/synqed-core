@@ -179,6 +179,9 @@ export interface CustomerPhoto {
   storage_path: string
   category: string
   caption: string | null
+  recording_session_id: string | null
+  captured_by_staff_id: string | null
+  taken_with_consent: boolean
   created_at: string
   signed_url: string | null
 }
