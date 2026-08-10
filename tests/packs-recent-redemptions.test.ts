@@ -56,6 +56,7 @@ describe('GET /packs/redemptions/recent — priced rows', () => {
     const { redemptions } = await res.json()
     expect(redemptions).toHaveLength(1)
     expect(redemptions[0]).toEqual({
+      id: expect.any(String), // the correction handle (remove + recreate)
       customer_id: c.id,
       appointment_id: null,
       redeemed_on: '2026-07-05',

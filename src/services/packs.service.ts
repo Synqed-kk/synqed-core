@@ -111,12 +111,14 @@ export async function listAllRedemptionPackIds(businessId: string): Promise<stri
 export async function listRecentRedemptions(
   businessId: string, since: string,
 ): Promise<Array<{
-  customer_id: string; appointment_id: string | null; redeemed_on: string
+  // id: the correction handle — a wrongly auto-burned no-show is fixed by
+  // removeRedemption(id) + recreate, and it is the pack_undo audit target.
+  id: string; customer_id: string; appointment_id: string | null; redeemed_on: string
   pack_id: string; unit_price: number | null
 }>> {
   const rows = await prisma.packRedemption.findMany({
     where: { businessId, removedAt: null, redeemedOn: { gte: new Date(since) } },
-    select: { customerId: true, appointmentId: true, redeemedOn: true, packId: true },
+    select: { id: true, customerId: true, appointmentId: true, redeemedOn: true, packId: true },
     orderBy: { redeemedOn: 'asc' },
   })
   // Price each redemption from its pack — by id, NOT status-filtered: a burn
@@ -134,7 +136,7 @@ export async function listRecentRedemptions(
   // unit_price null = orphaned redemption (pack row gone) — consumers must
   // treat the sum as unpriceable rather than skip the row (undercount).
   return rows.map((r) => ({
-    customer_id: r.customerId, appointment_id: r.appointmentId, redeemed_on: ymd(r.redeemedOn),
+    id: r.id, customer_id: r.customerId, appointment_id: r.appointmentId, redeemed_on: ymd(r.redeemedOn),
     pack_id: r.packId, unit_price: priceById.get(r.packId) ?? null,
   }))
 }
