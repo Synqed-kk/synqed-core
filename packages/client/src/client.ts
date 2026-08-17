@@ -12,6 +12,7 @@ import { MenuClient } from './menus.js'
 import { PricingClient } from './pricing.js'
 import { BusinessGrantClient } from './business-grants.js'
 import { StorePolicyClient } from './store-policies.js'
+import { RecordingDiscardClient } from './recording-discards.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
 import { InviteClient } from './invites.js'
@@ -40,6 +41,7 @@ export class SynqedClient {
   public pricing: PricingClient
   public businessGrants: BusinessGrantClient
   public storePolicies: StorePolicyClient
+  public recordingDiscards: RecordingDiscardClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
   public invites: InviteClient
@@ -67,6 +69,7 @@ export class SynqedClient {
     this.pricing = new PricingClient(this)
     this.businessGrants = new BusinessGrantClient(this)
     this.storePolicies = new StorePolicyClient(this)
+    this.recordingDiscards = new RecordingDiscardClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
     this.invites = new InviteClient(this)

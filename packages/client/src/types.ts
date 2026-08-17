@@ -1191,6 +1191,32 @@ export interface SetStoreBookingPolicyInput {
   audit?: AuditEventInput
 }
 
+// ── Recording discard events ─────────────────────────────────────────────────
+
+export interface RecordingDiscardEvent {
+  id: string
+  recording_session_id: string
+  source: 'STAFF' | 'SYSTEM'
+  discarded_by: string | null
+  reason: string | null
+  created_at: string
+}
+
+export interface RecordDiscardInput {
+  recording_session_id: string
+  source: 'STAFF' | 'SYSTEM'
+  /** staff card id or login uuid — required for STAFF, forbidden for SYSTEM */
+  discarded_by?: string | null
+  /** written explanation — required non-blank for STAFF, forbidden for SYSTEM */
+  reason?: string | null
+}
+
+export interface ListRecordingDiscardsOptions {
+  recording_session_id?: string
+  source?: 'STAFF' | 'SYSTEM'
+  page?: number
+  page_size?: number
+}
 export interface ListKaruteOutcomesOptions {
   outcome?: string
   decision_context?: string
