@@ -379,6 +379,7 @@ export interface KaruteOutcome {
   customer_id: string | null
   outcome: string
   reason: string | null
+  decision_context: string | null
   is_first_visit: boolean
   decided_by: string | null
   decided_at: string | null
@@ -390,6 +391,7 @@ export interface UpsertKaruteOutcomeInput {
   customer_id?: string | null
   outcome: string
   reason?: string | null
+  decision_context?: "conversion" | "repurchase" | null
   is_first_visit?: boolean
   decided_by?: string | null
   decided_at?: string | null
@@ -1187,4 +1189,20 @@ export interface SetStoreBookingPolicyInput {
   no_show_pct?: number
   acting_staff_id: string
   audit?: AuditEventInput
+}
+
+export interface ListKaruteOutcomesOptions {
+  outcome?: string
+  decision_context?: string
+  /** rows last touched strictly BEFORE this ISO instant (cron age filter) */
+  updated_before?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ListKaruteOutcomesResponse {
+  outcomes: KaruteOutcome[]
+  total: number
+  page: number
+  page_size: number
 }

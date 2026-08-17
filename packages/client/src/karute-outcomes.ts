@@ -1,5 +1,5 @@
 import type { SynqedClient } from './client.js'
-import type { KaruteOutcome, UpsertKaruteOutcomeInput } from './types.js'
+import type { KaruteOutcome, UpsertKaruteOutcomeInput, ListKaruteOutcomesOptions, ListKaruteOutcomesResponse } from './types.js'
 
 export class KaruteOutcomeClient {
   constructor(private client: SynqedClient) {}
@@ -16,6 +16,20 @@ export class KaruteOutcomeClient {
       }
       throw err
     }
+  }
+
+  /** Business-scoped list — built for the pending-auto-close cron:
+   *  list({ outcome: 'pending', decision_context: 'conversion',
+   *  updated_before: <now-14d ISO> }). */
+  async list(options?: ListKaruteOutcomesOptions): Promise<ListKaruteOutcomesResponse> {
+    const params = new URLSearchParams()
+    if (options?.outcome) params.set('outcome', options.outcome)
+    if (options?.decision_context) params.set('decision_context', options.decision_context)
+    if (options?.updated_before) params.set('updated_before', options.updated_before)
+    if (options?.page) params.set('page', String(options.page))
+    if (options?.page_size) params.set('page_size', String(options.page_size))
+    const qs = params.toString()
+    return this.client.fetch<ListKaruteOutcomesResponse>(`/karute-outcomes${qs ? `?${qs}` : ''}`)
   }
 
   /** Upsert a session's outcome (keyed on karute_record_id). */

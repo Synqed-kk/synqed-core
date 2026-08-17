@@ -796,8 +796,17 @@ model KaruteOutcome {
   karuteRecordId String    @id @map("karute_record_id") @db.Uuid
   businessId     String    @map("business_id") @db.Uuid
   customerId     String?   @map("customer_id") @db.Uuid
+  // Plain text BY DESIGN — values today: 'success' | 'no_deal' | 'pending' |
+  // 'revisit' (existing customer's normal visit). Do NOT tighten to an enum
+  // (Liam 8/7): the app adds values app-layer first.
+  // CLOSING RATE (authoritative): success / (success + no_deal).
+  // 'revisit' and 'pending' are excluded from BOTH numerator and denominator.
   outcome        String
   reason         String?
+  // Which question set the staff answered: 'conversion' (first-visit close)
+  // vs 'repurchase'. Without it, re-opening a past outcome shows the wrong
+  // questions.
+  decisionContext String?  @map("decision_context")
   isFirstVisit   Boolean   @default(false) @map("is_first_visit")
   decidedBy      String?   @map("decided_by") @db.Uuid
   decidedAt      DateTime? @map("decided_at") @db.Timestamptz()
@@ -806,6 +815,7 @@ model KaruteOutcome {
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@index([businessId])
+  @@index([businessId, outcome, updatedAt])
   @@map("karute_outcomes")
 }
 
