@@ -1043,3 +1043,35 @@ model StoreBookingPolicy {
   @@index([businessId])
   @@map("store_booking_policies")
 }
+
+// =============================================================================
+// RecordingDiscardEvent — one row per discard of a recording. The written
+// reason is CONTENT (it lives here, never in the audit log — audit rows
+// reference this row's id in detail instead). Discarding is abnormal: a staff
+// discard REQUIRES a written explanation; system cleanup rows carry none
+// (Liam's 8/17 correction — the reason-category menu is gone, the category is
+// exactly staff-vs-system). No FK to recording_sessions on purpose: the
+// session row is hard-deleted and this ledger must outlive it.
+// =============================================================================
+
+enum RecordingDiscardSource {
+  STAFF
+  SYSTEM
+}
+
+model RecordingDiscardEvent {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  businessId         String                 @map("business_id") @db.Uuid
+  recordingSessionId String                 @map("recording_session_id") @db.Uuid
+  source             RecordingDiscardSource
+  // Staff card id (either identity form accepted at the API, stored under the
+  // card). NULL exactly when source = SYSTEM.
+  discardedBy        String?                @map("discarded_by") @db.Uuid
+  // REQUIRED (non-blank) for STAFF, NULL for SYSTEM — DB CHECK enforced.
+  reason             String?
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, recordingSessionId])
+  @@index([businessId, createdAt])
+  @@map("recording_discard_events")
+}

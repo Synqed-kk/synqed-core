@@ -155,3 +155,4 @@ export type {
 export { PricingClient } from './pricing.js'
 export { BusinessGrantClient } from './business-grants.js'
 export { StorePolicyClient } from './store-policies.js'
+export { RecordingDiscardClient } from './recording-discards.js'
