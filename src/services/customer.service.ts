@@ -506,7 +506,7 @@ export async function listPhotos(
 ): Promise<{ photos: CustomerPhotoDto[] }> {
   await assertCustomer(businessId, customerId)
   const rows = await prisma.customerPhoto.findMany({
-    where: { businessId, customerId },
+    where: { businessId, customerId, deletedAt: null },
     orderBy: { createdAt: 'desc' },
   })
   const photos = await Promise.all(rows.map(toCustomerPhotoDto))
@@ -520,7 +520,7 @@ export async function getPhoto(
   photoId: string,
 ): Promise<CustomerPhotoDto | null> {
   const row = await prisma.customerPhoto.findFirst({
-    where: { id: photoId, customerId, businessId },
+    where: { id: photoId, customerId, businessId, deletedAt: null },
   })
   return row ? toCustomerPhotoDto(row) : null
 }
@@ -546,9 +546,14 @@ export async function uploadPhoto(
   if (options.recording_session_id) {
     const session = await prisma.recordingSession.findFirst({
       where: { id: options.recording_session_id, businessId },
-      select: { id: true },
+      select: { id: true, customerId: true },
     })
     if (!session) throw new Error('Recording session not found')
+    // Session↔customer integrity (Liam 8/16): a photo can't claim it was
+    // taken in another customer's session. Customerless sessions allowed.
+    if (session.customerId && session.customerId !== customerId) {
+      throw new Error('Recording session belongs to a different customer')
+    }
     recordingSessionId = session.id
   }
   let capturedByStaffId: string | null = null
@@ -591,19 +596,50 @@ export async function uploadPhoto(
   return toCustomerPhotoDto(row)
 }
 
+/** SOFT delete (Liam 8/16): staff self-delete of mis-shots is only safe if
+ *  nothing is ever truly gone. Storage file KEPT; no purge in v1 — a real
+ *  purge is a deliberate later decision. deleted_by accepts either staff
+ *  identity form; card id stored. */
 export async function deletePhoto(
   businessId: string,
   customerId: string,
   photoId: string,
+  deletedBy?: string | null,
 ): Promise<void> {
   const photo = await prisma.customerPhoto.findFirst({
-    where: { id: photoId, customerId, businessId },
+    where: { id: photoId, customerId, businessId, deletedAt: null },
   })
   if (!photo) throw new Error('Photo not found')
 
-  const storage = getStorage()
-  await storage.from(PHOTO_BUCKET).remove([photo.storagePath])
-  await prisma.customerPhoto.delete({ where: { id: photo.id } })
+  let by: string | null = null
+  if (deletedBy) {
+    const staff = await prisma.staff.findFirst({
+      where: { businessId, OR: [{ id: deletedBy }, { userId: deletedBy }] },
+      select: { id: true },
+    })
+    by = staff?.id ?? null
+  }
+  await prisma.customerPhoto.update({
+    where: { id: photo.id },
+    data: { deletedAt: new Date(), deletedBy: by },
+  })
+}
+
+/** Undo for a soft-deleted photo. */
+export async function restorePhoto(
+  businessId: string,
+  customerId: string,
+  photoId: string,
+): Promise<CustomerPhotoDto> {
+  const photo = await prisma.customerPhoto.findFirst({
+    where: { id: photoId, customerId, businessId, deletedAt: { not: null } },
+  })
+  if (!photo) throw new Error('Photo not found')
+  const row = await prisma.customerPhoto.update({
+    where: { id: photo.id },
+    data: { deletedAt: null, deletedBy: null },
+  })
+  return toCustomerPhotoDto(row)
 }
 
 // =============================================================================

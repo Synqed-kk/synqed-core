@@ -177,14 +177,15 @@ karuteRoutes.delete('/:id/entries/:entryId', async (c) => {
     }
   }
   try {
-    await karuteService.deleteEntry(
+    const { entry_edit_id } = await karuteService.deleteEntry(
       businessId,
       karuteRecordId,
       entryId,
       meta.success ? meta.data : {},
       expectedVersion,
     )
-    return c.json({ success: true })
+    // entry_edit_id: the audit-detail handle for the exact change row.
+    return c.json({ success: true, entry_edit_id })
   } catch (err) {
     if (err instanceof karuteService.StaleEntryVersionError) {
       return c.json({ error: err.message, current_version: err.currentVersion }, 409)

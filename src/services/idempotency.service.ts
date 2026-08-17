@@ -12,7 +12,7 @@ export type ClaimResult =
 
 /** Endpoint family owning the key — the same client key never collides
  *  across scopes. */
-export type IdempotencyScope = 'appointment' | 'photo'
+export type IdempotencyScope = 'appointment' | 'photo' | 'pack'
 
 /** Claim an Idempotency-Key for this business+scope, or resolve what the
  *  previous holder did with it. Exactly one concurrent caller wins the claim;

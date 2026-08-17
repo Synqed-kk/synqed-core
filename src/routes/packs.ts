@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types/api.js'
 import * as packs from '../services/packs.service.js'
 import { auditEventSchema } from '../validations/audit.js'
+import * as idempotencyService from '../services/idempotency.service.js'
 
 export const packRoutes = new Hono<AppEnv>()
 
@@ -63,7 +64,32 @@ packRoutes.post('/redemptions', async (c) => {
     if (!parsedAudit.success) return c.json({ error: parsedAudit.error.issues[0].message }, 400)
     audit = parsedAudit.data
   }
-  return c.json(await packs.addRedemption(c.get('businessId'), input, audit), 201)
+  // Walk-in burn dedup (Liam 8/7): the appointment partial-unique can't stop
+  // two NULL-appointment burns (NULL <> NULL). Same Idempotency-Key protocol
+  // as appointments/photos, scope 'pack' — retried burns replay the row.
+  const businessId = c.get('businessId')
+  const idemKey = c.req.header('Idempotency-Key')
+  let claimId = null
+  if (idemKey) {
+    const claim = await idempotencyService.claimKey(businessId, idemKey, 'pack')
+    if (claim.kind === 'replay') return c.json({ id: claim.targetId }, 200)
+    if (claim.kind === 'in_flight') {
+      return c.json(
+        { error: 'The original burn with this Idempotency-Key is still in progress. Retry.', code: 'IDEMPOTENT_IN_FLIGHT' },
+        503,
+        { 'Retry-After': '1' },
+      )
+    }
+    claimId = claim.claimId
+  }
+  try {
+    const created = await packs.addRedemption(businessId, input, audit)
+    if (claimId) await idempotencyService.completeKey(claimId, created.id)
+    return c.json(created, 201)
+  } catch (err) {
+    if (claimId) await idempotencyService.releaseKey(claimId).catch(() => {})
+    throw err
+  }
 })
 
 packRoutes.delete('/redemptions/:id', async (c) => {

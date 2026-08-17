@@ -144,6 +144,12 @@ model CustomerPhoto {
   recordingSessionId String?  @map("recording_session_id") @db.Uuid
   capturedByStaffId  String?  @map("captured_by_staff_id") @db.Uuid
   takenWithConsent   Boolean  @default(false) @map("taken_with_consent")
+  // Soft delete (Liam 8/16): staff self-delete of mis-shots is only safe if
+  // nothing is ever truly gone. Storage file is KEPT — no purge in v1 (a real
+  // purge is a deliberate later decision; customers-style 30-day undo is
+  // handled app-side).
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  deletedBy   String?   @map("deleted_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)

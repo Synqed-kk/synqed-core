@@ -194,18 +194,41 @@ customerRoutes.post('/:id/photos', async (c) => {
     ) {
       return c.json({ error: err.message }, 404)
     }
+    if (
+      err instanceof Error &&
+      err.message === 'Recording session belongs to a different customer'
+    ) {
+      // Integrity conflict, not a missing resource.
+      return c.json({ error: err.message }, 409)
+    }
     throw err
   }
 })
 
-// DELETE /v1/customers/:id/photos/:photoId
+// DELETE /v1/customers/:id/photos/:photoId — SOFT delete (storage kept).
+// ?deleted_by records WHO (query param — DELETE bodies unreliable via proxies).
 customerRoutes.delete('/:id/photos/:photoId', async (c) => {
   const businessId = c.get('businessId')
   const id = c.req.param('id')
   const photoId = c.req.param('photoId')
   try {
-    await customerService.deletePhoto(businessId, id, photoId)
+    await customerService.deletePhoto(businessId, id, photoId, c.req.query('deleted_by') ?? null)
     return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Photo not found') {
+      return c.json({ error: err.message }, 404)
+    }
+    throw err
+  }
+})
+
+// POST /v1/customers/:id/photos/:photoId/restore — undo a soft delete.
+customerRoutes.post('/:id/photos/:photoId/restore', async (c) => {
+  const businessId = c.get('businessId')
+  try {
+    return c.json(
+      await customerService.restorePhoto(businessId, c.req.param('id'), c.req.param('photoId')),
+    )
   } catch (err) {
     if (err instanceof Error && err.message === 'Photo not found') {
       return c.json({ error: err.message }, 404)
