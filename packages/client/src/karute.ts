@@ -77,8 +77,9 @@ export class KaruteRecordClient {
     await this.client.fetch(`/karute-records/${id}`, { method: 'DELETE' })
   }
 
-  async addEntry(karuteRecordId: string, input: KaruteEntryInput): Promise<KaruteEntry> {
-    return this.client.fetch<KaruteEntry>(`/karute-records/${karuteRecordId}/entries`, {
+  /** Returns entry_edit_id — the audit-detail handle for the change row. */
+  async addEntry(karuteRecordId: string, input: KaruteEntryInput): Promise<KaruteEntry & { entry_edit_id: string }> {
+    return this.client.fetch<KaruteEntry & { entry_edit_id: string }>(`/karute-records/${karuteRecordId}/entries`, {
       method: 'POST',
       body: JSON.stringify(input),
     })
@@ -90,8 +91,8 @@ export class KaruteRecordClient {
     karuteRecordId: string,
     entryId: string,
     input: UpdateKaruteEntryInput,
-  ): Promise<KaruteEntry> {
-    return this.client.fetch<KaruteEntry>(
+  ): Promise<KaruteEntry & { entry_edit_id: string }> {
+    return this.client.fetch<KaruteEntry & { entry_edit_id: string }>(
       `/karute-records/${karuteRecordId}/entries/${entryId}`,
       { method: 'PATCH', body: JSON.stringify(input) },
     )
@@ -120,14 +121,14 @@ export class KaruteRecordClient {
        *  current_version instead of removing unseen content. */
       expected_version?: number
     },
-  ): Promise<void> {
+  ): Promise<{ success: boolean; entry_edit_id: string }> {
     const params = new URLSearchParams()
     if (meta?.actor_staff_id) params.set('actor_staff_id', meta.actor_staff_id)
     if (meta?.action) params.set('action', meta.action)
     if (meta?.expected_version !== undefined)
       params.set('expected_version', String(meta.expected_version))
     const qs = params.toString()
-    await this.client.fetch(
+    return this.client.fetch<{ success: boolean; entry_edit_id: string }>(
       `/karute-records/${karuteRecordId}/entries/${entryId}${qs ? `?${qs}` : ''}`,
       { method: 'DELETE' },
     )

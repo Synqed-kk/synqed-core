@@ -124,10 +124,20 @@ export class CustomerClient {
     )
   }
 
-  async deletePhoto(id: string, photoId: string): Promise<void> {
-    await this.client.fetch(`/customers/${id}/photos/${photoId}`, {
+  /** SOFT delete — storage kept, restorable. deleted_by records WHO. */
+  async deletePhoto(id: string, photoId: string, meta?: { deleted_by?: string }): Promise<void> {
+    const qs = meta?.deleted_by ? `?deleted_by=${encodeURIComponent(meta.deleted_by)}` : ''
+    await this.client.fetch(`/customers/${id}/photos/${photoId}${qs}`, {
       method: 'DELETE',
     })
+  }
+
+  /** Undo a soft-deleted photo. */
+  async restorePhoto(id: string, photoId: string): Promise<CustomerPhoto> {
+    return this.client.fetch<CustomerPhoto>(
+      `/customers/${id}/photos/${photoId}/restore`,
+      { method: 'POST' },
+    )
   }
 
   async getConsent(id: string): Promise<{ consent: RecordingConsent | null }> {

@@ -506,7 +506,7 @@ export async function addEntry(
         author: (input.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
       },
     })
-    await tx.karuteEntryEdit.create({
+    const edit = await tx.karuteEntryEdit.create({
       data: {
         businessId,
         customerId: record.customerId,
@@ -522,7 +522,10 @@ export async function addEntry(
       },
     })
     await touchParent(tx, karuteRecordId, meta.actor_staff_id)
-    return entryToPublic(row)
+    // entry_edit_id: the audit-detail handle — the app's audit rows are meant
+    // to reference the exact entry-edit row (Liam 8/16); returning it is the
+    // only way they can.
+    return { ...entryToPublic(row), entry_edit_id: edit.id }
   })
 }
 
@@ -588,7 +591,7 @@ export async function updateEntry(
     })
     if (updated.count === 0) throw new StaleEntryVersionError(entry.version)
 
-    await tx.karuteEntryEdit.create({
+    const edit = await tx.karuteEntryEdit.create({
       data: {
         businessId,
         customerId: record.customerId,
@@ -609,7 +612,7 @@ export async function updateEntry(
     await touchParent(tx, karuteRecordId, meta.actor_staff_id)
 
     const row = await tx.karuteEntry.findUniqueOrThrow({ where: { id: entryId } })
-    return entryToPublic(row)
+    return { ...entryToPublic(row), entry_edit_id: edit.id }
   })
 }
 
@@ -624,7 +627,7 @@ export async function deleteEntry(
    *  Optional until every caller sends it (regen's fresh-read pass predates
    *  this); enforced atomically whenever present. */
   expectedVersion?: number,
-): Promise<void> {
+): Promise<{ entry_edit_id: string }> {
   // Verify karute record belongs to tenant (enforces tenant isolation for entry)
   const record = await prisma.karuteRecord.findFirst({
     where: { id: karuteRecordId, businessId },
@@ -642,7 +645,7 @@ export async function deleteEntry(
 
   // Soft delete: hidden from every read, never vanishes (customer-memory
   // pattern) — the audit row carries what was removed and by whom.
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     // Version guard in the WHERE too (when supplied) — closes the
     // read-check/write race exactly like updateEntry's CAS.
     const deleted = await tx.karuteEntry.updateMany({
@@ -654,7 +657,7 @@ export async function deleteEntry(
       data: { deletedAt: new Date() },
     })
     if (deleted.count === 0) throw new StaleEntryVersionError(entry.version)
-    await tx.karuteEntryEdit.create({
+    const edit = await tx.karuteEntryEdit.create({
       data: {
         businessId,
         customerId: record.customerId,
@@ -670,6 +673,7 @@ export async function deleteEntry(
       },
     })
     await touchParent(tx, karuteRecordId, meta.actor_staff_id)
+    return { entry_edit_id: edit.id }
   })
 }
 
