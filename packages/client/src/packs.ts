@@ -58,13 +58,21 @@ export class PacksClient {
     return r.redemptions
   }
   /** options.audit (A1): the audit row commits in the SAME core transaction
-   *  as the burn — replaces the separate audit.log() call for money actions. */
+   *  as the burn. options.idempotencyKey (scope 'pack', core #69): a retried
+   *  burn replays the stored row — closes the walk-in double-burn window
+   *  (NULL appointment_id rows the partial unique can't dedupe). */
   async addRedemption(
     input: AddRedemptionInput,
-    options?: { audit?: AuditEventInput },
+    options?: { audit?: AuditEventInput; idempotencyKey?: string },
   ): Promise<{ id: string }> {
     const body = options?.audit ? { ...input, audit: options.audit } : input
-    return this.client.fetch<{ id: string }>('/packs/redemptions', { method: 'POST', body: JSON.stringify(body) })
+    return this.client.fetch<{ id: string }>('/packs/redemptions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      ...(options?.idempotencyKey
+        ? { headers: { 'Idempotency-Key': options.idempotencyKey } }
+        : {}),
+    })
   }
   /** Undo a 回数券 burn. removed_by records WHO undid it (soft delete —
    *  the redemption row survives with removed_at/removed_by). */

@@ -413,6 +413,46 @@ export async function checkDuplicateName(
 // Idempotent upsert keyed by (businessId, qrReservationId).
 // =============================================================================
 
+export interface CustomerVisitDto {
+  id: string
+  store_id: string | null
+  customer_id: string
+  qr_reservation_id: number
+  used_at: string
+  status: string
+  course_name: string | null
+  sales_amount: number
+  staff_name: string | null
+  treatment_comment: string | null
+}
+
+/** Read side of the QR-crawl visit history (the write below existed since
+ *  June with no reader). Newest first. */
+export async function listVisits(
+  businessId: string,
+  customerId: string,
+): Promise<{ visits: CustomerVisitDto[] }> {
+  await assertCustomer(businessId, customerId)
+  const rows = await prisma.customerVisit.findMany({
+    where: { businessId, customerId },
+    orderBy: { usedAt: 'desc' },
+  })
+  return {
+    visits: rows.map((r) => ({
+      id: r.id,
+      store_id: r.storeId,
+      customer_id: r.customerId,
+      qr_reservation_id: r.qrReservationId,
+      used_at: r.usedAt.toISOString(),
+      status: r.status,
+      course_name: r.courseName,
+      sales_amount: r.salesAmount,
+      staff_name: r.staffName,
+      treatment_comment: r.treatmentComment,
+    })),
+  }
+}
+
 export async function upsertVisits(
   businessId: string,
   customerId: string,

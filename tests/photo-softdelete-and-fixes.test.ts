@@ -144,3 +144,20 @@ describe('walk-in pack burn dedup (scope: pack)', () => {
     expect((await burn('walkin-2')).status).toBe(201)
   })
 })
+
+describe('customer visits read (SDK-gap batch)', () => {
+  it('lists crawled visits newest-first; unknown customer 404s', async () => {
+    const customer = await seedTestCustomer()
+    await testPrisma.customerVisit.createMany({
+      data: [
+        { businessId: TEST_BUSINESS_ID, customerId: customer.id, qrReservationId: 101, usedAt: new Date('2026-08-01T02:00:00Z'), status: 'settled', salesAmount: 8000 },
+        { businessId: TEST_BUSINESS_ID, customerId: customer.id, qrReservationId: 102, usedAt: new Date('2026-08-15T02:00:00Z'), status: 'settled', salesAmount: 12000 },
+      ],
+    })
+    const res = await (await req('GET', `/customers/${customer.id}/visits`)).json()
+    expect(res.visits.map((v: { qr_reservation_id: number }) => v.qr_reservation_id)).toEqual([102, 101])
+    expect(res.visits[0].sales_amount).toBe(12000)
+    expect((await req('GET', '/customers/00000000-0000-0000-0000-000000000009/visits')).status).toBe(404)
+    await testPrisma.customerVisit.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
+  })
+})
