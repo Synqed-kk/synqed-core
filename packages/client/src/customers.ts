@@ -1,5 +1,6 @@
 import type { SynqedClient } from './client.js'
 import type {
+  CustomerVisit,
   Customer,
   CreateCustomerInput,
   UpdateCustomerInput,
@@ -87,6 +88,12 @@ export class CustomerClient {
     return this.client.fetch<CheckDuplicateResponse>(
       `/customers/check-duplicate?name=${encodeURIComponent(name)}`
     )
+  }
+
+  /** QR-crawl visit history (read side — the write existed since June with
+   *  no reader). Newest first. */
+  async listVisits(id: string): Promise<{ visits: CustomerVisit[] }> {
+    return this.client.fetch<{ visits: CustomerVisit[] }>(`/customers/${id}/visits`)
   }
 
   async listPhotos(id: string): Promise<{ photos: CustomerPhoto[] }> {

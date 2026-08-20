@@ -517,7 +517,7 @@ export interface VisitDismissal {
 // Appointments
 // ===========================================================================
 
-export type AppointmentStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+export type AppointmentStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
 export type AppointmentSource =
   | 'MANUAL'
   | 'QUICKRESERVE'
@@ -544,6 +544,12 @@ export interface Appointment {
   source: AppointmentSource
   external_refs: Record<string, unknown>
   cancelled_at: string | null
+  // Status audit trail (live in prod since the 7/5 status-audit migration —
+  // the app was casting around these until now).
+  status_source: 'CRAWL' | 'STAFF' | string
+  status_set_by: string | null
+  status_reason: string | null
+  status_set_at: string | null
   created_at: string
   updated_at: string
 }
@@ -642,6 +648,9 @@ export interface UpdateAppointmentInput {
   title?: string | null
   notes?: string | null
   status?: AppointmentStatus
+  /** WHO made a status decision + WHY — stamps the status audit trail. */
+  acting_staff_id?: string | null
+  status_reason?: string | null
 }
 
 export interface ListAppointmentsOptions {
@@ -1231,4 +1240,19 @@ export interface ListKaruteOutcomesResponse {
   total: number
   page: number
   page_size: number
+}
+
+// ── Customer visits (QR crawl history) ───────────────────────────────────────
+
+export interface CustomerVisit {
+  id: string
+  store_id: string | null
+  customer_id: string
+  qr_reservation_id: number
+  used_at: string
+  status: string
+  course_name: string | null
+  sales_amount: number
+  staff_name: string | null
+  treatment_comment: string | null
 }

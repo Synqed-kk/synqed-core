@@ -135,6 +135,19 @@ customerRoutes.get('/:id/photos', async (c) => {
   }
 })
 
+// GET /v1/customers/:id/visits — QR-crawl visit history (read side).
+customerRoutes.get('/:id/visits', async (c) => {
+  const businessId = c.get('businessId')
+  try {
+    return c.json(await customerService.listVisits(businessId, c.req.param('id')))
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Customer not found') {
+      return c.json({ error: err.message }, 404)
+    }
+    throw err
+  }
+})
+
 // POST /v1/customers/:id/photos  (multipart: file, optional category/caption
 // + session linkage: recording_session_id, captured_by_staff_id,
 // taken_with_consent). Idempotency-Key header dedups retried uploads — the
