@@ -1040,6 +1040,12 @@ model PricingRuleSet {
 // dashboard edits it (HQ-gated). These lived hardcoded in the reserve app.
 // =============================================================================
 
+enum GapGuardMode {
+  OFF
+  STANDARD
+  STRICT
+}
+
 model StoreBookingPolicy {
   id                   String   @id @default(uuid()) @db.Uuid
   businessId           String   @map("business_id") @db.Uuid
@@ -1053,6 +1059,13 @@ model StoreBookingPolicy {
   // ...then this % of the booked price applies, and no-show pays this %.
   cancelLatePct        Int      @default(0) @map("cancel_late_pct")
   noShowPct            Int      @default(0) @map("no_show_pct")
+  // スキマガード Phase 1 (HANDOFF-2026-08-13): policy fields only — NOTHING
+  // enforces yet; the engine (gap-guard-engine.ts) has no callers. OFF =
+  // engine not invoked. Lead time deliberately REUSES cutoff_minutes.
+  // PORT TRAP: normalize this enum BEFORE any future engine call — the frozen
+  // engine treats unknown mode strings as 'standard'.
+  gapGuardMode            GapGuardMode @default(OFF) @map("gap_guard_mode")
+  newClientSessionMinutes Int          @default(90) @map("new_client_session_minutes")
   updatedBy            String?  @map("updated_by") @db.Uuid
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()

@@ -1185,6 +1185,9 @@ export interface StoreBookingPolicy {
   cancel_free_until_hours: number
   cancel_late_pct: number
   no_show_pct: number
+  /** スキマガード Phase 1 — policy data only; nothing enforces yet. */
+  gap_guard_mode: 'OFF' | 'STANDARD' | 'STRICT'
+  new_client_session_minutes: number
   source: 'custom' | 'default'
   updated_by: string | null
   updated_at: string | null
@@ -1196,6 +1199,8 @@ export interface SetStoreBookingPolicyInput {
   cancel_free_until_hours?: number
   cancel_late_pct?: number
   no_show_pct?: number
+  gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
+  new_client_session_minutes?: 60 | 75 | 90
   acting_staff_id: string
   audit?: AuditEventInput
 }

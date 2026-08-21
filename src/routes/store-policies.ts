@@ -13,6 +13,8 @@ const setSchema = z.object({
   cancel_free_until_hours: z.number().int().min(0).max(720).optional(),
   cancel_late_pct: z.number().int().min(0).max(100).optional(),
   no_show_pct: z.number().int().min(0).max(100).optional(),
+  gap_guard_mode: z.enum(['OFF', 'STANDARD', 'STRICT']).optional(),
+  new_client_session_minutes: z.union([z.literal(60), z.literal(75), z.literal(90)]).optional(),
   acting_staff_id: z.string().uuid(),
   audit: auditEventSchema.optional(),
 })
