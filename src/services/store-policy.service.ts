@@ -10,6 +10,9 @@ export const POLICY_DEFAULTS = {
   cancel_free_until_hours: 24,
   cancel_late_pct: 0,
   no_show_pct: 0,
+  // スキマガード Phase 1: default OFF everywhere; 90-minute protected window.
+  gap_guard_mode: 'OFF' as 'OFF' | 'STANDARD' | 'STRICT',
+  new_client_session_minutes: 90,
 } as const
 
 export interface PolicyPublic {
@@ -19,6 +22,8 @@ export interface PolicyPublic {
   cancel_free_until_hours: number
   cancel_late_pct: number
   no_show_pct: number
+  gap_guard_mode: 'OFF' | 'STANDARD' | 'STRICT'
+  new_client_session_minutes: number
   /** 'custom' = a saved row; 'default' = platform defaults (no row yet). */
   source: 'custom' | 'default'
   updated_by: string | null
@@ -31,6 +36,8 @@ function toPublic(storeId: string, r: {
   cancelFreeUntilHours: number
   cancelLatePct: number
   noShowPct: number
+  gapGuardMode: 'OFF' | 'STANDARD' | 'STRICT'
+  newClientSessionMinutes: number
   updatedBy: string | null
   updatedAt: Date
 } | null): PolicyPublic {
@@ -44,6 +51,8 @@ function toPublic(storeId: string, r: {
     cancel_free_until_hours: r.cancelFreeUntilHours,
     cancel_late_pct: r.cancelLatePct,
     no_show_pct: r.noShowPct,
+    gap_guard_mode: r.gapGuardMode,
+    new_client_session_minutes: r.newClientSessionMinutes,
     source: 'custom',
     updated_by: r.updatedBy,
     updated_at: r.updatedAt.toISOString(),
@@ -77,6 +86,8 @@ export interface SetPolicyInput {
   cancel_free_until_hours?: number
   cancel_late_pct?: number
   no_show_pct?: number
+  gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
+  new_client_session_minutes?: 60 | 75 | 90
   updated_by?: string | null
 }
 
@@ -105,6 +116,8 @@ export async function setPolicy(
         cancelFreeUntilHours: input.cancel_free_until_hours ?? POLICY_DEFAULTS.cancel_free_until_hours,
         cancelLatePct: input.cancel_late_pct ?? POLICY_DEFAULTS.cancel_late_pct,
         noShowPct: input.no_show_pct ?? POLICY_DEFAULTS.no_show_pct,
+        gapGuardMode: input.gap_guard_mode ?? POLICY_DEFAULTS.gap_guard_mode,
+        newClientSessionMinutes: input.new_client_session_minutes ?? POLICY_DEFAULTS.new_client_session_minutes,
         updatedBy: input.updated_by ?? null,
       },
       update: {
@@ -115,6 +128,10 @@ export async function setPolicy(
           : {}),
         ...(input.cancel_late_pct !== undefined ? { cancelLatePct: input.cancel_late_pct } : {}),
         ...(input.no_show_pct !== undefined ? { noShowPct: input.no_show_pct } : {}),
+        ...(input.gap_guard_mode !== undefined ? { gapGuardMode: input.gap_guard_mode } : {}),
+        ...(input.new_client_session_minutes !== undefined
+          ? { newClientSessionMinutes: input.new_client_session_minutes }
+          : {}),
         updatedBy: input.updated_by ?? null,
       },
     })
