@@ -1261,3 +1261,41 @@ export interface CustomerVisit {
   staff_name: string | null
   treatment_comment: string | null
 }
+
+// ── Retention signals ────────────────────────────────────────────────────────
+
+export interface RetentionSignal {
+  id: string
+  status: 'pending' | 'confirmed'
+  occurred_at: string
+  karute_record_id: string
+  customer_id: string
+  staff_id: string
+  criterion: 'A' | 'B' | 'C' | string
+  confidence: 'high' | 'medium' | string
+  quote: string
+  mentioned_business: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
+  expires_at: string
+  created_at: string
+}
+
+export interface CreateRetentionSignalInput {
+  occurred_at: string
+  karute_record_id: string
+  customer_id: string
+  /** staff card id or login uuid */
+  staff_id: string
+  criterion: 'A' | 'B' | 'C'
+  confidence: 'high' | 'medium'
+  /** the customer's verbatim transcript sentence */
+  quote: string
+  mentioned_business?: string | null
+}
+
+export interface ListRetentionSignalsOptions {
+  status?: 'pending' | 'confirmed'
+  page?: number
+  page_size?: number
+}
