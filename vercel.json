@@ -11,6 +11,10 @@
     {
       "path": "/v1/sync/cron/dispatch",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/v1/retention-signals/cron/sweep",
+      "schedule": "0 18 * * *"
     }
   ],
   "regions": [

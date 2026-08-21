@@ -11,6 +11,7 @@ const getApiKeys = (): Set<string> => {
 const CROSS_BUSINESS_PATHS = [
   /\/health$/,
   /\/v1\/sync\/cron\/dispatch$/,
+  /\/v1\/retention-signals\/cron\/sweep$/,
 ]
 
 function isCrossBusinessPath(path: string): boolean {
