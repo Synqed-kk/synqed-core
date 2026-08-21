@@ -61,6 +61,7 @@ model Customer {
   photos       CustomerPhoto[]
   consents     RecordingConsent[]
   visits       CustomerVisit[]
+  retentionSignals RetentionSignal[]
   entryEdits   KaruteEntryEdit[]
 
   @@unique([businessId, email])
@@ -1090,4 +1091,65 @@ model RecordingDiscardEvent {
   @@index([businessId, recordingSessionId])
   @@index([businessId, createdAt])
   @@map("recording_discard_events")
+}
+
+// =============================================================================
+// RetentionSignal — the 引き抜き-detection lane's store (NEUTRAL name on
+// purpose: legal review bars poaching-style labels anywhere in schema). A
+// possibly-wrong AI inference about a NAMED customer, so this store deviates
+// from the soft-delete house pattern BY RULING: dismissal/expiry/statutory
+// demand HARD-delete the row (content must not survive), while the app writes
+// normal audit events (ids+flags only) so the fact of flag-and-discard is
+// permanently logged. Customer relation cascades — a deleted customer's
+// signals erase with them (the scrub inclusion the spec requires).
+// Legal walls, not preferences: NO staff scores/flags, NO "LINE exchanged"
+// boolean, NO free text beyond the verbatim transcript quote.
+// =============================================================================
+
+enum RetentionSignalStatus {
+  pending
+  confirmed
+}
+
+model RetentionSignal {
+  id                String                @id @default(uuid()) @db.Uuid
+  businessId        String                @map("business_id") @db.Uuid
+  status            RetentionSignalStatus @default(pending)
+  occurredAt        DateTime              @map("occurred_at") @db.Timestamptz()
+  // Factual anchor — plain uuid (karute records can be deleted independently).
+  karuteRecordId    String                @map("karute_record_id") @db.Uuid
+  customerId        String                @map("customer_id") @db.Uuid
+  staffId           String                @map("staff_id") @db.Uuid
+  // Which WRITTEN detection rule fired — regulator-style auditability.
+  criterion         String
+  confidence        String
+  // The customer's verbatim sentence (app-validated transcript substring).
+  quote             String
+  mentionedBusiness String?               @map("mentioned_business")
+  confirmedBy       String?               @map("confirmed_by") @db.Uuid
+  confirmedAt       DateTime?             @map("confirmed_at") @db.Timestamptz()
+  // pending: review TTL (default 14d — unreviewed rows auto-erase);
+  // confirmed: retention clock (default 1y, final value pending counsel).
+  expiresAt         DateTime              @map("expires_at") @db.Timestamptz()
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, status, expiresAt])
+  @@index([businessId, createdAt])
+  @@map("retention_signals")
+}
+
+// Anonymized dismissal counters — audits the detection rules for over-firing.
+// business scoping only; NO personal ids, NO quote (the content must not
+// survive a dismissal).
+model RetentionSignalDismissal {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  criterion   String
+  confidence  String
+  dismissedAt DateTime @default(now()) @map("dismissed_at") @db.Timestamptz()
+
+  @@index([businessId, dismissedAt])
+  @@map("retention_signal_dismissals")
 }
