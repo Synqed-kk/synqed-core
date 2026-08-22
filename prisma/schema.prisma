@@ -1166,3 +1166,38 @@ model RetentionSignalDismissal {
   @@index([businessId, dismissedAt])
   @@map("retention_signal_dismissals")
 }
+
+// =============================================================================
+// StaffPermission — per-staff assignment in the ONE core-owned permission
+// system (msg-7 item 1). role = the rich 8-role vocabulary; overrides, when
+// present, REPLACE the preset (karute's exact model — null = follow preset);
+// assignedStoreIds scopes area_manager. The coarse 4-value staff.role stays
+// the outer label. PermissionVersion bumps on EVERY write so the answer
+// sheet's version number moves and screens re-ask (msg-7 item 2).
+// =============================================================================
+
+model StaffPermission {
+  id               String   @id @default(uuid()) @db.Uuid
+  businessId       String   @map("business_id") @db.Uuid
+  staffId          String   @unique @map("staff_id") @db.Uuid
+  role             String
+  overrides        String[] @default([])
+  // Distinguishes "no override, follow preset" (false) from "explicit
+  // override, possibly empty" (true) — an empty array must be storable.
+  hasOverrides     Boolean  @default(false) @map("has_overrides")
+  assignedStoreIds String[] @default([]) @map("assigned_store_ids") @db.Uuid
+  updatedBy        String?  @map("updated_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@index([businessId])
+  @@map("staff_permissions")
+}
+
+model PermissionVersion {
+  businessId String   @id @map("business_id") @db.Uuid
+  version    Int      @default(1)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("permission_versions")
+}

@@ -1299,3 +1299,46 @@ export interface ListRetentionSignalsOptions {
   page?: number
   page_size?: number
 }
+
+// ── Permissions (the one core-owned rulebook) ────────────────────────────────
+
+export type PermissionRoleKey =
+  | 'owner' | 'manager' | 'senior' | 'practitioner' | 'frontdesk' | 'custom'
+  | 'area_manager' | 'trainee' | 'accountant'
+
+export interface PermissionRulebook {
+  rulebook_version: number
+  capabilities: string[]
+  roles: PermissionRoleKey[]
+  presets: Record<PermissionRoleKey, string[]>
+  coarse_labels: Record<PermissionRoleKey, 'OWNER' | 'ADMIN' | 'STYLIST' | 'ASSISTANT'>
+}
+
+export interface PermissionAnswerSheet {
+  staff_id: string
+  role: PermissionRoleKey
+  coarse_role: 'OWNER' | 'ADMIN' | 'STYLIST' | 'ASSISTANT'
+  capabilities: string[]
+  /** null = every store; array = exactly these. */
+  visible_store_ids: string[] | null
+  money_scope: 'all' | null
+  version: string
+}
+
+export interface PermissionAssignment {
+  staff_id: string
+  role: PermissionRoleKey
+  overrides: string[] | null
+  assigned_store_ids: string[]
+  updated_by: string | null
+  updated_at: string | null
+  assigned: boolean
+}
+
+export interface SetPermissionAssignmentInput {
+  role: PermissionRoleKey
+  overrides?: string[] | null
+  assigned_store_ids?: string[]
+  acting_staff_id: string
+  audit?: AuditEventInput
+}
