@@ -75,8 +75,15 @@ customerRoutes.post('/', async (c) => {
     return c.json({ error: parsed.error.issues[0].message }, 400)
   }
 
-  const customer = await customerService.createCustomer(businessId, parsed.data)
-  return c.json(customer, 201)
+  try {
+    const customer = await customerService.createCustomer(businessId, parsed.data)
+    return c.json(customer, 201)
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Guardian')) {
+      return c.json({ error: err.message }, 400)
+    }
+    throw err
+  }
 })
 
 // PUT /v1/customers/:id
@@ -96,6 +103,9 @@ customerRoutes.put('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Customer not found') {
       return c.json({ error: 'Customer not found' }, 404)
+    }
+    if (err instanceof Error && err.message.startsWith('Guardian')) {
+      return c.json({ error: err.message }, 400)
     }
     throw err
   }

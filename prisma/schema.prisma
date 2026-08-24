@@ -12,6 +12,10 @@ datasource db {
 // Customer — core business-scoped entity
 // =============================================================================
 
+// Family-situation ownership (msg-7 item 3): the record belongs to the person
+// RECEIVING the service. A minor's record names the guardian — automatically
+// both contact AND approver. A payer may be noted (parent, company) but grants
+// NO rights over the record and never becomes a contact. Pets get no record.
 model Customer {
   id              String   @id @default(uuid()) @db.Uuid
   businessId      String   @map("business_id") @db.Uuid
@@ -25,6 +29,12 @@ model Customer {
   phone           String?
   dateOfBirth     DateTime? @map("date_of_birth") @db.Date
   gender          String?
+  // NULL = adult/own record. Set = a minor: the referenced customer is the
+  // guardian — the legal message recipient AND approver (messaging item 4
+  // picks recipients off THIS, never off payer).
+  guardianCustomerId String? @map("guardian_customer_id") @db.Uuid
+  // Informational only: who pays (自費/親/会社名 etc). Grants nothing.
+  payerNote          String? @map("payer_note")
   occupation            String?  @map("occupation")
   memberNumber          String?  @map("member_number")
   postalCode            String?  @map("postal_code")
@@ -1200,4 +1210,29 @@ model PermissionVersion {
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@map("permission_versions")
+}
+
+// =============================================================================
+// StaffPolicyEvent — per-staff recording-policy ledger (msg-8 item 11). The
+// READ side of policy acknowledgement: the audit log stays the append-only
+// proof, but it can't be queried by action — this row can. Three events, and
+// the first is not the staff member's: 'delivered' (system put the current
+// policy in front of them — what a store's enablement check reads),
+// 'acknowledged' (their own act), 'revoked'. There is deliberately NO
+// 'declined' — we record what happened, never a refusal.
+// =============================================================================
+
+model StaffPolicyEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  staffId       String   @map("staff_id") @db.Uuid
+  // Which line of the recording policy (e.g. 'recording', 'ai_processing').
+  policyLine    String   @map("policy_line")
+  policyVersion Int      @map("policy_version")
+  event         String   // 'delivered' | 'acknowledged' | 'revoked'
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz()
+
+  @@index([businessId, staffId, policyLine, policyVersion])
+  @@index([businessId, policyLine, policyVersion, event])
+  @@map("staff_policy_events")
 }

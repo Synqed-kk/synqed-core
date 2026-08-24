@@ -7,6 +7,8 @@ export interface Customer {
   phone: string | null
   date_of_birth: string | null
   gender: string | null
+  guardian_customer_id: string | null
+  payer_note: string | null
   occupation: string | null
   member_number: string | null
   postal_code: string | null
@@ -40,6 +42,8 @@ export interface CreateCustomerInput {
   email?: string | null
   phone?: string | null
   date_of_birth?: string | null
+  guardian_customer_id?: string | null
+  payer_note?: string | null
   gender?: string | null
   occupation?: string | null
   member_number?: string | null
@@ -69,6 +73,8 @@ export interface UpdateCustomerInput {
   email?: string | null
   phone?: string | null
   date_of_birth?: string | null
+  guardian_customer_id?: string | null
+  payer_note?: string | null
   gender?: string | null
   occupation?: string | null
   member_number?: string | null
