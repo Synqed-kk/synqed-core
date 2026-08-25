@@ -21,6 +21,7 @@ import { storePolicyRoutes } from './routes/store-policies.js'
 import { recordingDiscardRoutes } from './routes/recording-discards.js'
 import { retentionSignalRoutes } from './routes/retention-signals.js'
 import { permissionRoutes } from './routes/permissions.js'
+import { policyEventRoutes } from './routes/policy-events.js'
 import { inviteRoutes } from './routes/invites.js'
 import { customerMemoryRoutes } from './routes/customer-memory.js'
 import { karuteOutcomeRoutes } from './routes/karute-outcomes.js'
@@ -63,6 +64,7 @@ app.route('/store-policies', storePolicyRoutes)
 app.route('/recording-discards', recordingDiscardRoutes)
 app.route('/retention-signals', retentionSignalRoutes)
 app.route('/permissions', permissionRoutes)
+app.route('/policy-events', policyEventRoutes)
 app.route('/invites', inviteRoutes)
 app.route('/customer-memory', customerMemoryRoutes)
 app.route('/karute-outcomes', karuteOutcomeRoutes)

@@ -7,6 +7,10 @@ export const createCustomerSchema = z.object({
   phone: z.string().max(20).nullish(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').nullish(),
   gender: z.enum(['female', 'male', 'other']).nullish(),
+  // Family situations (msg-7 item 3): minor's guardian (contact+approver);
+  // payer is a NOTE ONLY — grants nothing, never a contact.
+  guardian_customer_id: z.string().uuid().nullish(),
+  payer_note: z.string().max(200).nullish(),
   occupation: z.string().max(255).nullish(),
   member_number: z.string().max(255).nullish(),
   postal_code: z.string().max(20).nullish(),
@@ -37,6 +41,10 @@ export const updateCustomerSchema = z.object({
   phone: z.string().max(20).nullish(),
   date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD').nullish(),
   gender: z.enum(['female', 'male', 'other']).nullish(),
+  // Family situations (msg-7 item 3): minor's guardian (contact+approver);
+  // payer is a NOTE ONLY — grants nothing, never a contact.
+  guardian_customer_id: z.string().uuid().nullish(),
+  payer_note: z.string().max(200).nullish(),
   occupation: z.string().max(255).nullish(),
   member_number: z.string().max(255).nullish(),
   postal_code: z.string().max(20).nullish(),

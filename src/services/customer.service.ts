@@ -24,6 +24,8 @@ function toCustomer(row: any): Customer {
     // @db.Date column → date-only string (no time component to leak).
     date_of_birth: row.dateOfBirth ? row.dateOfBirth.toISOString().slice(0, 10) : null,
     gender: row.gender,
+    guardian_customer_id: row.guardianCustomerId,
+    payer_note: row.payerNote,
     occupation: row.occupation,
     member_number: row.memberNumber,
     postal_code: row.postalCode,
@@ -223,10 +225,19 @@ export async function nextKaruteNumber(businessId: string): Promise<number> {
   return (agg._max.karuteNumber ?? 0) + 1
 }
 
+/** Guardian sanity (msg-7 item 3): must exist in the SAME business and must
+ *  not be the customer itself. */
+async function assertGuardian(businessId: string, guardianId: string, selfId?: string) {
+  if (selfId && guardianId === selfId) throw new Error('Guardian cannot be the customer themselves')
+  const g = await prisma.customer.findFirst({ where: { id: guardianId, businessId }, select: { id: true } })
+  if (!g) throw new Error('Guardian customer not found')
+}
+
 export async function createCustomer(
   businessId: string,
   input: CreateCustomerInput
 ): Promise<Customer> {
+  if (input.guardian_customer_id) await assertGuardian(businessId, input.guardian_customer_id)
   // Constraint-aware create — the SINGLE write point every caller funnels
   // through (QR sync, importers, manual add). It must not 500 on the unique
   // keys:
@@ -243,6 +254,8 @@ export async function createCustomer(
     phone: input.phone ?? null,
     dateOfBirth: input.date_of_birth ? new Date(input.date_of_birth) : null,
     gender: input.gender ?? null,
+    guardianCustomerId: input.guardian_customer_id ?? null,
+    payerNote: input.payer_note ?? null,
     occupation: input.occupation ?? null,
     memberNumber: input.member_number ?? null,
     postalCode: input.postal_code ?? null,
@@ -309,6 +322,7 @@ export async function updateCustomer(
   })
 
   if (!existing) throw new Error('Customer not found')
+  if (input.guardian_customer_id) await assertGuardian(businessId, input.guardian_customer_id, id)
 
   // Map API field names to Prisma field names
   const data: any = {}
@@ -319,6 +333,8 @@ export async function updateCustomer(
   if (input.date_of_birth !== undefined)
     data.dateOfBirth = input.date_of_birth ? new Date(input.date_of_birth) : null
   if (input.gender !== undefined) data.gender = input.gender
+  if (input.guardian_customer_id !== undefined) data.guardianCustomerId = input.guardian_customer_id
+  if (input.payer_note !== undefined) data.payerNote = input.payer_note
   // Soft delete / restore (Liam ruling: never instant-delete; 30-day window).
   // delete = set deleted_at, restore = null it. Hard delete stays DELETE /:id
   // (the day-30 job) and runs the audit scrub.
