@@ -461,6 +461,9 @@ async function runQuickReserveSync(
           customerId: r.qrCustomerId,
           staffId: r.qrStaffId,
           treatmentId: r.treatmentId,
+          // Which BED the booking used (Liam 8/27): the only real-world record
+          // the resource plane can be backfilled from instead of guessed.
+          boothId: r.qrBoothId,
         },
       }
 

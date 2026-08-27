@@ -149,6 +149,7 @@ export interface MappedQRReservation {
   startsAt: Date
   endsAt: Date
   durationMinutes: number
+  qrBoothId: number | null
   deleted: boolean
 }
 
@@ -175,6 +176,9 @@ export function mapReservation(r: QRReservation): MappedQRReservation {
     startsAt: new Date(r.start_at),
     endsAt: new Date(r.end_at),
     durationMinutes: Math.round((r.end_at - r.start_at) / 60000),
+    // QR sends which BED every reservation used; dropping it was throwing away
+    // the only real-world record the resource plane can be backfilled from.
+    qrBoothId: r.booth_id ?? null,
     deleted: r.deleted,
   }
 }
