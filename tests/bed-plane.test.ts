@@ -279,3 +279,36 @@ describe('Greptile P1 fixes', () => {
     expect(freeOld.status).toBe(201)
   })
 })
+
+describe('Greptile round-2 fix', () => {
+  it('resubmitting the SAME resource_id on a retired bed is not a new claim — lifecycle proceeds', async () => {
+    const store = await seedStore()
+    const bed = await (await req('POST', '/resources', { store_id: store.id, name: 'B1', cleanup_minutes: 10 })).json()
+    const a = await pair()
+    const appt = await (
+      await req('POST', '/appointments', {
+        customer_id: a.customer.id, staff_id: a.staff.id, store_id: store.id,
+        starts_at: '2026-09-26T01:00:00.000Z', ends_at: '2026-09-26T02:00:00.000Z',
+        resource_id: bed.id,
+      })
+    ).json()
+    await req('PATCH', `/resources/${bed.id}`, { active: false })
+
+    // full-state PUT restating the same bed + a cancel — must succeed
+    const cancel = await req('PUT', `/appointments/${appt.id}`, {
+      status: 'CANCELLED', resource_id: bed.id,
+    })
+    expect(cancel.status).toBe(200)
+    // and a reschedule restating it recomputes occupancy off the new end
+    const move = await req('PUT', `/appointments/${appt.id}`, {
+      status: 'SCHEDULED', resource_id: bed.id,
+      starts_at: '2026-09-26T03:00:00.000Z', ends_at: '2026-09-26T04:00:00.000Z',
+    })
+    expect(move.status).toBe(200)
+    expect((await move.json()).occupied_until).toBe('2026-09-26T04:10:00.000Z')
+    // switching to a DIFFERENT retired bed still 400s
+    const bed2 = await (await req('POST', '/resources', { store_id: store.id, name: 'B2' })).json()
+    await req('PATCH', `/resources/${bed2.id}`, { active: false })
+    expect((await req('PUT', `/appointments/${appt.id}`, { resource_id: bed2.id })).status).toBe(400)
+  })
+})

@@ -505,8 +505,11 @@ export async function updateAppointment(
           input.resource_id !== undefined ? input.resource_id : fresh.resourceId
         const resourcePatch: Record<string, unknown> = {}
         if (input.resource_id !== undefined) resourcePatch.resourceId = input.resource_id
-        if (input.resource_id) {
+        if (input.resource_id && input.resource_id !== fresh.resourceId) {
           // NEW claim: full validation (business + active + store required).
+          // Same-id resubmission (idempotent full-state PUT) is NOT a new
+          // claim — it falls through to recompute, so a retired bed never
+          // blocks lifecycle updates that merely restate it (Greptile r2).
           resourcePatch.occupiedUntil = await occupancyFor(
             businessId,
             input.resource_id,
