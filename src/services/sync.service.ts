@@ -1,6 +1,5 @@
 import { prisma } from '../db/client.js'
 import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
-import { occupancyRecompute } from './resource.service.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -473,21 +472,18 @@ async function runQuickReserveSync(
       if (existing) {
         // Bed occupancy rides the times (Greptile P1): a crawl move/resize
         // must recompute occupied_until for a row holding a bed, or the
-        // EXCLUDE range stops representing the appointment. If the moved
-        // window now collides on the bed, QR's times win and the stale manual
-        // bed claim is DROPPED (never block the crawl on a bed).
-        const bedPatch = existing.resourceId
-          ? { occupiedUntil: await occupancyRecompute(businessId, existing.resourceId, r.endsAt) }
-          : {}
+        // EXCLUDE range stops representing the appointment. The resource id is
+        // re-read UNDER A ROW LOCK inside the transaction (Greptile r4: the
+        // earlier unlocked snapshot raced concurrent API claims/releases). If
+        // the moved window collides on the bed, QR's times win and the stale
+        // claim is DROPPED (never block the crawl on a bed).
         try {
-          await prisma.appointment.update({
-            where: { id: existing.id },
-            data: stripStaffLockedStatus({ ...qrData, ...bedPatch }, existing),
-          })
+          await syncUpdateWithBed(businessId, existing.id, (locked) =>
+            stripStaffLockedStatus({ ...qrData }, existing) as Record<string, unknown>, r.endsAt)
         } catch (e) {
           if (!isResourceOverlap(e)) throw e
           console.warn(
-            `[sync] bed conflict on move of reservation ${r.qrReservationId} — dropping stale resource claim ${existing.resourceId}`,
+            `[sync] bed conflict on move of reservation ${r.qrReservationId} — dropping stale resource claim`,
           )
           await prisma.appointment.update({
             where: { id: existing.id },
@@ -525,30 +521,25 @@ async function runQuickReserveSync(
           })
           if (!claimed) throw e
           // Adopted manual rows can hold a bed: occupancy must ride the
-          // adopted times exactly like the plain-update branch (Greptile r3);
-          // a bed conflict on the adopted window drops the stale claim.
-          const adoptBedPatch = claimed.resourceId
-            ? { occupiedUntil: await occupancyRecompute(businessId, claimed.resourceId, r.endsAt) }
-            : {}
+          // adopted times exactly like the plain-update branch, with the same
+          // row-locked re-read (Greptile r3+r4); a bed conflict on the adopted
+          // window drops the stale claim.
           try {
             try {
-              await prisma.appointment.update({
-                where: { id: claimed.id },
+              await syncUpdateWithBed(businessId, claimed.id, () =>
                 // Merge, don't clobber: keep any non-QR refs already on the row
                 // (e.g. a future integration) and stamp the QR ref on top. Also
                 // preserve a staff-set terminal status (adopt must not un-cancel).
-                data: stripStaffLockedStatus(
+                stripStaffLockedStatus(
                   {
                     ...qrData,
-                    ...adoptBedPatch,
                     externalRefs: {
                       ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
                       ...qrExternalRefs,
                     },
                   },
                   claimed,
-                ),
-              })
+                ) as Record<string, unknown>, r.endsAt)
             } catch (eBed) {
               if (!isResourceOverlap(eBed)) throw eBed
               console.warn(
@@ -828,6 +819,47 @@ async function reconcileExisting(
     } else throw e
   }
   return existing.id
+}
+
+/** Sync-side update that keeps bed occupancy honest under concurrency
+ *  (Greptile r4): re-reads resource_id FOR UPDATE inside the transaction —
+ *  the row lock serialises against API claims/releases — then computes
+ *  occupied_until from the LOCKED value and the new end time. */
+async function syncUpdateWithBed(
+  businessId: string,
+  appointmentId: string,
+  buildData: (lockedResourceId: string | null) => Record<string, unknown>,
+  newEndsAt: Date,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ resource_id: string | null }>>`
+      SELECT resource_id FROM appointments
+      WHERE id = ${appointmentId}::uuid AND business_id = ${businessId}::uuid
+      FOR UPDATE`
+    if (rows.length === 0) {
+      // Vanished under us — mimic Prisma's P2025 so callers' adopt-race
+      // handling stays uniform.
+      const err = new Error('Record to update not found.') as Error & { code: string }
+      err.code = 'P2025'
+      throw err
+    }
+    const lockedResourceId = rows[0].resource_id
+    let occupiedUntil: Date | null | undefined
+    if (lockedResourceId) {
+      const res = await tx.resource.findFirst({
+        where: { id: lockedResourceId, businessId },
+        select: { cleanupMinutes: true },
+      })
+      occupiedUntil = new Date(newEndsAt.getTime() + (res?.cleanupMinutes ?? 0) * 60_000)
+    }
+    await tx.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        ...buildData(lockedResourceId),
+        ...(occupiedUntil !== undefined ? { occupiedUntil } : {}),
+      },
+    })
+  })
 }
 
 async function findAppointmentByQrId(
