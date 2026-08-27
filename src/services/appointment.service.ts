@@ -1,7 +1,7 @@
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { computeBookedPrice } from './pricing.service.js'
-import { occupancyFor, occupancyRecompute, InvalidResourceError } from './resource.service.js'
+import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation, isResourceOverlap } from '../db/prisma-errors.js'
@@ -437,8 +437,9 @@ export async function updateAppointment(
             ends_at: Date
             cancelled_at: Date | null
             resource_id: string | null
+            occupied_until: Date | null
           }>
-        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at, resource_id
+        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until
           FROM appointments
           WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
           FOR UPDATE`
@@ -451,6 +452,7 @@ export async function updateAppointment(
               endsAt: freshRows[0].ends_at,
               cancelledAt: freshRows[0].cancelled_at,
               resourceId: freshRows[0].resource_id,
+              occupiedUntil: freshRows[0].occupied_until,
             }
           : null
         if (!fresh) throw new Error('Appointment not found')
@@ -517,10 +519,16 @@ export async function updateAppointment(
             effEndsAt,
           )
         } else if (effResourceId) {
-          // Unchanged existing claim: recompute only — a retired bed must
-          // never block cancel/reschedule of bookings that reference it
-          // (Greptile P1).
-          resourcePatch.occupiedUntil = await occupancyRecompute(businessId, effResourceId, effEndsAt)
+          // Unchanged existing claim: carry the row's ORIGINAL cleanup delta
+          // (occupied_until − ends_at) onto the new end — never re-read the
+          // resource's CURRENT cleanup config (Greptile r5: a config change
+          // must not silently move when a booked bed frees, nor make an
+          // unrelated lifecycle update conflict). Also never blocks on a
+          // retired bed (r1) — no resource lookup happens at all.
+          const cleanupMs = fresh.occupiedUntil
+            ? Math.max(0, fresh.occupiedUntil.getTime() - fresh.endsAt.getTime())
+            : 0
+          resourcePatch.occupiedUntil = new Date(effEndsAt.getTime() + cleanupMs)
         } else if (input.resource_id === null) {
           resourcePatch.occupiedUntil = null
         }
