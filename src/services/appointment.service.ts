@@ -1,7 +1,7 @@
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { computeBookedPrice } from './pricing.service.js'
-import { occupancyFor, InvalidResourceError } from './resource.service.js'
+import { occupancyFor, occupancyRecompute, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
 import { isUniqueViolation, isResourceOverlap } from '../db/prisma-errors.js'
@@ -505,13 +505,19 @@ export async function updateAppointment(
           input.resource_id !== undefined ? input.resource_id : fresh.resourceId
         const resourcePatch: Record<string, unknown> = {}
         if (input.resource_id !== undefined) resourcePatch.resourceId = input.resource_id
-        if (effResourceId) {
+        if (input.resource_id) {
+          // NEW claim: full validation (business + active + store required).
           resourcePatch.occupiedUntil = await occupancyFor(
             businessId,
-            effResourceId,
+            input.resource_id,
             fresh.storeId,
             effEndsAt,
           )
+        } else if (effResourceId) {
+          // Unchanged existing claim: recompute only — a retired bed must
+          // never block cancel/reschedule of bookings that reference it
+          // (Greptile P1).
+          resourcePatch.occupiedUntil = await occupancyRecompute(businessId, effResourceId, effEndsAt)
         } else if (input.resource_id === null) {
           resourcePatch.occupiedUntil = null
         }

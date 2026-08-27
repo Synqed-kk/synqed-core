@@ -194,3 +194,88 @@ describe('menu room class', () => {
     expect(cleared.required_room_class).toBeNull()
   })
 })
+
+describe('Greptile P1 fixes', () => {
+  it('retiring a claimed bed never blocks lifecycle updates on its bookings', async () => {
+    const store = await seedStore()
+    const bed = await (await req('POST', '/resources', { store_id: store.id, name: 'B1', cleanup_minutes: 20 })).json()
+    const a = await pair()
+    const appt = await (
+      await req('POST', '/appointments', {
+        customer_id: a.customer.id, staff_id: a.staff.id, store_id: store.id,
+        starts_at: '2026-09-23T01:00:00.000Z', ends_at: '2026-09-23T02:00:00.000Z',
+        resource_id: bed.id,
+      })
+    ).json()
+
+    await req('PATCH', `/resources/${bed.id}`, { active: false }) // retire the bed
+
+    // cancel still works
+    const cancel = await req('PUT', `/appointments/${appt.id}`, { status: 'CANCELLED' })
+    expect(cancel.status).toBe(200)
+    // reschedule of a revived booking also works, occupancy recomputed (+20)
+    const revived = await req('PUT', `/appointments/${appt.id}`, {
+      status: 'SCHEDULED', starts_at: '2026-09-23T03:00:00.000Z', ends_at: '2026-09-23T04:00:00.000Z',
+    })
+    expect(revived.status).toBe(200)
+    expect((await revived.json()).occupied_until).toBe('2026-09-23T04:20:00.000Z')
+    // but a NEW claim of the retired bed still 400s
+    const b = await pair()
+    const newAppt = await (
+      await req('POST', '/appointments', {
+        customer_id: b.customer.id, staff_id: b.staff.id, store_id: store.id,
+        starts_at: '2026-09-23T05:00:00.000Z', ends_at: '2026-09-23T06:00:00.000Z',
+      })
+    ).json()
+    expect((await req('PUT', `/appointments/${newAppt.id}`, { resource_id: bed.id })).status).toBe(400)
+  })
+
+  it('a resource claim requires store_id on the appointment (null-store bypass closed)', async () => {
+    const store = await seedStore()
+    const bed = await (await req('POST', '/resources', { store_id: store.id, name: 'B1' })).json()
+    const a = await pair()
+    const res = await req('POST', '/appointments', {
+      customer_id: a.customer.id, staff_id: a.staff.id, // NO store_id
+      starts_at: '2026-09-24T01:00:00.000Z', ends_at: '2026-09-24T02:00:00.000Z',
+      resource_id: bed.id,
+    })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('store_id')
+  })
+
+  it('sync-style time move on a bed-holding QR row keeps occupied_until honest (direct-write simulation)', async () => {
+    const store = await seedStore()
+    const bed = await (await req('POST', '/resources', { store_id: store.id, name: 'B1', cleanup_minutes: 30 })).json()
+    const a = await pair()
+    const appt = await (
+      await req('POST', '/appointments', {
+        customer_id: a.customer.id, staff_id: a.staff.id, store_id: store.id,
+        starts_at: '2026-09-25T01:00:00.000Z', ends_at: '2026-09-25T02:00:00.000Z',
+        resource_id: bed.id,
+      })
+    ).json()
+    // simulate the crawl's recompute contract: times move, occupancy must ride
+    const { occupancyRecompute } = await import('../src/services/resource.service.js')
+    const newEnds = new Date('2026-09-25T05:00:00.000Z')
+    const occ = await occupancyRecompute(TEST_BUSINESS_ID, bed.id, newEnds)
+    expect(occ.toISOString()).toBe('2026-09-25T05:30:00.000Z')
+    await testPrisma.appointment.update({
+      where: { id: appt.id },
+      data: { startsAt: new Date('2026-09-25T04:00:00.000Z'), endsAt: newEnds, occupiedUntil: occ },
+    })
+    // the EXCLUDE now guards the MOVED window, not the stale one
+    const b = await pair()
+    const clash = await req('POST', '/appointments', {
+      customer_id: b.customer.id, staff_id: b.staff.id, store_id: store.id,
+      starts_at: '2026-09-25T05:15:00.000Z', ends_at: '2026-09-25T06:00:00.000Z', // inside moved cleanup
+      resource_id: bed.id,
+    })
+    expect(clash.status).toBe(409)
+    const freeOld = await req('POST', '/appointments', {
+      customer_id: b.customer.id, staff_id: b.staff.id, store_id: store.id,
+      starts_at: '2026-09-25T01:00:00.000Z', ends_at: '2026-09-25T02:00:00.000Z', // the OLD window is free
+      resource_id: bed.id,
+    })
+    expect(freeOld.status).toBe(201)
+  })
+})

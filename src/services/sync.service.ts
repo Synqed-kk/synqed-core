@@ -1,5 +1,6 @@
 import { prisma } from '../db/client.js'
-import { isUniqueViolation, isRecordNotFound } from '../db/prisma-errors.js'
+import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
+import { occupancyRecompute } from './resource.service.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -470,10 +471,32 @@ async function runQuickReserveSync(
       // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
       const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
       if (existing) {
-        await prisma.appointment.update({
-          where: { id: existing.id },
-          data: stripStaffLockedStatus({ ...qrData }, existing),
-        })
+        // Bed occupancy rides the times (Greptile P1): a crawl move/resize
+        // must recompute occupied_until for a row holding a bed, or the
+        // EXCLUDE range stops representing the appointment. If the moved
+        // window now collides on the bed, QR's times win and the stale manual
+        // bed claim is DROPPED (never block the crawl on a bed).
+        const bedPatch = existing.resourceId
+          ? { occupiedUntil: await occupancyRecompute(businessId, existing.resourceId, r.endsAt) }
+          : {}
+        try {
+          await prisma.appointment.update({
+            where: { id: existing.id },
+            data: stripStaffLockedStatus({ ...qrData, ...bedPatch }, existing),
+          })
+        } catch (e) {
+          if (!isResourceOverlap(e)) throw e
+          console.warn(
+            `[sync] bed conflict on move of reservation ${r.qrReservationId} — dropping stale resource claim ${existing.resourceId}`,
+          )
+          await prisma.appointment.update({
+            where: { id: existing.id },
+            data: stripStaffLockedStatus(
+              { ...qrData, resourceId: null, occupiedUntil: null },
+              existing,
+            ),
+          })
+        }
         seenAppointmentIds.push(existing.id)
         updated++
       } else {
@@ -781,14 +804,14 @@ async function reconcileExisting(
 async function findAppointmentByQrId(
   businessId: string,
   qrReservationId: number,
-): Promise<{ id: string; status: AppointmentStatus; statusSource: StatusSource } | null> {
+): Promise<{ id: string; status: AppointmentStatus; statusSource: StatusSource; resourceId: string | null } | null> {
   return prisma.appointment.findFirst({
     where: {
       businessId,
       source: 'QUICKRESERVE' as AppointmentSource,
       externalRefs: { path: ['quickreserve', 'reservationId'], equals: qrReservationId },
     },
-    select: { id: true, status: true, statusSource: true },
+    select: { id: true, status: true, statusSource: true, resourceId: true },
   })
 }
 

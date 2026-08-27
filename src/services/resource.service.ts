@@ -136,23 +136,43 @@ export async function updateResource(
   return toPublic(row)
 }
 
-/** Resource claimed on a booking: validate it belongs to the business (and
- *  the booking's store, when the booking carries one) and return the
- *  occupancy end = ends_at + cleanup snapshot. */
+/** A NEW resource claim: validate business + active + store, return the
+ *  occupancy end. Greptile P1 fix: a claim REQUIRES the appointment to carry
+ *  store_id — a same-business bed on a storeless booking would occupy a
+ *  store's resource while being invisible on that store's filtered calendar. */
 export async function occupancyFor(
   businessId: string,
   resourceId: string,
   storeId: string | null,
   endsAt: Date,
 ): Promise<Date> {
+  if (!storeId) {
+    throw new InvalidResourceError('A resource claim requires the appointment to carry store_id.')
+  }
   const r = await prisma.resource.findFirst({
     where: { id: resourceId, businessId },
     select: { storeId: true, cleanupMinutes: true, active: true },
   })
   if (!r) throw new InvalidResourceError('Resource not found in this business.')
   if (!r.active) throw new InvalidResourceError('Resource is not active.')
-  if (storeId && r.storeId !== storeId) {
+  if (r.storeId !== storeId) {
     throw new InvalidResourceError('Resource belongs to a different store.')
   }
   return new Date(endsAt.getTime() + r.cleanupMinutes * 60_000)
+}
+
+/** Recompute occupancy for a resource the row ALREADY holds. Greptile P1 fix:
+ *  no active/store validation here — retiring a bed must never block a
+ *  cancel/reschedule of the bookings that still reference it. Business scope
+ *  only; a vanished resource keeps the old semantics via plain ends_at. */
+export async function occupancyRecompute(
+  businessId: string,
+  resourceId: string,
+  endsAt: Date,
+): Promise<Date> {
+  const r = await prisma.resource.findFirst({
+    where: { id: resourceId, businessId },
+    select: { cleanupMinutes: true },
+  })
+  return new Date(endsAt.getTime() + (r?.cleanupMinutes ?? 0) * 60_000)
 }
