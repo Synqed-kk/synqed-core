@@ -21,3 +21,12 @@ export function isRecordNotFound(e: unknown): boolean {
     (e as { code?: unknown }).code === 'P2025'
   )
 }
+
+// True when `e` is the bed-plane EXCLUDE violation (Postgres 23P01) on the
+// appointments_resource_no_overlap constraint. Prisma has no first-class code
+// for exclusion constraints, so match on the constraint name in the message.
+export function isResourceOverlap(e: unknown): boolean {
+  if (e === null || typeof e !== 'object') return false
+  const msg = String((e as { message?: unknown }).message ?? '')
+  return msg.includes('appointments_resource_no_overlap')
+}

@@ -22,6 +22,8 @@ export const createAppointmentSchema = z.object({
   // Booked-menu snapshot: the menu + the price the customer agreed to at
   // write time (soft reference — no FK; see the Menu model note).
   menu_id: z.string().uuid().nullable().optional(),
+  // Bed claim (real FK server-side; null = no bed).
+  resource_id: z.string().uuid().nullable().optional(),
   booked_price_amount: z.number().int().min(0).nullable().optional(),
   booked_price_currency: z.string().length(3).nullable().optional(),
   status: appointmentStatusSchema.optional(),
@@ -42,6 +44,8 @@ export const updateAppointmentSchema = z
     // same-day-contacted / no-show-no-contact). Recorded when status changes.
     status_reason: z.string().max(500).nullable().optional(),
     acting_staff_id: z.string().uuid().optional(),
+    // Bed change (null = release the bed).
+    resource_id: z.string().uuid().nullable().optional(),
   })
   .strict()
 

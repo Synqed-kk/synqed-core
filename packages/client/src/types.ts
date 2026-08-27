@@ -544,6 +544,8 @@ export interface Appointment {
   title: string | null
   notes: string | null
   menu_id: string | null
+  resource_id: string | null
+  occupied_until: string | null
   booked_price_amount: number | null
   booked_price_currency: string | null
   status: AppointmentStatus
@@ -570,6 +572,8 @@ export interface CreateAppointmentInput {
   title?: string | null
   notes?: string | null
   menu_id?: string | null
+  /** bed claim — 409 code RESOURCE_TAKEN when occupied */
+  resource_id?: string | null
   booked_price_amount?: number | null
   booked_price_currency?: string | null
   status?: AppointmentStatus
@@ -597,6 +601,7 @@ export interface Menu {
   nomination_allowed: boolean
   online_visible: boolean
   active: boolean
+  required_room_class: 'standard' | 'private' | null
   created_at: string
   updated_at: string
 }
@@ -616,6 +621,7 @@ export interface CreateMenuInput {
   nomination_allowed?: boolean
   online_visible?: boolean
   active?: boolean
+  required_room_class?: 'standard' | 'private' | null
 }
 
 export interface UpdateMenuInput {
@@ -633,6 +639,7 @@ export interface UpdateMenuInput {
   nomination_allowed?: boolean
   online_visible?: boolean
   active?: boolean
+  required_room_class?: 'standard' | 'private' | null
 }
 
 export interface ListMenusOptions {
@@ -654,6 +661,8 @@ export interface UpdateAppointmentInput {
   title?: string | null
   notes?: string | null
   status?: AppointmentStatus
+  /** bed change; null releases the bed */
+  resource_id?: string | null
   /** WHO made a status decision + WHY — stamps the status audit trail. */
   acting_staff_id?: string | null
   status_reason?: string | null
@@ -1358,4 +1367,37 @@ export interface StaffPolicyEvent {
   policy_version: number
   event: 'delivered' | 'acknowledged' | 'revoked'
   occurred_at: string
+}
+
+// ── Resources (the bed plane) ────────────────────────────────────────────────
+
+export interface SalonResource {
+  id: string
+  store_id: string
+  name: string
+  note: string | null
+  room_class: 'standard' | 'private'
+  cleanup_minutes: number
+  display_order: number
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateResourceInput {
+  store_id: string
+  name: string
+  note?: string | null
+  room_class?: 'standard' | 'private'
+  cleanup_minutes?: number
+  display_order?: number
+}
+
+export interface UpdateResourceInput {
+  name?: string
+  note?: string | null
+  room_class?: 'standard' | 'private'
+  cleanup_minutes?: number
+  display_order?: number
+  active?: boolean
 }
