@@ -36,17 +36,27 @@ export async function upsertOrgSettings(
   businessId: string,
   input: UpsertOrgSettingsInput,
 ): Promise<OrgSettingsPublic> {
-  const row = await prisma.orgSettings.upsert({
-    where: { businessId },
-    create: {
-      businessId,
-      name: input.name ?? null,
-      settings: (input.settings ?? {}) as object,
-    },
-    update: {
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.settings !== undefined ? { settings: input.settings as object } : {}),
-    },
-  })
+  // ATOMIC shallow merge (Liam 8/16 heads-up): the old read-then-replace let
+  // two admins saving at once drop each other's keys. `settings || new` is a
+  // single-statement jsonb shallow merge — exactly the semantics the app
+  // already assumes (it sends only the key that changed). Replacing the whole
+  // blob is no longer possible through this path, which is the point; a key
+  // is cleared by sending it with null.
+  if (input.settings !== undefined) {
+    await prisma.$executeRaw`
+      INSERT INTO org_settings (business_id, name, settings, updated_at)
+      VALUES (${businessId}::uuid, ${input.name ?? null}, ${JSON.stringify(input.settings ?? {})}::jsonb, now())
+      ON CONFLICT (business_id) DO UPDATE SET
+        settings = org_settings.settings || EXCLUDED.settings,
+        name = COALESCE(${input.name ?? null}, org_settings.name),
+        updated_at = now()`
+  } else {
+    await prisma.orgSettings.upsert({
+      where: { businessId },
+      create: { businessId, name: input.name ?? null, settings: {} },
+      update: { ...(input.name !== undefined ? { name: input.name } : {}) },
+    })
+  }
+  const row = await prisma.orgSettings.findUniqueOrThrow({ where: { businessId } })
   return toPublic(row)
 }
