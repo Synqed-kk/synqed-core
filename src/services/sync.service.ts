@@ -521,26 +521,55 @@ async function runQuickReserveSync(
           if (!isUniqueViolation(e, 'starts_at')) throw e
           const claimed = await prisma.appointment.findFirst({
             where: { businessId, customerId, startsAt: r.startsAt },
-            select: { id: true, externalRefs: true, status: true, statusSource: true },
+            select: { id: true, externalRefs: true, status: true, statusSource: true, resourceId: true },
           })
           if (!claimed) throw e
+          // Adopted manual rows can hold a bed: occupancy must ride the
+          // adopted times exactly like the plain-update branch (Greptile r3);
+          // a bed conflict on the adopted window drops the stale claim.
+          const adoptBedPatch = claimed.resourceId
+            ? { occupiedUntil: await occupancyRecompute(businessId, claimed.resourceId, r.endsAt) }
+            : {}
           try {
-            await prisma.appointment.update({
-              where: { id: claimed.id },
-              // Merge, don't clobber: keep any non-QR refs already on the row
-              // (e.g. a future integration) and stamp the QR ref on top. Also
-              // preserve a staff-set terminal status (adopt must not un-cancel).
-              data: stripStaffLockedStatus(
-                {
-                  ...qrData,
-                  externalRefs: {
-                    ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
-                    ...qrExternalRefs,
+            try {
+              await prisma.appointment.update({
+                where: { id: claimed.id },
+                // Merge, don't clobber: keep any non-QR refs already on the row
+                // (e.g. a future integration) and stamp the QR ref on top. Also
+                // preserve a staff-set terminal status (adopt must not un-cancel).
+                data: stripStaffLockedStatus(
+                  {
+                    ...qrData,
+                    ...adoptBedPatch,
+                    externalRefs: {
+                      ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
+                      ...qrExternalRefs,
+                    },
                   },
-                },
-                claimed,
-              ),
-            })
+                  claimed,
+                ),
+              })
+            } catch (eBed) {
+              if (!isResourceOverlap(eBed)) throw eBed
+              console.warn(
+                `[sync] bed conflict adopting reservation ${r.qrReservationId} — dropping stale resource claim ${claimed.resourceId}`,
+              )
+              await prisma.appointment.update({
+                where: { id: claimed.id },
+                data: stripStaffLockedStatus(
+                  {
+                    ...qrData,
+                    resourceId: null,
+                    occupiedUntil: null,
+                    externalRefs: {
+                      ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
+                      ...qrExternalRefs,
+                    },
+                  },
+                  claimed,
+                ),
+              })
+            }
           } catch (e2) {
             // Narrow TOCTOU: the claimed row was deleted (e.g. a manual
             // cancellation) between the findFirst and this update → P2025.
