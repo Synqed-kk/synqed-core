@@ -477,22 +477,13 @@ async function runQuickReserveSync(
         // earlier unlocked snapshot raced concurrent API claims/releases). If
         // the moved window collides on the bed, QR's times win and the stale
         // claim is DROPPED (never block the crawl on a bed).
-        try {
-          await syncUpdateWithBed(businessId, existing.id, (locked) =>
-            stripStaffLockedStatus({ ...qrData }, locked) as Record<string, unknown>, r.endsAt)
-        } catch (e) {
-          if (!isResourceOverlap(e)) throw e
-          console.warn(
-            `[sync] bed conflict on move of reservation ${r.qrReservationId} — dropping stale resource claim ${existing.resourceId}`,
-          )
-          await syncUpdateWithBed(
-            businessId,
-            existing.id,
-            (locked) => stripStaffLockedStatus({ ...qrData }, locked) as Record<string, unknown>,
-            r.endsAt,
-            existing.resourceId,
-          )
-        }
+        await syncUpdateWithBed(
+          businessId,
+          existing.id,
+          (locked) => stripStaffLockedStatus({ ...qrData }, locked) as Record<string, unknown>,
+          r.endsAt,
+          r.qrReservationId,
+        )
         seenAppointmentIds.push(existing.id)
         updated++
       } else {
@@ -525,44 +516,21 @@ async function runQuickReserveSync(
           // row-locked re-read (Greptile r3+r4); a bed conflict on the adopted
           // window drops the stale claim.
           try {
-            try {
-              await syncUpdateWithBed(businessId, claimed.id, (locked) =>
-                // Merge, don't clobber: keep any non-QR refs already on the row
-                // (e.g. a future integration) and stamp the QR ref on top. Also
-                // preserve a staff-set terminal status (adopt must not un-cancel)
-                // — evaluated against the LOCKED status, not the snapshot.
-                stripStaffLockedStatus(
-                  {
-                    ...qrData,
-                    externalRefs: {
-                      ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
-                      ...qrExternalRefs,
-                    },
+            await syncUpdateWithBed(businessId, claimed.id, (locked) =>
+              // Merge, don't clobber: keep any non-QR refs already on the row
+              // (e.g. a future integration) and stamp the QR ref on top. Also
+              // preserve a staff-set terminal status (adopt must not un-cancel)
+              // — evaluated against the LOCKED status, not the snapshot.
+              stripStaffLockedStatus(
+                {
+                  ...qrData,
+                  externalRefs: {
+                    ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
+                    ...qrExternalRefs,
                   },
-                  locked,
-                ) as Record<string, unknown>, r.endsAt)
-            } catch (eBed) {
-              if (!isResourceOverlap(eBed)) throw eBed
-              console.warn(
-                `[sync] bed conflict adopting reservation ${r.qrReservationId} — dropping stale resource claim ${claimed.resourceId}`,
-              )
-              await syncUpdateWithBed(
-                businessId,
-                claimed.id,
-                (locked) => stripStaffLockedStatus(
-                  {
-                    ...qrData,
-                    externalRefs: {
-                      ...((claimed.externalRefs as Record<string, unknown>) ?? {}),
-                      ...qrExternalRefs,
-                    },
-                  },
-                  locked,
-                ) as Record<string, unknown>,
-                r.endsAt,
-                claimed.resourceId,
-              )
-            }
+                },
+                locked,
+              ) as Record<string, unknown>, r.endsAt, r.qrReservationId)
           } catch (e2) {
             // Narrow TOCTOU: the claimed row was deleted (e.g. a manual
             // cancellation) between the findFirst and this update → P2025.
@@ -846,7 +814,7 @@ async function syncUpdateWithBed(
   appointmentId: string,
   buildData: (locked: { status: AppointmentStatus; statusSource: StatusSource }) => Record<string, unknown>,
   newEndsAt: Date,
-  dropClaimIf?: string | null,
+  qrReservationId?: number,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<Array<LockedRow>>`
@@ -861,28 +829,37 @@ async function syncUpdateWithBed(
       throw err
     }
     const locked = rows[0]
+    const data = buildData({ status: locked.status, statusSource: locked.status_source })
     const bedPatch: Record<string, unknown> = {}
-    if (dropClaimIf !== undefined) {
-      if (locked.resource_id !== null && locked.resource_id === dropClaimIf) {
-        bedPatch.resourceId = null
-        bedPatch.occupiedUntil = null
-      }
-      // else: a newer/different claim — leave it; the outer update may
-      // conflict again and this reservation is retried next tick.
-    }
-    if (bedPatch.resourceId === undefined && locked.resource_id) {
+    if (locked.resource_id) {
       const cleanupMs = locked.occupied_until
         ? Math.max(0, locked.occupied_until.getTime() - locked.ends_at.getTime())
         : 0
       bedPatch.occupiedUntil = new Date(newEndsAt.getTime() + cleanupMs)
     }
-    await tx.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        ...buildData({ status: locked.status, statusSource: locked.status_source }),
-        ...bedPatch,
-      },
-    })
+    // Savepoint (Greptile r6): the conflict retry happens INSIDE this
+    // transaction with the row lock still held, so there is NO window in
+    // which a release-and-reclaim (even of the same bed — the ABA case) can
+    // slip between "conflict detected" and "claim dropped". The drop is
+    // correct by construction: the claim we clear is the exact claim that
+    // just conflicted under the lock.
+    await tx.$executeRaw`SAVEPOINT bed_move`
+    try {
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { ...data, ...bedPatch },
+      })
+    } catch (e) {
+      if (!isResourceOverlap(e)) throw e
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT bed_move`
+      console.warn(
+        `[sync] bed conflict on reservation ${qrReservationId ?? '?'} — dropping the conflicting claim ${locked.resource_id}`,
+      )
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { ...data, resourceId: null, occupiedUntil: null },
+      })
+    }
   })
 }
 
