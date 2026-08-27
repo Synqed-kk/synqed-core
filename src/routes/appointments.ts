@@ -13,6 +13,8 @@ import {
   CustomerSlotConflictError,
   InvalidTimeRangeError,
   SlotContentionError,
+  ResourceTakenError,
+  InvalidResourceError,
 } from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
@@ -86,6 +88,14 @@ appointmentRoutes.post('/', async (c) => {
     if (err instanceof Error && err.message === 'Menu not found') {
       return c.json({ error: err.message }, 404)
     }
+    if (err instanceof ResourceTakenError) {
+      // The BED is unavailable — distinct from the staff-slot 409 so Reserve
+      // can say WHICH thing blocked the time.
+      return c.json({ error: err.message, code: 'RESOURCE_TAKEN' }, 409)
+    }
+    if (err instanceof InvalidResourceError) {
+      return c.json({ error: err.message }, 400)
+    }
     throw err
   }
 })
@@ -123,6 +133,12 @@ appointmentRoutes.put('/:id', async (c) => {
     }
     if (err instanceof SlotContentionError) {
       return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
+    }
+    if (err instanceof ResourceTakenError) {
+      return c.json({ error: err.message, code: 'RESOURCE_TAKEN' }, 409)
+    }
+    if (err instanceof InvalidResourceError) {
+      return c.json({ error: err.message }, 400)
     }
     throw err
   }

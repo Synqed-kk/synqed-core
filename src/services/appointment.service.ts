@@ -1,9 +1,10 @@
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { computeBookedPrice } from './pricing.service.js'
+import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
-import { isUniqueViolation } from '../db/prisma-errors.js'
+import { isUniqueViolation, isResourceOverlap } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -28,6 +29,18 @@ export class InvalidTimeRangeError extends Error {
  *  reassignment), so the caller should simply retry — the slot may well be
  *  free. Distinct from AppointmentOverlapError so callers don't tell the
  *  customer "slot taken" when the truth is "try again". */
+/** The BED is taken (distinct from the staff-overlap 409): the EXCLUDE
+ *  constraint refused the write — Reserve tells the customer WHICH thing is
+ *  unavailable instead of guessing. */
+export class ResourceTakenError extends Error {
+  constructor(message = 'This resource is occupied for the requested time.') {
+    super(message)
+    this.name = 'ResourceTakenError'
+  }
+}
+
+export { InvalidResourceError }
+
 export class SlotContentionError extends Error {
   constructor(message = 'Could not validate the slot due to concurrent updates. Retry the request.') {
     super(message)
@@ -54,6 +67,8 @@ export interface AppointmentPublic {
   title: string | null
   notes: string | null
   menu_id: string | null
+  resource_id: string | null
+  occupied_until: string | null
   booked_price_amount: number | null
   booked_price_currency: string | null
   status: AppointmentStatus
@@ -80,6 +95,8 @@ function toPublic(row: {
   title: string | null
   notes: string | null
   menuId: string | null
+  resourceId: string | null
+  occupiedUntil: Date | null
   bookedPriceAmount: number | null
   bookedPriceCurrency: string | null
   status: AppointmentStatus
@@ -105,6 +122,8 @@ function toPublic(row: {
     title: row.title,
     notes: row.notes,
     menu_id: row.menuId,
+    resource_id: row.resourceId,
+    occupied_until: row.occupiedUntil?.toISOString() ?? null,
     booked_price_amount: row.bookedPriceAmount,
     booked_price_currency: row.bookedPriceCurrency,
     status: row.status,
@@ -228,6 +247,13 @@ export async function createAppointment(
   // of record or undercut the band. The lookup also validates the menu
   // belongs to this business (closes #55's unvalidated-menu gap). Menu-less
   // bookings (legacy/free-text) keep the caller's values untouched.
+  // Bed claim: validate + snapshot occupancy BEFORE the slot lock (occupied
+  // window = ends_at + the resource's cleanup_minutes at write time).
+  let occupiedUntil: Date | null = null
+  if (input.resource_id) {
+    occupiedUntil = await occupancyFor(businessId, input.resource_id, input.store_id ?? null, endsAt)
+  }
+
   let bookedPrice: { amount: number; currency: string } | null = null
   if (input.menu_id) {
     const computed = await computeBookedPrice(
@@ -285,6 +311,8 @@ export async function createAppointment(
           title: input.title ?? null,
           notes: input.notes ?? null,
           menuId: input.menu_id ?? null,
+          resourceId: input.resource_id ?? null,
+          occupiedUntil,
           // Menu bookings: server truth (computed above). Menu-less: caller's.
           bookedPriceAmount: bookedPrice ? bookedPrice.amount : (input.booked_price_amount ?? null),
           bookedPriceCurrency: bookedPrice ? bookedPrice.currency : (input.booked_price_currency ?? null),
@@ -296,6 +324,7 @@ export async function createAppointment(
     return toPublic(row)
   } catch (e) {
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
+    if (isResourceOverlap(e)) throw new ResourceTakenError()
     throw e
   }
 }
@@ -349,7 +378,10 @@ export async function updateAppointment(
     input.staff_id !== undefined ||
     input.starts_at !== undefined ||
     input.ends_at !== undefined ||
-    input.status !== undefined
+    input.status !== undefined ||
+    // A bed change is slot semantics for the BED — route through the slot
+    // path so occupied_until recomputes against fresh times.
+    input.resource_id !== undefined
 
   try {
     if (!touchesSlot) {
@@ -404,8 +436,10 @@ export async function updateAppointment(
             starts_at: Date
             ends_at: Date
             cancelled_at: Date | null
+            resource_id: string | null
+            occupied_until: Date | null
           }>
-        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at
+        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until
           FROM appointments
           WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
           FOR UPDATE`
@@ -417,6 +451,8 @@ export async function updateAppointment(
               startsAt: freshRows[0].starts_at,
               endsAt: freshRows[0].ends_at,
               cancelledAt: freshRows[0].cancelled_at,
+              resourceId: freshRows[0].resource_id,
+              occupiedUntil: freshRows[0].occupied_until,
             }
           : null
         if (!fresh) throw new Error('Appointment not found')
@@ -465,7 +501,41 @@ export async function updateAppointment(
           if (overlapping) throw new AppointmentOverlapError()
         }
 
-        const updated = await tx.appointment.update({ where: { id }, data: buildData(fresh) })
+        // Bed recompute: effective resource = explicit change or the row's own;
+        // occupied_until always = eff ends + that resource's cleanup snapshot.
+        const effResourceId =
+          input.resource_id !== undefined ? input.resource_id : fresh.resourceId
+        const resourcePatch: Record<string, unknown> = {}
+        if (input.resource_id !== undefined) resourcePatch.resourceId = input.resource_id
+        if (input.resource_id && input.resource_id !== fresh.resourceId) {
+          // NEW claim: full validation (business + active + store required).
+          // Same-id resubmission (idempotent full-state PUT) is NOT a new
+          // claim — it falls through to recompute, so a retired bed never
+          // blocks lifecycle updates that merely restate it (Greptile r2).
+          resourcePatch.occupiedUntil = await occupancyFor(
+            businessId,
+            input.resource_id,
+            fresh.storeId,
+            effEndsAt,
+          )
+        } else if (effResourceId) {
+          // Unchanged existing claim: carry the row's ORIGINAL cleanup delta
+          // (occupied_until − ends_at) onto the new end — never re-read the
+          // resource's CURRENT cleanup config (Greptile r5: a config change
+          // must not silently move when a booked bed frees, nor make an
+          // unrelated lifecycle update conflict). Also never blocks on a
+          // retired bed (r1) — no resource lookup happens at all.
+          const cleanupMs = fresh.occupiedUntil
+            ? Math.max(0, fresh.occupiedUntil.getTime() - fresh.endsAt.getTime())
+            : 0
+          resourcePatch.occupiedUntil = new Date(effEndsAt.getTime() + cleanupMs)
+        } else if (input.resource_id === null) {
+          resourcePatch.occupiedUntil = null
+        }
+        const updated = await tx.appointment.update({
+          where: { id },
+          data: { ...buildData(fresh), ...resourcePatch },
+        })
         if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
         return { row: updated }
       })
@@ -480,6 +550,7 @@ export async function updateAppointment(
     // (business_id, customer_id, starts_at) also fires on UPDATE — without
     // this catch a same-customer collision surfaced as a raw P2002 → 500.
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
+    if (isResourceOverlap(e)) throw new ResourceTakenError()
     throw e
   }
 }

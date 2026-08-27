@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import type { RoomClass } from '@prisma/client'
 import type { CreateMenuInput, ListMenusInput, UpdateMenuInput } from '../validations/menu.js'
 
 export class MenuBandInvalidError extends Error {
@@ -25,6 +26,8 @@ export interface MenuPublic {
   nomination_allowed: boolean
   online_visible: boolean
   active: boolean
+  /** Bed plane: room class this treatment requires (null = any bed). */
+  required_room_class: 'standard' | 'private' | null
   created_at: string
   updated_at: string
 }
@@ -46,6 +49,7 @@ type MenuRow = {
   nominationAllowed: boolean
   onlineVisible: boolean
   active: boolean
+  requiredRoomClass: RoomClass | null
   createdAt: Date
   updatedAt: Date
 }
@@ -68,6 +72,10 @@ function toPublic(row: MenuRow): MenuPublic {
     nomination_allowed: row.nominationAllowed,
     online_visible: row.onlineVisible,
     active: row.active,
+    required_room_class:
+      row.requiredRoomClass === 'private_room' ? 'private'
+      : row.requiredRoomClass === 'standard' ? 'standard'
+      : null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -111,6 +119,9 @@ export async function createMenu(businessId: string, input: CreateMenuInput): Pr
       ...(input.nomination_allowed !== undefined ? { nominationAllowed: input.nomination_allowed } : {}),
       ...(input.online_visible !== undefined ? { onlineVisible: input.online_visible } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.required_room_class !== undefined
+        ? { requiredRoomClass: input.required_room_class === null ? null : (input.required_room_class === 'private' ? 'private_room' : 'standard') as RoomClass }
+        : {}),
     },
   })
   return toPublic(row)
@@ -132,6 +143,8 @@ export async function updateMenu(
 
   const data: Record<string, unknown> = {}
   if (input.store_id !== undefined) data.storeId = input.store_id
+  if (input.required_room_class !== undefined)
+    data.requiredRoomClass = input.required_room_class === null ? null : (input.required_room_class === 'private' ? 'private_room' : 'standard')
   if (input.name !== undefined) data.name = input.name
   if (input.description !== undefined) data.description = input.description
   if (input.category !== undefined) data.category = input.category

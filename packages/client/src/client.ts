@@ -16,6 +16,7 @@ import { RecordingDiscardClient } from './recording-discards.js'
 import { RetentionSignalClient } from './retention-signals.js'
 import { PermissionClient } from './permissions.js'
 import { PolicyEventClient } from './policy-events.js'
+import { ResourceClient } from './resources.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
 import { InviteClient } from './invites.js'
@@ -48,6 +49,7 @@ export class SynqedClient {
   public retentionSignals: RetentionSignalClient
   public permissions: PermissionClient
   public policyEvents: PolicyEventClient
+  public resources: ResourceClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
   public invites: InviteClient
@@ -79,6 +81,7 @@ export class SynqedClient {
     this.retentionSignals = new RetentionSignalClient(this)
     this.permissions = new PermissionClient(this)
     this.policyEvents = new PolicyEventClient(this)
+    this.resources = new ResourceClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
     this.invites = new InviteClient(this)

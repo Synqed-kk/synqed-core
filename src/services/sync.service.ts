@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import { isUniqueViolation, isRecordNotFound } from '../db/prisma-errors.js'
+import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
   mapReservation,
@@ -470,10 +470,20 @@ async function runQuickReserveSync(
       // --- Appointment upsert by externalRefs.quickreserve.reservationId ---
       const existing = await findAppointmentByQrId(businessId, r.qrReservationId)
       if (existing) {
-        await prisma.appointment.update({
-          where: { id: existing.id },
-          data: stripStaffLockedStatus({ ...qrData }, existing),
-        })
+        // Bed occupancy rides the times (Greptile P1): a crawl move/resize
+        // must recompute occupied_until for a row holding a bed, or the
+        // EXCLUDE range stops representing the appointment. The resource id is
+        // re-read UNDER A ROW LOCK inside the transaction (Greptile r4: the
+        // earlier unlocked snapshot raced concurrent API claims/releases). If
+        // the moved window collides on the bed, QR's times win and the stale
+        // claim is DROPPED (never block the crawl on a bed).
+        await syncUpdateWithBed(
+          businessId,
+          existing.id,
+          (locked) => stripStaffLockedStatus({ ...qrData }, locked) as Record<string, unknown>,
+          r.endsAt,
+          r.qrReservationId,
+        )
         seenAppointmentIds.push(existing.id)
         updated++
       } else {
@@ -498,16 +508,20 @@ async function runQuickReserveSync(
           if (!isUniqueViolation(e, 'starts_at')) throw e
           const claimed = await prisma.appointment.findFirst({
             where: { businessId, customerId, startsAt: r.startsAt },
-            select: { id: true, externalRefs: true, status: true, statusSource: true },
+            select: { id: true, externalRefs: true, status: true, statusSource: true, resourceId: true },
           })
           if (!claimed) throw e
+          // Adopted manual rows can hold a bed: occupancy must ride the
+          // adopted times exactly like the plain-update branch, with the same
+          // row-locked re-read (Greptile r3+r4); a bed conflict on the adopted
+          // window drops the stale claim.
           try {
-            await prisma.appointment.update({
-              where: { id: claimed.id },
+            await syncUpdateWithBed(businessId, claimed.id, (locked) =>
               // Merge, don't clobber: keep any non-QR refs already on the row
               // (e.g. a future integration) and stamp the QR ref on top. Also
-              // preserve a staff-set terminal status (adopt must not un-cancel).
-              data: stripStaffLockedStatus(
+              // preserve a staff-set terminal status (adopt must not un-cancel)
+              // — evaluated against the LOCKED status, not the snapshot.
+              stripStaffLockedStatus(
                 {
                   ...qrData,
                   externalRefs: {
@@ -515,9 +529,8 @@ async function runQuickReserveSync(
                     ...qrExternalRefs,
                   },
                 },
-                claimed,
-              ),
-            })
+                locked,
+              ) as Record<string, unknown>, r.endsAt, r.qrReservationId)
           } catch (e2) {
             // Narrow TOCTOU: the claimed row was deleted (e.g. a manual
             // cancellation) between the findFirst and this update → P2025.
@@ -778,17 +791,89 @@ async function reconcileExisting(
   return existing.id
 }
 
+interface LockedRow {
+  resource_id: string | null
+  status: AppointmentStatus
+  status_source: StatusSource
+  ends_at: Date
+  occupied_until: Date | null
+}
+
+/** Sync-side update that keeps bed occupancy AND status locks honest under
+ *  concurrency (Greptile r4+r5): everything decision-relevant is re-read FOR
+ *  UPDATE inside the transaction — the row lock serialises against the API's
+ *  own locked path. Occupancy carries the row's ORIGINAL cleanup delta
+ *  (occupied_until − ends_at), so a later cleanup_minutes config change never
+ *  silently moves when a booked bed frees. Status preservation
+ *  (stripStaffLockedStatus) evaluates against the LOCKED status, so a staff
+ *  cancel landing after the crawl's snapshot survives. dropClaimIf: the
+ *  exclusion-failure fallback only clears the claim if the row still holds
+ *  the exact resource that conflicted — a newer claim from the API wins. */
+async function syncUpdateWithBed(
+  businessId: string,
+  appointmentId: string,
+  buildData: (locked: { status: AppointmentStatus; statusSource: StatusSource }) => Record<string, unknown>,
+  newEndsAt: Date,
+  qrReservationId?: number,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<LockedRow>>`
+      SELECT resource_id, status, status_source, ends_at, occupied_until FROM appointments
+      WHERE id = ${appointmentId}::uuid AND business_id = ${businessId}::uuid
+      FOR UPDATE`
+    if (rows.length === 0) {
+      // Vanished under us — mimic Prisma's P2025 so callers' adopt-race
+      // handling stays uniform.
+      const err = new Error('Record to update not found.') as Error & { code: string }
+      err.code = 'P2025'
+      throw err
+    }
+    const locked = rows[0]
+    const data = buildData({ status: locked.status, statusSource: locked.status_source })
+    const bedPatch: Record<string, unknown> = {}
+    if (locked.resource_id) {
+      const cleanupMs = locked.occupied_until
+        ? Math.max(0, locked.occupied_until.getTime() - locked.ends_at.getTime())
+        : 0
+      bedPatch.occupiedUntil = new Date(newEndsAt.getTime() + cleanupMs)
+    }
+    // Savepoint (Greptile r6): the conflict retry happens INSIDE this
+    // transaction with the row lock still held, so there is NO window in
+    // which a release-and-reclaim (even of the same bed — the ABA case) can
+    // slip between "conflict detected" and "claim dropped". The drop is
+    // correct by construction: the claim we clear is the exact claim that
+    // just conflicted under the lock.
+    await tx.$executeRaw`SAVEPOINT bed_move`
+    try {
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { ...data, ...bedPatch },
+      })
+    } catch (e) {
+      if (!isResourceOverlap(e)) throw e
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT bed_move`
+      console.warn(
+        `[sync] bed conflict on reservation ${qrReservationId ?? '?'} — dropping the conflicting claim ${locked.resource_id}`,
+      )
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { ...data, resourceId: null, occupiedUntil: null },
+      })
+    }
+  })
+}
+
 async function findAppointmentByQrId(
   businessId: string,
   qrReservationId: number,
-): Promise<{ id: string; status: AppointmentStatus; statusSource: StatusSource } | null> {
+): Promise<{ id: string; status: AppointmentStatus; statusSource: StatusSource; resourceId: string | null } | null> {
   return prisma.appointment.findFirst({
     where: {
       businessId,
       source: 'QUICKRESERVE' as AppointmentSource,
       externalRefs: { path: ['quickreserve', 'reservationId'], equals: qrReservationId },
     },
-    select: { id: true, status: true, statusSource: true },
+    select: { id: true, status: true, statusSource: true, resourceId: true },
   })
 }
 

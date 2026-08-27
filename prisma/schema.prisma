@@ -266,6 +266,8 @@ model Menu {
   // Retirement flag — menus are never hard-deleted (booked appointments
   // reference them; house rule: no hard delete).
   active               Boolean  @default(true)
+  // Bed plane: room class this treatment REQUIRES (NULL = any bed).
+  requiredRoomClass    RoomClass? @map("required_room_class")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -289,6 +291,12 @@ model Appointment {
   // a snapshot, deliberately not an FK (menu edits/retirement must never
   // rewrite what an existing booking promised). NULL on rows that predate
   // menus or come from writers without catalog context (QR crawl, manual).
+  // Bed plane: nullable REAL FK (unlike store_id — deliberate upgrade, Liam
+  // confirmed). occupied_until = ends_at + the resource's cleanup_minutes
+  // SNAPSHOT at write time — the EXCLUDE range covers turnaround without
+  // reaching into another table (the design decision Liam left to core).
+  resourceId    String?   @map("resource_id") @db.Uuid
+  occupiedUntil DateTime? @map("occupied_until") @db.Timestamptz()
   menuId              String? @map("menu_id") @db.Uuid
   bookedPriceAmount   Int?    @map("booked_price_amount")
   bookedPriceCurrency String? @map("booked_price_currency")
@@ -330,6 +338,7 @@ model Appointment {
   // With @@unique gone, P2002 reports the raw index NAME, so that name contains
   // "starts_at" and isUniqueViolation(e, 'starts_at') still matches (adopt + 409).
   @@map("appointments")
+  resource Resource? @relation(fields: [resourceId], references: [id])
 }
 
 // =============================================================================
@@ -723,6 +732,7 @@ model Store {
 
   @@index([businessId])
   @@map("stores")
+  resources Resource[]
 }
 
 // =============================================================================
@@ -1235,4 +1245,41 @@ model StaffPolicyEvent {
   @@index([businessId, staffId, policyLine, policyVersion])
   @@index([businessId, policyLine, policyVersion, event])
   @@map("staff_policy_events")
+}
+
+// =============================================================================
+// Resource — the bed plane (Liam 8/27). A room/bed/booth per store: the salons
+// we sell to are bed-constrained — the room runs out before the therapist
+// does. Never hard-deleted (active flag, same posture as menus). Appointments
+// optionally claim one; the EXCLUDE constraint in the migration is the single
+// guard every writer passes through (the per-staff advisory lock can't
+// serialise two therapists reaching for the same bed, and the QR crawl writes
+// past the service entirely).
+// =============================================================================
+
+enum RoomClass {
+  standard
+  private_room @map("private")
+}
+
+model Resource {
+  id             String    @id @default(uuid()) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  storeId        String    @map("store_id") @db.Uuid
+  name           String
+  note           String?
+  roomClass      RoomClass @default(standard) @map("room_class")
+  // A store that cleans between customers opts in; snapshotted into
+  // occupied_until at booking time.
+  cleanupMinutes Int       @default(0) @map("cleanup_minutes")
+  displayOrder   Int       @default(0) @map("display_order")
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  store        Store         @relation(fields: [storeId], references: [id])
+  appointments Appointment[]
+
+  @@index([businessId, storeId, active])
+  @@map("resources")
 }
