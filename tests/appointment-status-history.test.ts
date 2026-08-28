@@ -92,6 +92,38 @@ describe('booking status history (msg-8 item 5)', () => {
     expect(events).toHaveLength(1)
   })
 
+  it('orders by seq (applied order), not created_at — racing writers can commit against their timestamps', async () => {
+    const { appt } = await createViaApi()
+    // Simulate the race: the LATER-applied event carries the EARLIER
+    // transaction-start timestamp. created_at ordering would reverse these;
+    // seq (insert order) must not.
+    await prisma.appointmentStatusEvent.create({
+      data: {
+        businessId: TEST_BUSINESS_ID,
+        appointmentId: appt.id,
+        status: 'IN_PROGRESS',
+        statusSource: 'STAFF',
+        createdAt: new Date('2026-09-01T05:00:10Z'),
+      },
+    })
+    await prisma.appointmentStatusEvent.create({
+      data: {
+        businessId: TEST_BUSINESS_ID,
+        appointmentId: appt.id,
+        status: 'COMPLETED',
+        statusSource: 'STAFF',
+        createdAt: new Date('2026-09-01T05:00:00Z'),
+      },
+    })
+    const { events } = await (await req('GET', `/appointments/${appt.id}/status-history`)).json()
+    expect(events.map((e: { status: string }) => e.status)).toEqual([
+      'SCHEDULED',
+      'IN_PROGRESS',
+      'COMPLETED',
+    ])
+    expect(events[1].seq).toBeLessThan(events[2].seq)
+  })
+
   it('404s for an unknown appointment', async () => {
     const res = await req(
       'GET',

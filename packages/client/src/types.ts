@@ -568,6 +568,9 @@ export interface Appointment {
  *  status_* fields above. Read via appointments.listStatusHistory(). */
 export interface AppointmentStatusEvent {
   id: string
+  /** Monotonic applied order — the sort key (created_at can tie or disagree
+   *  under concurrent writers; seq cannot). */
+  seq: number
   appointment_id: string
   status: AppointmentStatus
   /** SYSTEM = API default writes, STAFF = a human decision, QR = the crawl

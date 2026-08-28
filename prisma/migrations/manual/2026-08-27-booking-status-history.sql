@@ -20,6 +20,11 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS appointment_status_events (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Monotonic APPLIED order: created_at is transaction-START time, so writers
+  -- racing on the appointment's row lock can commit opposite to their
+  -- timestamps. seq is assigned at INSERT execution, which every writer does
+  -- while holding the appointment's row lock — seq order = applied order.
+  seq            bigserial NOT NULL,
   business_id    uuid NOT NULL,
   appointment_id uuid NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
   status         "AppointmentStatus" NOT NULL,
@@ -37,7 +42,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS appointment_status_events_appointment_idx
-  ON appointment_status_events (appointment_id, created_at);
+  ON appointment_status_events (appointment_id, seq);
 CREATE INDEX IF NOT EXISTS appointment_status_events_business_idx
   ON appointment_status_events (business_id, created_at);
 

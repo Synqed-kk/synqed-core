@@ -613,6 +613,10 @@ export async function updateAppointment(
 
 export interface AppointmentStatusEventPublic {
   id: string
+  /** Monotonic APPLIED order — sort key. created_at is transaction-start
+   *  time and can disagree with the order racing writers actually committed;
+   *  seq (assigned at insert, under the appointment's row lock) cannot. */
+  seq: number
   appointment_id: string
   status: AppointmentStatus
   status_source: StatusSource
@@ -621,8 +625,8 @@ export interface AppointmentStatusEventPublic {
   created_at: string
 }
 
-/** The status event stream, oldest first. Null = appointment not found (or
- *  not this business's) — the route turns that into a 404. */
+/** The status event stream, oldest first (by seq = applied order). Null =
+ *  appointment not found (or not this business's) — the route 404s. */
 export async function listStatusHistory(
   businessId: string,
   appointmentId: string,
@@ -634,10 +638,11 @@ export async function listStatusHistory(
   if (!exists) return null
   const rows = await prisma.appointmentStatusEvent.findMany({
     where: { businessId, appointmentId },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { seq: 'asc' },
   })
   return rows.map((row) => ({
     id: row.id,
+    seq: Number(row.seq),
     appointment_id: row.appointmentId,
     status: row.status,
     status_source: row.statusSource,

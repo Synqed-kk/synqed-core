@@ -361,6 +361,13 @@ model Appointment {
 // compliance trail — this table is the analytics/coaching read side).
 model AppointmentStatusEvent {
   id            String            @id @default(uuid()) @db.Uuid
+  // Monotonic APPLIED order. created_at is now() = transaction-START time, so
+  // two writers racing on the appointment's row lock can commit in the
+  // opposite order to their timestamps — sorting by created_at could reverse
+  // concurrent transitions. seq is assigned at INSERT execution, and every
+  // writer inserts while holding the appointment's row lock (update/FOR
+  // UPDATE), so seq order = the order the transitions were actually applied.
+  seq           BigInt            @default(autoincrement())
   businessId    String            @map("business_id") @db.Uuid
   appointmentId String            @map("appointment_id") @db.Uuid
   status        AppointmentStatus
@@ -371,7 +378,7 @@ model AppointmentStatusEvent {
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
-  @@index([appointmentId, createdAt])
+  @@index([appointmentId, seq])
   @@index([businessId, createdAt])
   @@map("appointment_status_events")
 }
