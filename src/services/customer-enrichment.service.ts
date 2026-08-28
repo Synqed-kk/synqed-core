@@ -42,12 +42,16 @@ export async function customerEnrichment(businessId: string): Promise<CustomerEn
     with appt as (
       select customer_id, starts_at, title, staff_id
       from appointments
-      where business_id = $1::uuid and status::text not in ('CANCELLED', 'NO_SHOW')
+      -- customer_id is null only on kind=BLOCK rows — capacity holds, not
+      -- visits; without the filter they'd surface as a null-id customer.
+      where business_id = $1::uuid and customer_id is not null
+        and status::text not in ('CANCELLED', 'NO_SHOW')
     ),
     noshow as (
       select customer_id, count(*)::int n
       from appointments
-      where business_id = $1::uuid and status::text = 'NO_SHOW'
+      where business_id = $1::uuid and customer_id is not null
+        and status::text = 'NO_SHOW'
       group by customer_id
     ),
     kar as (

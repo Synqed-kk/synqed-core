@@ -3,7 +3,7 @@ import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { computeBookedPrice } from './pricing.service.js'
 import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
-import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
+import type { Appointment, AppointmentStatus, AppointmentSource, AppointmentKind, StatusSource } from '@prisma/client'
 import { isUniqueViolation, isResourceOverlap, isForeignKeyViolation } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
@@ -65,11 +65,22 @@ export class RebookSourceNotFoundError extends Error {
   }
 }
 
+/** A BLOCK row is customerless by definition — assigning one a customer would
+ *  make it a half-booking that every reader misclassifies. */
+export class BlockCustomerInvalidError extends Error {
+  constructor(message = 'A block cannot have a customer.') {
+    super(message)
+    this.name = 'BlockCustomerInvalidError'
+  }
+}
+
 export interface AppointmentPublic {
   id: string
   business_id: string
-  customer_id: string
-  staff_id: string
+  /** Null only on kind=BLOCK rows (item 6). */
+  customer_id: string | null
+  staff_id: string | null
+  kind: AppointmentKind
   store_id: string | null
   starts_at: string
   ends_at: string
@@ -97,8 +108,9 @@ export interface AppointmentPublic {
 function toPublic(row: {
   id: string
   businessId: string
-  customerId: string
-  staffId: string
+  customerId: string | null
+  staffId: string | null
+  kind: AppointmentKind
   storeId: string | null
   startsAt: Date
   endsAt: Date
@@ -127,6 +139,7 @@ function toPublic(row: {
     business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
+    kind: row.kind,
     store_id: row.storeId,
     starts_at: row.startsAt.toISOString(),
     ends_at: row.endsAt.toISOString(),
@@ -297,25 +310,35 @@ export async function createAppointment(
     }
   }
 
-  try {
-    const row = await withStaffSlotLock(businessId, input.staff_id, async (tx) => {
-      const overlapping = await tx.appointment.findFirst({
-        where: {
-          businessId,
-          staffId: input.staff_id,
-          // Per-store: a staff double-booking is only a conflict within the same
-          // location. null-store bookings conflict only with other null-store ones.
-          storeId: input.store_id ?? null,
-          // A terminal booking (cancelled or no-show) frees the slot — the customer
-          // isn't coming, so it must be rebookable.
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-        },
-        select: { id: true },
-      })
+  // Lock key: bookings always have staff (validation). A staffless BLOCK has
+  // no staff slot to serialize — key on the bed instead; its only conflict
+  // surface is the EXCLUDE constraint, which the key merely serializes
+  // politely.
+  const lockKey = input.staff_id ?? `resource:${input.resource_id}`
 
-      if (overlapping) throw new AppointmentOverlapError()
+  try {
+    const row = await withStaffSlotLock(businessId, lockKey, async (tx) => {
+      // Staff overlap only applies when the row occupies staff time — a
+      // staffless bedded block's conflicts are the bed EXCLUDE's job.
+      if (input.staff_id) {
+        const overlapping = await tx.appointment.findFirst({
+          where: {
+            businessId,
+            staffId: input.staff_id,
+            // Per-store: a staff double-booking is only a conflict within the same
+            // location. null-store bookings conflict only with other null-store ones.
+            storeId: input.store_id ?? null,
+            // A terminal booking (cancelled or no-show) frees the slot — the customer
+            // isn't coming, so it must be rebookable.
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+            startsAt: { lt: endsAt },
+            endsAt: { gt: startsAt },
+          },
+          select: { id: true },
+        })
+
+        if (overlapping) throw new AppointmentOverlapError()
+      }
 
       // A customer can't be in two chairs at once: UNIQUE(business_id, customer_id,
       // starts_at) enforces one booking per customer per instant (and is what lets
@@ -326,8 +349,9 @@ export async function createAppointment(
       return tx.appointment.create({
         data: {
           businessId,
-          customerId: input.customer_id,
-          staffId: input.staff_id,
+          customerId: input.customer_id ?? null,
+          staffId: input.staff_id ?? null,
+          kind: input.kind ?? 'BOOKING',
           storeId: input.store_id ?? null,
           startsAt,
           endsAt,
@@ -427,6 +451,11 @@ export async function updateAppointment(
       // cannot change — no lock. P2002 stays possible via customer_id.
       const existing = await prisma.appointment.findFirst({ where: { id, businessId } })
       if (!existing) throw new Error('Appointment not found')
+      // Same block guard as the slot path — customer_id alone is metadata,
+      // so this branch is reachable with it.
+      if (existing.kind === 'BLOCK' && input.customer_id) {
+        throw new BlockCustomerInvalidError()
+      }
       const row = await prisma.$transaction(async (tx) => {
         const updated = await tx.appointment.update({ where: { id }, data: buildData(existing) })
         if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
@@ -451,7 +480,10 @@ export async function updateAppointment(
         select: { staffId: true },
       })
       if (!guess) throw new Error('Appointment not found')
-      lockKey = guess.staffId
+      // Staffless BLOCK: no staff slot to serialize — key on the row itself
+      // (the bed EXCLUDE is the real conflict guard; the FOR UPDATE below is
+      // what serializes same-row writers).
+      lockKey = guess.staffId ?? `row:${id}`
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -468,7 +500,8 @@ export async function updateAppointment(
         // stay linear (no deadlock cycle).
         const freshRows = await tx.$queryRaw<
           Array<{
-            staff_id: string
+            staff_id: string | null
+            kind: AppointmentKind
             store_id: string | null
             status: AppointmentStatus
             starts_at: Date
@@ -477,13 +510,14 @@ export async function updateAppointment(
             resource_id: string | null
             occupied_until: Date | null
           }>
-        >`SELECT staff_id, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until
+        >`SELECT staff_id, kind, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until
           FROM appointments
           WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
           FOR UPDATE`
         const fresh = freshRows[0]
           ? {
               staffId: freshRows[0].staff_id,
+              kind: freshRows[0].kind,
               storeId: freshRows[0].store_id,
               status: freshRows[0].status,
               startsAt: freshRows[0].starts_at,
@@ -494,8 +528,16 @@ export async function updateAppointment(
             }
           : null
         if (!fresh) throw new Error('Appointment not found')
+        // A block is customerless by definition — an update must not turn it
+        // into a half-booking (the DB CHECK would refuse anyway; fail clearly).
+        if (fresh.kind === 'BLOCK' && input.customer_id) {
+          throw new BlockCustomerInvalidError()
+        }
         const effStaffId = input.staff_id ?? fresh.staffId
-        if (effStaffId !== lockKey) return { retryKey: effStaffId }
+        // The key this row SHOULD be locked under (staffless block = row key);
+        // a mismatch means a concurrent reassignment moved it — retry there.
+        const expectedKey = effStaffId ?? `row:${id}`
+        if (expectedKey !== lockKey) return { retryKey: expectedKey }
 
         const effStartsAt =
           input.starts_at !== undefined ? new Date(input.starts_at) : fresh.startsAt
@@ -520,7 +562,9 @@ export async function updateAppointment(
           effStartsAt.getTime() !== fresh.startsAt.getTime() ||
           effEndsAt.getTime() !== fresh.endsAt.getTime()
 
-        if (staysActive && (slotChanged || wasTerminal)) {
+        // Staff overlap only where staff time is occupied — a staffless
+        // block's conflicts belong to the bed EXCLUDE.
+        if (effStaffId && staysActive && (slotChanged || wasTerminal)) {
           const overlapping = await tx.appointment.findFirst({
             where: {
               businessId,

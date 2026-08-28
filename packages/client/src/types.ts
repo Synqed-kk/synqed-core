@@ -524,6 +524,9 @@ export interface VisitDismissal {
 // ===========================================================================
 
 export type AppointmentStatus = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
+/** BOOKING = a customer visit; BLOCK = a customerless capacity hold
+ *  (maintenance, break) that may also be staffless when it holds a bed. */
+export type AppointmentKind = 'BOOKING' | 'BLOCK'
 export type AppointmentSource =
   | 'MANUAL'
   | 'QUICKRESERVE'
@@ -535,8 +538,10 @@ export type AppointmentSource =
 export interface Appointment {
   id: string
   business_id: string
-  customer_id: string
-  staff_id: string
+  /** Null only on kind=BLOCK rows. */
+  customer_id: string | null
+  staff_id: string | null
+  kind: AppointmentKind
   store_id: string | null
   starts_at: string
   ends_at: string
@@ -586,8 +591,11 @@ export interface AppointmentStatusHistoryResponse {
 }
 
 export interface CreateAppointmentInput {
-  customer_id: string
-  staff_id: string
+  /** Required for kind=BOOKING (default); forbidden for kind=BLOCK. */
+  customer_id?: string
+  /** Required for kind=BOOKING; a BLOCK needs staff_id OR resource_id. */
+  staff_id?: string
+  kind?: AppointmentKind
   store_id?: string | null
   starts_at: string
   ends_at: string
