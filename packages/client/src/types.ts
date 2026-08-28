@@ -627,6 +627,9 @@ export interface Menu {
   online_visible: boolean
   active: boolean
   required_room_class: 'standard' | 'private' | null
+  /** Qualification this treatment requires (null = anyone). Informational —
+   *  filter bookable staff; core does not enforce at booking time. */
+  required_qualification_id: string | null
   created_at: string
   updated_at: string
 }
@@ -647,6 +650,7 @@ export interface CreateMenuInput {
   online_visible?: boolean
   active?: boolean
   required_room_class?: 'standard' | 'private' | null
+  required_qualification_id?: string | null
 }
 
 export interface UpdateMenuInput {
@@ -665,6 +669,7 @@ export interface UpdateMenuInput {
   online_visible?: boolean
   active?: boolean
   required_room_class?: 'standard' | 'private' | null
+  required_qualification_id?: string | null
 }
 
 export interface ListMenusOptions {
@@ -1218,6 +1223,12 @@ export interface PricingRuleSet {
 
 // ── Store booking policy ─────────────────────────────────────────────────────
 
+/** One open/close window per weekday ("10:00"–"20:00"); null/absent weekday =
+ *  定休日 (regular weekly closed day). */
+export type WeeklyHours = Partial<
+  Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', { open: string; close: string } | null>
+>
+
 export interface StoreBookingPolicy {
   store_id: string
   booking_open_days: number
@@ -1228,6 +1239,8 @@ export interface StoreBookingPolicy {
   /** スキマガード Phase 1 — policy data only; nothing enforces yet. */
   gap_guard_mode: 'OFF' | 'STANDARD' | 'STRICT'
   new_client_session_minutes: number
+  /** Weekly opening hours; null = never configured (no hours filtering). */
+  weekly_hours: WeeklyHours | null
   source: 'custom' | 'default'
   updated_by: string | null
   updated_at: string | null
@@ -1241,8 +1254,40 @@ export interface SetStoreBookingPolicyInput {
   no_show_pct?: number
   gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
   new_client_session_minutes?: 60 | 75 | 90
+  /** undefined = keep; null = clear back to unconfigured; object = set. */
+  weekly_hours?: WeeklyHours | null
   acting_staff_id: string
   audit?: AuditEventInput
+}
+
+/** Ad-hoc store closure (臨時休業) — one row per store per date. */
+export interface StoreClosedDay {
+  id: string
+  store_id: string
+  /** YYYY-MM-DD */
+  date: string
+  reason: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface AddClosedDayInput {
+  /** YYYY-MM-DD */
+  date: string
+  reason?: string | null
+  acting_staff_id: string
+  audit?: AuditEventInput
+}
+
+// ── Qualifications (bed plane phase 2 item 7) ────────────────────────────────
+
+export interface Qualification {
+  id: string
+  business_id: string
+  name: string
+  active: boolean
+  created_at: string
+  updated_at: string
 }
 
 // ── Recording discard events ─────────────────────────────────────────────────

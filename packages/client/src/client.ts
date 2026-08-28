@@ -12,6 +12,7 @@ import { MenuClient } from './menus.js'
 import { PricingClient } from './pricing.js'
 import { BusinessGrantClient } from './business-grants.js'
 import { StorePolicyClient } from './store-policies.js'
+import { QualificationClient } from './qualifications.js'
 import { RecordingDiscardClient } from './recording-discards.js'
 import { RetentionSignalClient } from './retention-signals.js'
 import { PermissionClient } from './permissions.js'
@@ -45,6 +46,7 @@ export class SynqedClient {
   public pricing: PricingClient
   public businessGrants: BusinessGrantClient
   public storePolicies: StorePolicyClient
+  public qualifications: QualificationClient
   public recordingDiscards: RecordingDiscardClient
   public retentionSignals: RetentionSignalClient
   public permissions: PermissionClient
@@ -77,6 +79,7 @@ export class SynqedClient {
     this.pricing = new PricingClient(this)
     this.businessGrants = new BusinessGrantClient(this)
     this.storePolicies = new StorePolicyClient(this)
+    this.qualifications = new QualificationClient(this)
     this.recordingDiscards = new RecordingDiscardClient(this)
     this.retentionSignals = new RetentionSignalClient(this)
     this.permissions = new PermissionClient(this)

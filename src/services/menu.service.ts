@@ -9,6 +9,23 @@ export class MenuBandInvalidError extends Error {
   }
 }
 
+/** required_qualification_id must name a qualification of the SAME business —
+ *  the FK alone would allow cross-tenant links. */
+export class MenuQualificationNotFoundError extends Error {
+  constructor(message = 'Qualification not found.') {
+    super(message)
+    this.name = 'MenuQualificationNotFoundError'
+  }
+}
+
+async function assertQualification(businessId: string, id: string): Promise<void> {
+  const row = await prisma.qualification.findFirst({
+    where: { id, businessId },
+    select: { id: true },
+  })
+  if (!row) throw new MenuQualificationNotFoundError()
+}
+
 export interface MenuPublic {
   id: string
   business_id: string
@@ -28,6 +45,9 @@ export interface MenuPublic {
   active: boolean
   /** Bed plane: room class this treatment requires (null = any bed). */
   required_room_class: 'standard' | 'private' | null
+  /** Qualification this treatment requires (null = anyone). Informational —
+   *  readers filter bookable staff; no booking-time enforcement. */
+  required_qualification_id: string | null
   created_at: string
   updated_at: string
 }
@@ -50,6 +70,7 @@ type MenuRow = {
   onlineVisible: boolean
   active: boolean
   requiredRoomClass: RoomClass | null
+  requiredQualificationId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -76,6 +97,7 @@ function toPublic(row: MenuRow): MenuPublic {
       row.requiredRoomClass === 'private_room' ? 'private'
       : row.requiredRoomClass === 'standard' ? 'standard'
       : null,
+    required_qualification_id: row.requiredQualificationId,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -102,6 +124,9 @@ export async function getMenu(businessId: string, id: string): Promise<MenuPubli
 }
 
 export async function createMenu(businessId: string, input: CreateMenuInput): Promise<MenuPublic> {
+  if (input.required_qualification_id) {
+    await assertQualification(businessId, input.required_qualification_id)
+  }
   const row = await prisma.menu.create({
     data: {
       businessId,
@@ -121,6 +146,9 @@ export async function createMenu(businessId: string, input: CreateMenuInput): Pr
       ...(input.active !== undefined ? { active: input.active } : {}),
       ...(input.required_room_class !== undefined
         ? { requiredRoomClass: input.required_room_class === null ? null : (input.required_room_class === 'private' ? 'private_room' : 'standard') as RoomClass }
+        : {}),
+      ...(input.required_qualification_id !== undefined
+        ? { requiredQualificationId: input.required_qualification_id }
         : {}),
     },
   })
@@ -143,6 +171,12 @@ export async function updateMenu(
 
   const data: Record<string, unknown> = {}
   if (input.store_id !== undefined) data.storeId = input.store_id
+  if (input.required_qualification_id !== undefined) {
+    if (input.required_qualification_id) {
+      await assertQualification(businessId, input.required_qualification_id)
+    }
+    data.requiredQualificationId = input.required_qualification_id
+  }
   if (input.required_room_class !== undefined)
     data.requiredRoomClass = input.required_room_class === null ? null : (input.required_room_class === 'private' ? 'private_room' : 'standard')
   if (input.name !== undefined) data.name = input.name

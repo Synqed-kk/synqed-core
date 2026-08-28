@@ -24,6 +24,7 @@ export const createMenuSchema = z
     online_visible: z.boolean().optional(),
     active: z.boolean().optional(),
     required_room_class: z.enum(['standard', 'private']).nullable().optional(),
+    required_qualification_id: z.string().uuid().nullable().optional(),
   })
   .strict()
   .refine(
@@ -48,6 +49,7 @@ export const updateMenuSchema = z
     online_visible: z.boolean().optional(),
     active: z.boolean().optional(),
     required_room_class: z.enum(['standard', 'private']).nullable().optional(),
+    required_qualification_id: z.string().uuid().nullable().optional(),
   })
   .strict()
 // Cross-field band validity on partial updates is checked in the service
