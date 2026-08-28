@@ -268,8 +268,14 @@ model Menu {
   active               Boolean  @default(true)
   // Bed plane: room class this treatment REQUIRES (NULL = any bed).
   requiredRoomClass    RoomClass? @map("required_room_class")
+  // Bed plane phase 2 (item 7): qualification this treatment REQUIRES (NULL =
+  // anyone). Informational — board/Reserve filter bookable staff by it; no
+  // booking-time enforcement (same posture as requiredRoomClass).
+  requiredQualificationId String? @map("required_qualification_id") @db.Uuid
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  requiredQualification Qualification? @relation(fields: [requiredQualificationId], references: [id])
 
   @@index([businessId, active])
   @@index([businessId, storeId])
@@ -774,7 +780,8 @@ model Store {
 
   @@index([businessId])
   @@map("stores")
-  resources Resource[]
+  resources  Resource[]
+  closedDays StoreClosedDay[]
 }
 
 // =============================================================================
@@ -1128,12 +1135,70 @@ model StoreBookingPolicy {
   // engine treats unknown mode strings as 'standard'.
   gapGuardMode            GapGuardMode @default(OFF) @map("gap_guard_mode")
   newClientSessionMinutes Int          @default(90) @map("new_client_session_minutes")
+  // Bed plane phase 2 (item 5): weekly opening hours. NULL = not configured —
+  // readers keep their current behavior (no hours filtering). Shape:
+  // { "mon": {"open":"10:00","close":"20:00"} | null, ... } where a null or
+  // absent weekday = 定休日 (regular weekly closed day). Ad-hoc closures
+  // (臨時休業) live in store_closed_days, not here.
+  weeklyHours          Json?    @map("weekly_hours")
   updatedBy            String?  @map("updated_by") @db.Uuid
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
 
   @@index([businessId])
   @@map("store_booking_policies")
+}
+
+// Ad-hoc store closures (臨時休業) — one row per store per date. The weekly
+// 定休日 lives in store_booking_policies.weekly_hours; this table is the
+// exceptions list both the day board and Reserve's calendar subtract.
+model StoreClosedDay {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  storeId    String   @map("store_id") @db.Uuid
+  date       DateTime @db.Date
+  reason     String?
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, date])
+  @@index([businessId, date])
+  @@map("store_closed_days")
+}
+
+// Bed plane phase 2 (item 7): treatment qualifications. Retire via
+// active:false — never hard-deleted (menus reference them; house rule).
+model Qualification {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  name       String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  staffLinks StaffQualification[]
+  menus      Menu[]
+
+  @@unique([businessId, name])
+  @@index([businessId, active])
+  @@map("qualifications")
+}
+
+// Which staff hold which qualification — same replace-the-set semantics as
+// staff_stores.
+model StaffQualification {
+  staffId         String   @map("staff_id") @db.Uuid
+  qualificationId String   @map("qualification_id") @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  qualification Qualification @relation(fields: [qualificationId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, qualificationId])
+  @@index([businessId, qualificationId])
+  @@map("staff_qualifications")
 }
 
 // =============================================================================

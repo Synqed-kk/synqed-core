@@ -153,10 +153,17 @@ export type {
   RecentContact,
   AddVisitDismissalInput,
   VisitDismissal,
+
+  // Bed plane phase 2a
+  WeeklyHours,
+  StoreClosedDay,
+  AddClosedDayInput,
+  Qualification,
 } from './types.js'
 export { PricingClient } from './pricing.js'
 export { BusinessGrantClient } from './business-grants.js'
 export { StorePolicyClient } from './store-policies.js'
+export { QualificationClient } from './qualifications.js'
 export { RecordingDiscardClient } from './recording-discards.js'
 export { RetentionSignalClient } from './retention-signals.js'
 export { PermissionClient } from './permissions.js'

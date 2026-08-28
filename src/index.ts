@@ -18,6 +18,7 @@ import { staffStoreRoutes } from './routes/staff-stores.js'
 import { businessGrantRoutes } from './routes/business-grants.js'
 import { pricingRuleRoutes } from './routes/pricing-rules.js'
 import { storePolicyRoutes } from './routes/store-policies.js'
+import { qualificationRoutes } from './routes/qualifications.js'
 import { recordingDiscardRoutes } from './routes/recording-discards.js'
 import { retentionSignalRoutes } from './routes/retention-signals.js'
 import { permissionRoutes } from './routes/permissions.js'
@@ -62,6 +63,7 @@ app.route('/staff-stores', staffStoreRoutes)
 app.route('/business-grants', businessGrantRoutes)
 app.route('/pricing-rules', pricingRuleRoutes)
 app.route('/store-policies', storePolicyRoutes)
+app.route('/qualifications', qualificationRoutes)
 app.route('/recording-discards', recordingDiscardRoutes)
 app.route('/retention-signals', retentionSignalRoutes)
 app.route('/permissions', permissionRoutes)
