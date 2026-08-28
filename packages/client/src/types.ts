@@ -558,8 +558,31 @@ export interface Appointment {
   status_set_by: string | null
   status_reason: string | null
   status_set_at: string | null
+  /** Rebook provenance: the booking this one replaced (null = not a rebook). */
+  rebooked_from_appointment_id: string | null
   created_at: string
   updated_at: string
+}
+
+/** One row per status CHANGE — the event stream behind the single-slot
+ *  status_* fields above. Read via appointments.listStatusHistory(). */
+export interface AppointmentStatusEvent {
+  id: string
+  /** Monotonic applied order — the sort key (created_at can tie or disagree
+   *  under concurrent writers; seq cannot). */
+  seq: number
+  appointment_id: string
+  status: AppointmentStatus
+  /** SYSTEM = API default writes, STAFF = a human decision, QR = the crawl
+   *  (feed status or the orphan-cancel sweep, reason 'qr-orphan-sweep'). */
+  status_source: 'SYSTEM' | 'STAFF' | 'QR' | string
+  set_by: string | null
+  reason: string | null
+  created_at: string
+}
+
+export interface AppointmentStatusHistoryResponse {
+  events: AppointmentStatusEvent[]
 }
 
 export interface CreateAppointmentInput {
@@ -578,6 +601,8 @@ export interface CreateAppointmentInput {
   booked_price_currency?: string | null
   status?: AppointmentStatus
   source?: AppointmentSource
+  /** Rebook provenance — must be an appointment of the same business (404 otherwise). */
+  rebooked_from_appointment_id?: string | null
 }
 
 // ── Menus ────────────────────────────────────────────────────────────────────

@@ -48,6 +48,8 @@ export type {
   Appointment,
   AppointmentStatus,
   AppointmentSource,
+  AppointmentStatusEvent,
+  AppointmentStatusHistoryResponse,
   CreateAppointmentInput,
   UpdateAppointmentInput,
   ListAppointmentsOptions,

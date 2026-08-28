@@ -4,7 +4,7 @@ import { computeBookedPrice } from './pricing.service.js'
 import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
-import { isUniqueViolation, isResourceOverlap } from '../db/prisma-errors.js'
+import { isUniqueViolation, isResourceOverlap, isForeignKeyViolation } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -55,6 +55,16 @@ export class CustomerSlotConflictError extends Error {
   }
 }
 
+/** rebooked_from must point at a booking of the SAME business — the FK alone
+ *  would let a caller link across tenants (and probe foreign ids by response
+ *  code), so existence is checked business-scoped before the write. */
+export class RebookSourceNotFoundError extends Error {
+  constructor(message = 'Rebooked-from appointment not found.') {
+    super(message)
+    this.name = 'RebookSourceNotFoundError'
+  }
+}
+
 export interface AppointmentPublic {
   id: string
   business_id: string
@@ -79,6 +89,7 @@ export interface AppointmentPublic {
   status_set_by: string | null
   status_reason: string | null
   status_set_at: string | null
+  rebooked_from_appointment_id: string | null
   created_at: string
   updated_at: string
 }
@@ -107,6 +118,7 @@ function toPublic(row: {
   statusSetBy: string | null
   statusReason: string | null
   statusSetAt: Date | null
+  rebookedFromId: string | null
   createdAt: Date
   updatedAt: Date
 }): AppointmentPublic {
@@ -134,6 +146,7 @@ function toPublic(row: {
     status_set_by: row.statusSetBy,
     status_reason: row.statusReason,
     status_set_at: row.statusSetAt?.toISOString() ?? null,
+    rebooked_from_appointment_id: row.rebookedFromId,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -254,6 +267,17 @@ export async function createAppointment(
     occupiedUntil = await occupancyFor(businessId, input.resource_id, input.store_id ?? null, endsAt)
   }
 
+  // Rebook provenance: the FK guarantees existence but not tenancy — check
+  // business-scoped so a caller can neither link across businesses nor probe
+  // foreign appointment ids.
+  if (input.rebooked_from_appointment_id) {
+    const source = await prisma.appointment.findFirst({
+      where: { id: input.rebooked_from_appointment_id, businessId },
+      select: { id: true },
+    })
+    if (!source) throw new RebookSourceNotFoundError()
+  }
+
   let bookedPrice: { amount: number; currency: string } | null = null
   if (input.menu_id) {
     const computed = await computeBookedPrice(
@@ -318,6 +342,16 @@ export async function createAppointment(
           bookedPriceCurrency: bookedPrice ? bookedPrice.currency : (input.booked_price_currency ?? null),
           status: input.status ?? 'SCHEDULED',
           source: input.source ?? 'MANUAL',
+          rebookedFromId: input.rebooked_from_appointment_id ?? null,
+          // First row of the status stream: the status the booking was born
+          // with. Nested create = same INSERT transaction as the booking.
+          statusEvents: {
+            create: {
+              businessId,
+              status: input.status ?? 'SCHEDULED',
+              statusSource: 'SYSTEM',
+            },
+          },
         },
       })
     })
@@ -325,6 +359,10 @@ export async function createAppointment(
   } catch (e) {
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
     if (isResourceOverlap(e)) throw new ResourceTakenError()
+    // TOCTOU on the rebook link: the source row can be hard-deleted between
+    // the business-scoped check above and the INSERT — the FK then fires.
+    // Same outcome as the check: the referenced booking doesn't exist.
+    if (isForeignKeyViolation(e, 'rebooked_from')) throw new RebookSourceNotFoundError()
     throw e
   }
 }
@@ -532,9 +570,27 @@ export async function updateAppointment(
         } else if (input.resource_id === null) {
           resourcePatch.occupiedUntil = null
         }
+        // Status stream: append only on an actual TRANSITION — a full-state
+        // PUT restating the current status is not a change and writes no row
+        // (the status_* audit fields still restamp; that behavior predates
+        // the stream and stays).
+        const statusEventPatch =
+          input.status !== undefined && input.status !== fresh.status
+            ? {
+                statusEvents: {
+                  create: {
+                    businessId,
+                    status: input.status,
+                    statusSource: 'STAFF' as StatusSource,
+                    setBy: input.acting_staff_id ?? null,
+                    reason: input.status_reason ?? null,
+                  },
+                },
+              }
+            : {}
         const updated = await tx.appointment.update({
           where: { id },
-          data: { ...buildData(fresh), ...resourcePatch },
+          data: { ...buildData(fresh), ...resourcePatch, ...statusEventPatch },
         })
         if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
         return { row: updated }
@@ -553,6 +609,47 @@ export async function updateAppointment(
     if (isResourceOverlap(e)) throw new ResourceTakenError()
     throw e
   }
+}
+
+export interface AppointmentStatusEventPublic {
+  id: string
+  /** Monotonic APPLIED order — sort key. created_at is transaction-start
+   *  time and can disagree with the order racing writers actually committed;
+   *  seq (assigned at insert, under the appointment's row lock) cannot. */
+  seq: number
+  appointment_id: string
+  status: AppointmentStatus
+  status_source: StatusSource
+  set_by: string | null
+  reason: string | null
+  created_at: string
+}
+
+/** The status event stream, oldest first (by seq = applied order). Null =
+ *  appointment not found (or not this business's) — the route 404s. */
+export async function listStatusHistory(
+  businessId: string,
+  appointmentId: string,
+): Promise<AppointmentStatusEventPublic[] | null> {
+  const exists = await prisma.appointment.findFirst({
+    where: { id: appointmentId, businessId },
+    select: { id: true },
+  })
+  if (!exists) return null
+  const rows = await prisma.appointmentStatusEvent.findMany({
+    where: { businessId, appointmentId },
+    orderBy: { seq: 'asc' },
+  })
+  return rows.map((row) => ({
+    id: row.id,
+    seq: Number(row.seq),
+    appointment_id: row.appointmentId,
+    status: row.status,
+    status_source: row.statusSource,
+    set_by: row.setBy,
+    reason: row.reason,
+    created_at: row.createdAt.toISOString(),
+  }))
 }
 
 export async function deleteAppointment(businessId: string, id: string): Promise<void> {

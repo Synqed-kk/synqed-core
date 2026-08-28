@@ -11,6 +11,16 @@ export function isUniqueViolation(e: unknown, field: string): boolean {
   return asStr.includes(field)
 }
 
+// True when `e` is a Prisma P2003 foreign-key violation whose constraint
+// involves `field`. meta.field_name carries the constraint name (e.g.
+// "appointments_rebooked_from_appointment_id_fkey (index)").
+export function isForeignKeyViolation(e: unknown, field: string): boolean {
+  if (e === null || typeof e !== 'object' || !('code' in e)) return false
+  if ((e as { code?: unknown }).code !== 'P2003') return false
+  const name = (e as { meta?: { field_name?: unknown } }).meta?.field_name
+  return String(name ?? '').includes(field)
+}
+
 // True when `e` is a Prisma P2025 "record to update/delete does not exist"
 // error — the row vanished between a read and the write that targets it.
 export function isRecordNotFound(e: unknown): boolean {
