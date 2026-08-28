@@ -135,6 +135,21 @@ describe('ad-hoc closed days (item 5)', () => {
     const res = await req('GET', '/store-policies/00000000-0000-0000-0000-000000000099/closed-days')
     expect(res.status).toBe(404)
   })
+
+  it('rejects shape-valid but nonexistent calendar dates (2026-02-30)', async () => {
+    const owner = await seedTestStaff({ role: 'OWNER' })
+    const store = await seedStore()
+    const res = await req('POST', `/store-policies/${store.id}/closed-days`, {
+      date: '2026-02-30',
+      acting_staff_id: owner.id,
+    })
+    expect(res.status).toBe(400)
+    const range = await req(
+      'GET',
+      `/store-policies/${store.id}/closed-days?from=2026-02-30&to=2026-03-01`,
+    )
+    expect(range.status).toBe(400)
+  })
 })
 
 describe('qualifications (item 7)', () => {
@@ -173,6 +188,21 @@ describe('qualifications (item 7)', () => {
 
     const bulk = await (await req('GET', '/qualifications/staff')).json()
     expect(bulk.assignments[staff.id]).toEqual([q2.id])
+  })
+
+  it('a malformed replace body 400s instead of silently wiping the set', async () => {
+    const staff = await seedTestStaff()
+    const q1 = await (await req('POST', '/qualifications', { name: 'A' })).json()
+    await req('PUT', `/qualifications/staff/${staff.id}`, { qualification_ids: [q1.id] })
+
+    // Missing key, wrong type, and non-uuid elements must all 400 — a REPLACE
+    // endpoint that coerces garbage to [] would delete every link with a 200.
+    for (const bad of [{}, { qualification_ids: 'A' }, { qualification_ids: [1] }]) {
+      const res = await req('PUT', `/qualifications/staff/${staff.id}`, bad)
+      expect(res.status).toBe(400)
+    }
+    const ids = await (await req('GET', `/qualifications/staff/${staff.id}`)).json()
+    expect(ids.qualification_ids).toEqual([q1.id])
   })
 
   it('rejects linking a qualification from outside the business', async () => {

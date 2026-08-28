@@ -34,14 +34,22 @@ qualificationRoutes.get('/staff/:staffId', async (c) => {
 })
 
 // Replace a staff member's full qualification set (staff-stores semantics).
+// Strict parse, not filter-and-proceed: this is a REPLACE — a malformed body
+// silently coerced to [] would wipe the staff member's links with a 200.
 qualificationRoutes.put('/staff/:staffId', async (c) => {
   const businessId = c.get('businessId')
-  const body = await c.req.json().catch(() => ({}))
-  const ids = Array.isArray(body.qualification_ids)
-    ? body.qualification_ids.filter((s: unknown): s is string => typeof s === 'string')
-    : []
+  const body = await c.req.json().catch(() => null)
+  const parsed = z
+    .object({ qualification_ids: z.array(z.string().uuid()) })
+    .strict()
+    .safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
-    await qualificationService.setStaffQualifications(businessId, c.req.param('staffId'), ids)
+    await qualificationService.setStaffQualifications(
+      businessId,
+      c.req.param('staffId'),
+      parsed.data.qualification_ids,
+    )
     return c.json({ ok: true })
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : 'Failed' }, 400)

@@ -43,9 +43,18 @@ const setSchema = z.object({
   audit: auditEventSchema.optional(),
 })
 
+// Shape AND calendar validity: the regex alone accepts 2026-02-30, which
+// new Date() silently normalizes to another day — the round-trip check
+// rejects it instead.
 const dateRe = /^\d{4}-\d{2}-\d{2}$/
+const calendarDate = z
+  .string()
+  .regex(dateRe, 'date must be YYYY-MM-DD')
+  .refine((s) => new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s, {
+    message: 'date is not a real calendar date',
+  })
 const addClosedDaySchema = z.object({
-  date: z.string().regex(dateRe, 'date must be YYYY-MM-DD'),
+  date: calendarDate,
   reason: z.string().max(500).nullable().optional(),
   acting_staff_id: z.string().uuid(),
   audit: auditEventSchema.optional(),
@@ -63,7 +72,7 @@ storePolicyRoutes.get('/:storeId/closed-days', async (c) => {
   const businessId = c.get('businessId')
   const q = Object.fromEntries(new URL(c.req.url).searchParams)
   const range = z
-    .object({ from: z.string().regex(dateRe).optional(), to: z.string().regex(dateRe).optional() })
+    .object({ from: calendarDate.optional(), to: calendarDate.optional() })
     .safeParse(q)
   if (!range.success) return c.json({ error: range.error.issues[0].message }, 400)
   const days = await policyService.listClosedDays(businessId, c.req.param('storeId'), range.data)
