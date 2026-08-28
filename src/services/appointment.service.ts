@@ -4,7 +4,7 @@ import { computeBookedPrice } from './pricing.service.js'
 import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, StatusSource } from '@prisma/client'
-import { isUniqueViolation, isResourceOverlap } from '../db/prisma-errors.js'
+import { isUniqueViolation, isResourceOverlap, isForeignKeyViolation } from '../db/prisma-errors.js'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -359,6 +359,10 @@ export async function createAppointment(
   } catch (e) {
     if (isUniqueViolation(e, 'starts_at')) throw new CustomerSlotConflictError()
     if (isResourceOverlap(e)) throw new ResourceTakenError()
+    // TOCTOU on the rebook link: the source row can be hard-deleted between
+    // the business-scoped check above and the INSERT — the FK then fires.
+    // Same outcome as the check: the referenced booking doesn't exist.
+    if (isForeignKeyViolation(e, 'rebooked_from')) throw new RebookSourceNotFoundError()
     throw e
   }
 }
