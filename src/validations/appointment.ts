@@ -28,6 +28,9 @@ export const createAppointmentSchema = z.object({
   booked_price_currency: z.string().length(3).nullable().optional(),
   status: appointmentStatusSchema.optional(),
   source: appointmentSourceSchema.optional(),
+  // Rebook provenance: the booking this one replaces (msg-8 item 5). Must be
+  // an appointment of the same business — service-checked, 404 otherwise.
+  rebooked_from_appointment_id: z.string().uuid().nullable().optional(),
 })
 
 export const updateAppointmentSchema = z

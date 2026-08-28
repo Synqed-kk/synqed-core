@@ -15,6 +15,7 @@ import {
   SlotContentionError,
   ResourceTakenError,
   InvalidResourceError,
+  RebookSourceNotFoundError,
 } from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
@@ -33,6 +34,16 @@ appointmentRoutes.get('/:id', async (c) => {
   const appointment = await appointmentService.getAppointment(businessId, c.req.param('id'))
   if (!appointment) return c.json({ error: 'Appointment not found' }, 404)
   return c.json(appointment)
+})
+
+// The status event stream (msg-8 item 5), oldest first — the who/source/
+// reason/when of every status change, which the single-slot status_* fields
+// on the appointment overwrite.
+appointmentRoutes.get('/:id/status-history', async (c) => {
+  const businessId = c.get('businessId')
+  const events = await appointmentService.listStatusHistory(businessId, c.req.param('id'))
+  if (events === null) return c.json({ error: 'Appointment not found' }, 404)
+  return c.json({ events })
 })
 
 appointmentRoutes.post('/', async (c) => {
@@ -86,6 +97,9 @@ appointmentRoutes.post('/', async (c) => {
       return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
     }
     if (err instanceof Error && err.message === 'Menu not found') {
+      return c.json({ error: err.message }, 404)
+    }
+    if (err instanceof RebookSourceNotFoundError) {
       return c.json({ error: err.message }, 404)
     }
     if (err instanceof ResourceTakenError) {

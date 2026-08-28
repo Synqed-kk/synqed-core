@@ -2,6 +2,7 @@ import type { SynqedClient } from './client.js'
 import type {
   AuditEventInput,
   Appointment,
+  AppointmentStatusHistoryResponse,
   CreateAppointmentInput,
   UpdateAppointmentInput,
   ListAppointmentsOptions,
@@ -28,6 +29,15 @@ export class AppointmentClient {
 
   async get(id: string): Promise<Appointment> {
     return this.client.fetch<Appointment>(`/appointments/${id}`)
+  }
+
+  /** The status event stream, oldest first — one row per status change
+   *  (who/source/reason/when), vs the single-slot status_* fields that
+   *  overwrite. */
+  async listStatusHistory(id: string): Promise<AppointmentStatusHistoryResponse> {
+    return this.client.fetch<AppointmentStatusHistoryResponse>(
+      `/appointments/${id}/status-history`,
+    )
   }
 
   async create(

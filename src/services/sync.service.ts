@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { Prisma } from '@prisma/client'
 import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
 import {
@@ -495,7 +496,16 @@ async function runQuickReserveSync(
         // This is what makes "one visit = two bookings" impossible.
         try {
           const row = await prisma.appointment.create({
-            data: { businessId, ...qrData, externalRefs: qrExternalRefs },
+            data: {
+              businessId,
+              ...qrData,
+              externalRefs: qrExternalRefs,
+              // First row of the status stream (msg-8 item 5): born SCHEDULED
+              // from the crawl. Nested create = same INSERT transaction.
+              statusEvents: {
+                create: { businessId, status: qrData.status, statusSource: 'QR' as StatusSource },
+              },
+            },
           })
           seenAppointmentIds.push(row.id)
           created++
@@ -830,6 +840,21 @@ async function syncUpdateWithBed(
     }
     const locked = rows[0]
     const data = buildData({ status: locked.status, statusSource: locked.status_source })
+    // Status stream (msg-8 item 5): the crawl's write is a status CHANGE only
+    // when the feed's status differs from the LOCKED row's (stripStaffLocked-
+    // Status may have removed status from data entirely — then nothing to
+    // record). Nested create rides whichever update below commits — the
+    // savepoint rollback in the bed-conflict path discards it with the failed
+    // update, so the retry writes it exactly once.
+    const nextStatus = (data as { status?: AppointmentStatus }).status
+    const statusEventPatch =
+      nextStatus !== undefined && nextStatus !== locked.status
+        ? {
+            statusEvents: {
+              create: { businessId, status: nextStatus, statusSource: 'QR' as StatusSource },
+            },
+          }
+        : {}
     const bedPatch: Record<string, unknown> = {}
     if (locked.resource_id) {
       const cleanupMs = locked.occupied_until
@@ -847,7 +872,7 @@ async function syncUpdateWithBed(
     try {
       await tx.appointment.update({
         where: { id: appointmentId },
-        data: { ...data, ...bedPatch },
+        data: { ...data, ...bedPatch, ...statusEventPatch },
       })
     } catch (e) {
       if (!isResourceOverlap(e)) throw e
@@ -857,7 +882,7 @@ async function syncUpdateWithBed(
       )
       await tx.appointment.update({
         where: { id: appointmentId },
-        data: { ...data, resourceId: null, occupiedUntil: null },
+        data: { ...data, resourceId: null, occupiedUntil: null, ...statusEventPatch },
       })
     }
   })
@@ -883,24 +908,46 @@ export async function markOrphanedCancelled(
   windowEnd: Date,
   seenIds: string[],
 ): Promise<number> {
-  const result = await prisma.appointment.updateMany({
-    where: {
-      businessId,
-      source: 'QUICKRESERVE' as AppointmentSource,
-      startsAt: { gte: windowStart, lt: windowEnd },
-      cancelledAt: null,
-      // Never re-touch a terminal row, and never override a staff decision — a
-      // staff-set CANCELLED/NO_SHOW must survive the crawl's orphan sweep.
-      status: { notIn: ['CANCELLED', 'NO_SHOW'] as AppointmentStatus[] },
-      statusSource: { not: 'STAFF' as StatusSource },
-      id: { notIn: seenIds },
-    },
-    data: {
-      status: 'CANCELLED' as AppointmentStatus,
-      cancelledAt: new Date(),
-    },
+  // Raw UPDATE … RETURNING instead of updateMany: the status stream (msg-8
+  // item 5) needs one event row per booking the sweep ACTUALLY cancelled, and
+  // RETURNING is the only race-free way to know exactly which rows those were
+  // (a select-then-update pair could stamp events onto rows another writer
+  // changed in between). Same guards as before: never a terminal row, never a
+  // staff decision. Raw INSERT/UPDATE gotcha: updated_at stamped by hand —
+  // @updatedAt is client-side only.
+  return prisma.$transaction(async (tx) => {
+    const cancelled = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      UPDATE appointments SET
+        status = 'CANCELLED'::"AppointmentStatus",
+        cancelled_at = now(),
+        updated_at = now()
+      WHERE business_id = ${businessId}::uuid
+        AND source = 'QUICKRESERVE'::"AppointmentSource"
+        AND starts_at >= ${windowStart} AND starts_at < ${windowEnd}
+        AND cancelled_at IS NULL
+        AND status NOT IN ('CANCELLED', 'NO_SHOW')
+        AND status_source <> 'STAFF'
+        ${
+          seenIds.length > 0
+            ? Prisma.sql`AND id NOT IN (${Prisma.join(seenIds.map((id) => Prisma.sql`${id}::uuid`))})`
+            : Prisma.empty
+        }
+      RETURNING id`)
+    if (cancelled.length > 0) {
+      await tx.appointmentStatusEvent.createMany({
+        data: cancelled.map((row) => ({
+          businessId,
+          appointmentId: row.id,
+          status: 'CANCELLED' as AppointmentStatus,
+          statusSource: 'QR' as StatusSource,
+          // Machine reason: cancellation INFERRED from the reservation
+          // disappearing from the QR feed, not read from it.
+          reason: 'qr-orphan-sweep',
+        })),
+      })
+    }
+    return cancelled.length
   })
-  return result.count
 }
 
 function buildDateWindow(
