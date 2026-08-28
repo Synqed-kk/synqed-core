@@ -16,6 +16,7 @@ import {
   ResourceTakenError,
   InvalidResourceError,
   RebookSourceNotFoundError,
+  BlockCustomerInvalidError,
 } from '../services/appointment.service.js'
 
 export const appointmentRoutes = new Hono<AppEnv>()
@@ -152,6 +153,9 @@ appointmentRoutes.put('/:id', async (c) => {
       return c.json({ error: err.message, code: 'RESOURCE_TAKEN' }, 409)
     }
     if (err instanceof InvalidResourceError) {
+      return c.json({ error: err.message }, 400)
+    }
+    if (err instanceof BlockCustomerInvalidError) {
       return c.json({ error: err.message }, 400)
     }
     throw err

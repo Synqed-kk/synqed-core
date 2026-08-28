@@ -10,9 +10,14 @@ export const appointmentSourceSchema = z.enum([
   'OTHER',
 ])
 
-export const createAppointmentSchema = z.object({
-  customer_id: z.string().uuid(),
-  staff_id: z.string().uuid(),
+export const appointmentKindSchema = z.enum(['BOOKING', 'BLOCK'])
+
+const createAppointmentBase = z.object({
+  // Required for BOOKING (the default), enforced by the superRefine below +
+  // the DB CHECK; a BLOCK is customerless and may be staffless.
+  customer_id: z.string().uuid().optional(),
+  staff_id: z.string().uuid().optional(),
+  kind: appointmentKindSchema.optional(),
   store_id: z.string().uuid().nullish(),
   starts_at: z.string().datetime(),
   ends_at: z.string().datetime(),
@@ -31,6 +36,22 @@ export const createAppointmentSchema = z.object({
   // Rebook provenance: the booking this one replaces (msg-8 item 5). Must be
   // an appointment of the same business — service-checked, 404 otherwise.
   rebooked_from_appointment_id: z.string().uuid().nullable().optional(),
+})
+
+export const createAppointmentSchema = createAppointmentBase.superRefine((v, ctx) => {
+  if ((v.kind ?? 'BOOKING') === 'BOOKING') {
+    if (!v.customer_id)
+      ctx.addIssue({ code: 'custom', message: 'customer_id is required for a booking' })
+    if (!v.staff_id)
+      ctx.addIssue({ code: 'custom', message: 'staff_id is required for a booking' })
+  } else {
+    // A block is customerless by definition and must occupy SOMETHING —
+    // staff time or a bed; a row holding neither reserves nothing.
+    if (v.customer_id)
+      ctx.addIssue({ code: 'custom', message: 'a block cannot have a customer' })
+    if (!v.staff_id && !v.resource_id)
+      ctx.addIssue({ code: 'custom', message: 'a block must have staff_id or resource_id' })
+  }
 })
 
 export const updateAppointmentSchema = z
