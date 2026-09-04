@@ -52,9 +52,11 @@ karuteRoutes.get('/:id', async (c) => {
   const businessId = c.get('businessId')
   const includeEntries = c.req.query('include_entries') !== 'false'
   const includeSegments = c.req.query('include_segments') === 'true'
+  const includeDiscarded = c.req.query('include_discarded') === 'true'
   const rec = await karuteService.getKaruteRecord(businessId, c.req.param('id'), {
     includeEntries,
     includeSegments,
+    includeDiscarded,
   })
   if (!rec) return c.json({ error: 'Karute record not found' }, 404)
   return c.json(rec)

@@ -1,4 +1,6 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { SynqedClient } from '../packages/client/src/index.js'
 import app from '../src/index.js'
 import {
   cleanupTestData,
@@ -30,19 +32,26 @@ async function seedPack(customerId: string, overrides?: Record<string, any>) {
   })
 }
 
-async function seedRedemption(packId: string, customerId: string, redeemedOn: string) {
+async function seedRedemption(
+  packId: string,
+  customerId: string,
+  redeemedOn: string,
+  links?: { appointmentId?: string | null; karuteRecordId?: string | null },
+) {
   return testPrisma.packRedemption.create({
     data: {
       businessId: TEST_BUSINESS_ID,
       packId,
       customerId,
       redeemedOn: new Date(redeemedOn),
+      ...links,
     },
   })
 }
 
 describe('GET /packs/redemptions/recent — priced rows', () => {
   afterEach(async () => {
+    vi.unstubAllGlobals()
     await cleanupTestData()
   })
 
@@ -59,9 +68,49 @@ describe('GET /packs/redemptions/recent — priced rows', () => {
       id: expect.any(String), // the correction handle (remove + recreate)
       customer_id: c.id,
       appointment_id: null,
+      karute_record_id: null,
       redeemed_on: '2026-07-05',
       pack_id: pack.id,
       unit_price: 8500,
+    })
+  })
+
+  it('returns stored karute links and null links through the SDK', async () => {
+    const c = await seedTestCustomer()
+    const linkedPack = await seedPack(c.id)
+    const unlinkedPack = await seedPack(c.id)
+    const appointmentId = randomUUID()
+    const karuteRecordId = randomUUID()
+    await seedRedemption(linkedPack.id, c.id, '2026-09-01', {
+      appointmentId,
+      karuteRecordId,
+    })
+    await seedRedemption(unlinkedPack.id, c.id, '2026-09-02')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input))
+        return app.request(`${url.pathname}${url.search}`, init)
+      }),
+    )
+    const client = new SynqedClient({
+      baseUrl: 'http://core.test',
+      apiKey: TEST_API_KEY,
+      businessId: TEST_BUSINESS_ID,
+    })
+
+    const redemptions = await client.packs.listRecentRedemptions('2026-09-01')
+    const linked = redemptions.find((redemption) => redemption.pack_id === linkedPack.id)
+    const unlinked = redemptions.find((redemption) => redemption.pack_id === unlinkedPack.id)
+
+    expect(linked).toMatchObject({
+      appointment_id: appointmentId,
+      karute_record_id: karuteRecordId,
+    })
+    expect(unlinked).toMatchObject({
+      appointment_id: null,
+      karute_record_id: null,
     })
   })
 

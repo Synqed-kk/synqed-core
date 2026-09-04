@@ -6,6 +6,8 @@ export interface SynqedClientConfig {
   baseUrl: string
   apiKey: string
   businessId: string
+  /** Request-scoped Supabase access token for actor-protected human writes. */
+  accessToken?: string
 }
 
 // ===========================================================================
@@ -456,9 +458,17 @@ export interface AddRedemptionInput {
   created_by?: string | null
 }
 
+export interface PackRedemption {
+  pack_id: string
+  redeemed_on: string
+  appointment_id: string | null
+  karute_record_id: string | null
+}
+
 export interface RecentRedemption {
   customer_id: string
   appointment_id: string | null
+  karute_record_id: string | null
   redeemed_on: string
   pack_id: string
   /** Pack's unit price at read time; null = orphaned redemption (pack row
@@ -825,6 +835,8 @@ export interface UpdateRecordingInput {
 }
 
 export interface ListRecordingsOptions {
+  /** Batch lookup; non-empty ids bypass pagination like customers.list. */
+  ids?: string[]
   from?: string
   to?: string
   date?: string
@@ -868,7 +880,7 @@ export interface SegmentInput {
 // Karute records
 // ===========================================================================
 
-export type KaruteStatus = 'DRAFT' | 'REVIEW' | 'APPROVED'
+export type KaruteStatus = 'DRAFT' | 'REVIEW' | 'APPROVED' | 'DISCARDED'
 
 export type EntryCategory =
   | 'SYMPTOM'
@@ -1052,6 +1064,7 @@ export interface ListKaruteRecordsOptions {
   recording_session_id?: string
   appointment_id?: string
   status?: KaruteStatus
+  include_discarded?: boolean
   from?: string
   to?: string
   page?: number
@@ -1060,7 +1073,10 @@ export interface ListKaruteRecordsOptions {
 
 export interface ListKaruteRecordsResponse {
   karute_records: KaruteRecord[]
+  /** Matching non-discarded records, even when include_discarded is true. */
   total: number
+  /** Matching discarded records. Mixed-result pagination has total + discarded_count rows. */
+  discarded_count: number
   page: number
   page_size: number
 }
@@ -1302,21 +1318,30 @@ export interface Qualification {
 
 export interface RecordingDiscardEvent {
   id: string
-  recording_session_id: string
+  recording_session_id: string | null
+  karute_record_id: string | null
   source: 'STAFF' | 'SYSTEM'
   discarded_by: string | null
   reason: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
   created_at: string
 }
 
-export interface RecordDiscardInput {
-  recording_session_id: string
+interface RecordDiscardFields {
   source: 'STAFF' | 'SYSTEM'
   /** staff card id or login uuid — required for STAFF, forbidden for SYSTEM */
   discarded_by?: string | null
   /** written explanation — required non-blank for STAFF, forbidden for SYSTEM */
   reason?: string | null
 }
+
+/** At least one discard subject is required; both may be supplied. */
+export type RecordDiscardInput = RecordDiscardFields &
+  (
+    | { recording_session_id: string; karute_record_id?: string | null }
+    | { recording_session_id?: string | null; karute_record_id: string }
+  )
 
 export interface ListRecordingDiscardsOptions {
   recording_session_id?: string

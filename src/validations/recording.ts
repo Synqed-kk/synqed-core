@@ -27,6 +27,13 @@ export const updateRecordingSchema = z.object({
 })
 
 export const listRecordingsSchema = z.object({
+  // Batch-by-id mode matches customers.list: comma-separated ids, with an
+  // empty value treated as the ordinary paginated list.
+  ids: z
+    .string()
+    .max(5_000)
+    .optional()
+    .transform((value) => (value ? value.split(',').filter(Boolean) : undefined)),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

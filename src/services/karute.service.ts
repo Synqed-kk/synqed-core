@@ -135,6 +135,7 @@ export async function listKaruteRecords(
     recording_session_id?: string
     appointment_id?: string
     status?: KaruteStatus
+    include_discarded?: boolean
     from?: string
     to?: string
     page?: number
@@ -143,6 +144,7 @@ export async function listKaruteRecords(
 ): Promise<{
   karute_records: KaruteRecordPublic[]
   total: number
+  discarded_count: number
   page: number
   page_size: number
 }> {
@@ -150,34 +152,46 @@ export async function listKaruteRecords(
   const pageSize = options.page_size ?? 100
   const offset = (page - 1) * pageSize
 
-  const where: Record<string, unknown> = { businessId }
-  if (options.customer_id) where.customerId = options.customer_id
-  if (options.store_id) where.storeId = options.store_id
-  if (options.staff_id) where.staffId = options.staff_id
-  if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
-  if (options.appointment_id) where.appointmentId = options.appointment_id
-  if (options.status) where.status = options.status
+  const baseWhere: Prisma.KaruteRecordWhereInput = { businessId }
+  if (options.customer_id) baseWhere.customerId = options.customer_id
+  if (options.store_id) baseWhere.storeId = options.store_id
+  if (options.staff_id) baseWhere.staffId = options.staff_id
+  if (options.recording_session_id) baseWhere.recordingSessionId = options.recording_session_id
+  if (options.appointment_id) baseWhere.appointmentId = options.appointment_id
   if (options.from || options.to) {
-    const createdAt: Record<string, Date> = {}
+    const createdAt: Prisma.DateTimeFilter = {}
     if (options.from) createdAt.gte = new Date(options.from)
     if (options.to) createdAt.lte = new Date(options.to)
-    where.createdAt = createdAt
+    baseWhere.createdAt = createdAt
   }
 
-  const [rows, total] = await Promise.all([
+  const requestedWhere: Prisma.KaruteRecordWhereInput = options.status
+    ? { ...baseWhere, status: options.status }
+    : baseWhere
+  const nonDiscardedWhere: Prisma.KaruteRecordWhereInput = {
+    AND: [requestedWhere, { status: { not: 'DISCARDED' } }],
+  }
+  const discardedWhere: Prisma.KaruteRecordWhereInput = {
+    AND: [requestedWhere, { status: 'DISCARDED' }],
+  }
+  const rowsWhere = options.include_discarded ? requestedWhere : nonDiscardedWhere
+
+  const [rows, total, discardedCount] = await Promise.all([
     prisma.karuteRecord.findMany({
-      where,
+      where: rowsWhere,
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: pageSize,
       include: { _count: { select: { entries: { where: { deletedAt: null } } } } },
     }),
-    prisma.karuteRecord.count({ where }),
+    prisma.karuteRecord.count({ where: nonDiscardedWhere }),
+    prisma.karuteRecord.count({ where: discardedWhere }),
   ])
 
   return {
     karute_records: rows.map((r) => ({ ...toPublic(r), entry_count: r._count.entries })),
     total,
+    discarded_count: discardedCount,
     page,
     page_size: pageSize,
   }
@@ -186,10 +200,13 @@ export async function listKaruteRecords(
 export async function getKaruteRecord(
   businessId: string,
   id: string,
-  opts?: { includeEntries?: boolean; includeSegments?: boolean },
+  opts?: { includeEntries?: boolean; includeSegments?: boolean; includeDiscarded?: boolean },
 ): Promise<KaruteRecordPublic | null> {
+  const where: Prisma.KaruteRecordWhereInput = { id, businessId }
+  if (!opts?.includeDiscarded) where.status = { not: 'DISCARDED' }
+
   const row = await prisma.karuteRecord.findFirst({
-    where: { id, businessId },
+    where,
     include: {
       entries: opts?.includeEntries ? { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } : false,
       recordingSession: opts?.includeSegments
@@ -240,7 +257,7 @@ export async function getByRecordingSession(
     select: { id: true },
   })
   if (!row) return null
-  return getKaruteRecord(businessId, row.id, opts)
+  return getKaruteRecord(businessId, row.id, { ...opts, includeDiscarded: true })
 }
 
 export async function createKaruteRecord(

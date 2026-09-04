@@ -32,4 +32,29 @@ describe('SDK karuteRecords.list', () => {
     expect(urls).toHaveLength(1)
     expect(urls[0]).toContain('store_id=store-1')
   })
+
+  it('serializes include_discarded for list and get', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: RequestInfo | URL) => {
+        urls.push(String(url))
+        return new Response(
+          JSON.stringify({ karute_records: [], total: 0, discarded_count: 0, page: 1, page_size: 100 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }),
+    )
+
+    const client = new SynqedClient({
+      baseUrl: 'http://core.test',
+      apiKey: 'test-key',
+      businessId: 'test-business',
+    })
+    await client.karuteRecords.list({ include_discarded: true })
+    await client.karuteRecords.get('record-1', { include_discarded: true })
+
+    expect(urls[0]).toContain('include_discarded=true')
+    expect(urls[1]).toContain('include_discarded=true')
+  })
 })

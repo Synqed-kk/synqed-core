@@ -14,6 +14,14 @@ export class RecordingDiscardClient {
     })
   }
 
+  /** Immutable manager acknowledgement; actor and timestamp come from bearer auth. */
+  async confirm(id: string): Promise<RecordingDiscardEvent> {
+    return this.client.fetch<RecordingDiscardEvent>(
+      `/recording-discards/${encodeURIComponent(id)}/confirmation`,
+      { method: 'PUT', body: '{}' },
+    )
+  }
+
   async list(options?: ListRecordingDiscardsOptions): Promise<{
     events: RecordingDiscardEvent[]
     total: number

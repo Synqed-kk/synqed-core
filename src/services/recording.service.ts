@@ -5,6 +5,22 @@ import type {
   UpdateRecordingInput,
   SegmentInput,
 } from '../validations/recording.js'
+import type { ActorContext } from '../types/api.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
+
+export class RecordingForbiddenError extends Error {
+  constructor() {
+    super('Not permitted to update this recording.')
+    this.name = 'RecordingForbiddenError'
+  }
+}
+
+export class SegmentConflictError extends Error {
+  constructor() {
+    super('A segment with this recording_session_id and segment_index already exists.')
+    this.name = 'SegmentConflictError'
+  }
+}
 
 export interface SegmentPublic {
   id: string
@@ -87,6 +103,7 @@ function segmentToPublic(row: {
 export async function listRecordings(
   businessId: string,
   options: {
+    ids?: string[]
     from?: string
     to?: string
     date?: string
@@ -108,6 +125,23 @@ export async function listRecordings(
   const offset = (page - 1) * pageSize
 
   const where: Record<string, unknown> = { businessId }
+
+  // Match customers.list batch lookup semantics: a non-empty id set stays
+  // tenant-scoped and returns the complete requested set without pagination.
+  if (options.ids && options.ids.length > 0) {
+    where.id = { in: options.ids }
+    const rows = await prisma.recordingSession.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    })
+    return {
+      recordings: rows.map(toPublic),
+      total: rows.length,
+      page: 1,
+      page_size: rows.length,
+    }
+  }
+
   if (options.customer_id) where.customerId = options.customer_id
   if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
@@ -173,9 +207,16 @@ export async function updateRecording(
   businessId: string,
   id: string,
   input: UpdateRecordingInput,
+  actor: ActorContext,
 ): Promise<RecordingPublic> {
   const existing = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Recording not found')
+
+  const canWrite = actor.capabilities.includes('records.write')
+  const canUpdateOtherStaff = actor.capabilities.includes('recordings.viewAll')
+  if (!canWrite || (existing.staffId !== actor.staffId && !canUpdateOtherStaff)) {
+    throw new RecordingForbiddenError()
+  }
 
   const data: Record<string, unknown> = {}
   if (input.customer_id !== undefined) data.customerId = input.customer_id
@@ -229,17 +270,22 @@ export async function upsertSegments(
   }
 
   if (segments.length > 0) {
-    await prisma.transcriptionSegment.createMany({
-      data: segments.map((s) => ({
-        recordingSessionId: recordingId,
-        segmentIndex: s.segment_index,
-        text: s.text,
-        startTime: s.start_time,
-        endTime: s.end_time,
-        speakerLabel: s.speaker_label ?? null,
-        confidence: s.confidence ?? null,
-      })),
-    })
+    try {
+      await prisma.transcriptionSegment.createMany({
+        data: segments.map((s) => ({
+          recordingSessionId: recordingId,
+          segmentIndex: s.segment_index,
+          text: s.text,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          speakerLabel: s.speaker_label ?? null,
+          confidence: s.confidence ?? null,
+        })),
+      })
+    } catch (err) {
+      if (isUniqueViolation(err, 'segment_index')) throw new SegmentConflictError()
+      throw err
+    }
   }
 
   const rows = await prisma.transcriptionSegment.findMany({
