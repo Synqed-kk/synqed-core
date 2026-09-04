@@ -148,9 +148,20 @@ export interface CheckDuplicateResponse {
   existing_name?: string
 }
 
-// Hono env bindings — available via c.get('businessId')
+import type { Capability } from '../services/permission-rulebook.js'
+
+export interface ActorContext {
+  userId: string
+  staffId: string
+  capabilities: Capability[]
+  visibleStoreIds: string[] | null
+}
+
+// Hono env bindings — business scope comes from the trusted app header; actor
+// identity is present only after actorAuthMiddleware verifies a Supabase JWT.
 export type AppEnv = {
   Variables: {
     businessId: string
+    actor: ActorContext
   }
 }

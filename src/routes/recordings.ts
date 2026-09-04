@@ -7,6 +7,11 @@ import {
   bulkSegmentsSchema,
 } from '../validations/recording.js'
 import * as recordingService from '../services/recording.service.js'
+import {
+  RecordingForbiddenError,
+  SegmentConflictError,
+} from '../services/recording.service.js'
+import { actorAuthMiddleware } from '../middleware/actor-auth.js'
 
 export const recordingRoutes = new Hono<AppEnv>()
 
@@ -35,18 +40,24 @@ recordingRoutes.post('/', async (c) => {
   return c.json(rec, 201)
 })
 
-recordingRoutes.put('/:id', async (c) => {
+recordingRoutes.put('/:id', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
   const parsed = updateRecordingSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
-    const rec = await recordingService.updateRecording(businessId, c.req.param('id'), parsed.data)
+    const rec = await recordingService.updateRecording(
+      businessId,
+      c.req.param('id'),
+      parsed.data,
+      c.get('actor'),
+    )
     return c.json(rec)
   } catch (err) {
     if (err instanceof Error && err.message === 'Recording not found') {
       return c.json({ error: 'Recording not found' }, 404)
     }
+    if (err instanceof RecordingForbiddenError) return c.json({ error: err.message }, 403)
     throw err
   }
 })
@@ -95,6 +106,7 @@ recordingRoutes.post('/:id/segments', async (c) => {
     if (err instanceof Error && err.message === 'Recording not found') {
       return c.json({ error: 'Recording not found' }, 404)
     }
+    if (err instanceof SegmentConflictError) return c.json({ error: err.message }, 409)
     throw err
   }
 })

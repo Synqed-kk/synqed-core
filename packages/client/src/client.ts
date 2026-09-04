@@ -32,6 +32,7 @@ export class SynqedClient {
   private baseUrl: string
   private apiKey: string
   private businessId: string
+  private accessToken?: string
 
   public customers: CustomerClient
   public staff: StaffClient
@@ -66,6 +67,7 @@ export class SynqedClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, '')
     this.apiKey = config.apiKey
     this.businessId = config.businessId
+    this.accessToken = config.accessToken
     this.customers = new CustomerClient(this)
     this.staff = new StaffClient(this)
     this.appointments = new AppointmentClient(this)
@@ -102,6 +104,7 @@ export class SynqedClient {
       'x-api-key': this.apiKey,
       'x-business-id': this.businessId,
       'Content-Type': 'application/json',
+      ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
       ...(init?.headers as Record<string, string>),
     }
 
@@ -123,6 +126,7 @@ export class SynqedClient {
       'x-api-key': this.apiKey,
       'x-business-id': this.businessId,
       'Content-Type': 'application/json',
+      ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
       ...(init?.headers as Record<string, string>),
     }
     const res = await fetch(url, { ...init, headers })
@@ -145,6 +149,7 @@ export class SynqedClient {
         'x-api-key': this.apiKey,
         'x-business-id': this.businessId,
         // NO Content-Type — fetch sets multipart boundary automatically
+        ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
         ...init?.headers,
       },
       body: formData,

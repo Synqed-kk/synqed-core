@@ -99,3 +99,35 @@ describe('Staff DELETE guards', () => {
     expect(body.error).toMatch(/staff not found/i)
   })
 })
+
+describe('Staff pagination', () => {
+  beforeEach(async () => {
+    await cleanupTestData()
+  })
+
+  afterEach(async () => {
+    await cleanupTestData()
+  })
+
+  it('uses id as the stable tiebreak for equal names across page seams', async () => {
+    const ids = [
+      '10000000-0000-0000-0000-000000000005',
+      '10000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000004',
+      '10000000-0000-0000-0000-000000000002',
+      '10000000-0000-0000-0000-000000000003',
+    ]
+    for (const id of ids) await seedTestStaff({ id, name: '同名スタッフ' })
+
+    const traversed: string[] = []
+    for (const page of [1, 2, 3]) {
+      const response = await req('GET', `/staff?page=${page}&page_size=2`)
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      traversed.push(...body.staff.map((staff: { id: string }) => staff.id))
+    }
+
+    expect(traversed).toEqual([...ids].sort())
+    expect(new Set(traversed).size).toBe(ids.length)
+  })
+})

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const karuteStatusSchema = z.enum(['DRAFT', 'REVIEW', 'APPROVED'])
+export const karuteStatusSchema = z.enum(['DRAFT', 'REVIEW', 'APPROVED', 'DISCARDED'])
 
 export const entryCategorySchema = z.enum([
   'SYMPTOM',
@@ -101,6 +101,10 @@ export const listEntryEditsSchema = z.object({
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })
 
+const queryBooleanSchema = z
+  .enum(['true', 'false'])
+  .transform((value) => value === 'true')
+
 export const listKaruteRecordsSchema = z.object({
   customer_id: z.string().uuid().optional(),
   store_id: z.string().uuid().optional(),
@@ -108,6 +112,7 @@ export const listKaruteRecordsSchema = z.object({
   appointment_id: z.string().uuid().optional(),
   recording_session_id: z.string().uuid().optional(),
   status: karuteStatusSchema.optional(),
+  include_discarded: queryBooleanSchema.optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   page: z.coerce.number().int().min(1).optional(),

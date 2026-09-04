@@ -145,6 +145,7 @@ export type {
   ActivePack,
   CreatePackInput,
   AddRedemptionInput,
+  PackRedemption,
   RecentRedemption,
   Lifecycle,
   SetLifecycleInput,

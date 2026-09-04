@@ -5,6 +5,7 @@ import type {
   ActivePack,
   CreatePackInput,
   AddRedemptionInput,
+  PackRedemption,
   RecentRedemption,
   Lifecycle,
   SetLifecycleInput,
@@ -41,8 +42,8 @@ export class PacksClient {
   }
 
   // pack_redemptions
-  async listRedemptions(customerId: string): Promise<Array<{ pack_id: string; redeemed_on: string }>> {
-    const r = await this.client.fetch<{ redemptions: Array<{ pack_id: string; redeemed_on: string }> }>(
+  async listRedemptions(customerId: string): Promise<PackRedemption[]> {
+    const r = await this.client.fetch<{ redemptions: PackRedemption[] }>(
       `/packs/redemptions?customer_id=${encodeURIComponent(customerId)}`,
     )
     return r.redemptions

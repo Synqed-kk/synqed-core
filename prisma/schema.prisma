@@ -507,7 +507,7 @@ model TranscriptionSegment {
 
   recordingSession RecordingSession @relation(fields: [recordingSessionId], references: [id], onDelete: Cascade)
 
-  @@index([recordingSessionId, segmentIndex])
+  @@unique([recordingSessionId, segmentIndex])
   @@map("transcription_segments")
 }
 
@@ -519,6 +519,7 @@ enum KaruteStatus {
   DRAFT
   REVIEW
   APPROVED
+  DISCARDED
 }
 
 model KaruteRecord {
@@ -1232,16 +1233,22 @@ enum RecordingDiscardSource {
 model RecordingDiscardEvent {
   id                 String                 @id @default(uuid()) @db.Uuid
   businessId         String                 @map("business_id") @db.Uuid
-  recordingSessionId String                 @map("recording_session_id") @db.Uuid
+  recordingSessionId String?                @map("recording_session_id") @db.Uuid
+  karuteRecordId     String?                @map("karute_record_id") @db.Uuid
   source             RecordingDiscardSource
   // Staff card id (either identity form accepted at the API, stored under the
   // card). NULL exactly when source = SYSTEM.
   discardedBy        String?                @map("discarded_by") @db.Uuid
   // REQUIRED (non-blank) for STAFF, NULL for SYSTEM — DB CHECK enforced.
   reason             String?
+  // Manager confirmation is immutable audit attribution. No Staff FK on
+  // purpose: the discard ledger must survive staff/session deletion.
+  confirmedBy        String?                @map("confirmed_by") @db.Uuid
+  confirmedAt        DateTime?              @map("confirmed_at") @db.Timestamptz()
   createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz()
 
   @@index([businessId, recordingSessionId])
+  @@index([businessId, karuteRecordId])
   @@index([businessId, createdAt])
   @@map("recording_discard_events")
 }

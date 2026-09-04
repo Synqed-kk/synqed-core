@@ -115,7 +115,12 @@ export async function listStaff(
   }
 
   const [rows, total] = await Promise.all([
-    prisma.staff.findMany({ where, orderBy: { name: 'asc' }, skip: offset, take: pageSize }),
+    prisma.staff.findMany({
+      where,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      skip: offset,
+      take: pageSize,
+    }),
     prisma.staff.count({ where }),
   ])
   return { staff: rows.map(toPublic), total, page, page_size: pageSize }

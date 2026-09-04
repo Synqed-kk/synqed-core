@@ -1,6 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import app from '../src/index.js'
-import { cleanupTestData, seedTestCustomer, seedTestStaff, testPrisma, TEST_BUSINESS_ID, TEST_API_KEY } from './setup.js'
+import {
+  cleanupTestData,
+  seedTestCustomer,
+  seedTestKaruteRecord,
+  seedTestStaff,
+  testPrisma,
+  TEST_BUSINESS_ID,
+  TEST_API_KEY,
+} from './setup.js'
 
 process.env.API_KEYS = TEST_API_KEY
 const headers = {
@@ -46,9 +54,45 @@ describe('recording discard events', () => {
     })
     expect(ok.status).toBe(201)
     const event = await ok.json()
+    expect(event.recording_session_id).toBe(session.id)
+    expect(event.karute_record_id).toBeNull()
     expect(event.discarded_by).toBe(staff.id) // card stored
     expect(event.reason).toBe('お客様の同意が取れていなかったため破棄') // trimmed
     expect(event.id).toBeTruthy() // the audit-detail handle
+  })
+
+  it('persists a written staff reason against a karute record when no session exists', async () => {
+    const customer = await seedTestCustomer()
+    const staff = await seedTestStaff()
+    const karuteRecord = await seedTestKaruteRecord({ customerId: customer.id, staffId: staff.id })
+
+    for (const missingKey of [
+      { source: 'STAFF', discarded_by: staff.id, reason: '記録前に破棄' },
+      {
+        recording_session_id: null,
+        karute_record_id: null,
+        source: 'STAFF',
+        discarded_by: staff.id,
+        reason: '記録前に破棄',
+      },
+    ]) {
+      expect((await req('POST', '/recording-discards', missingKey)).status).toBe(400)
+    }
+
+    const response = await req('POST', '/recording-discards', {
+      karute_record_id: karuteRecord.id,
+      source: 'STAFF',
+      discarded_by: staff.id,
+      reason: '  セッション作成前に破棄したため  ',
+    })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      recording_session_id: null,
+      karute_record_id: karuteRecord.id,
+      discarded_by: staff.id,
+      reason: 'セッション作成前に破棄したため',
+    })
   })
 
   it('system cleanup rows carry no reason and no actor — and reject both', async () => {

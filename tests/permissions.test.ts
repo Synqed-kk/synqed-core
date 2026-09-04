@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import app from '../src/index.js'
 import { cleanupTestData, seedTestStaff, testPrisma, TEST_BUSINESS_ID, TEST_API_KEY } from './setup.js'
 
@@ -17,7 +17,21 @@ async function seedStore(name = '店') {
   return testPrisma.store.create({ data: { businessId: TEST_BUSINESS_ID, name } })
 }
 
+async function deleteAuditLogsForTestBusiness() {
+  await testPrisma.$executeRawUnsafe(
+    `DO $$ BEGIN
+       PERFORM set_config('app.audit_scrub', 'on', true);
+       DELETE FROM audit_log WHERE business_id = '${TEST_BUSINESS_ID}';
+     END $$`,
+  )
+}
+
+beforeEach(async () => {
+  await deleteAuditLogsForTestBusiness()
+})
+
 afterEach(async () => {
+  await deleteAuditLogsForTestBusiness()
   await testPrisma.staffPermission.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
   await testPrisma.permissionVersion.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
   await testPrisma.staffStore.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })

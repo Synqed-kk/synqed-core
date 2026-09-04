@@ -95,11 +95,17 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10)
 
 export async function listRedemptionsByCustomer(
   businessId: string, customerId: string,
-): Promise<Array<{ pack_id: string; redeemed_on: string }>> {
+): Promise<Array<Pick<RedemptionPublic, 'pack_id' | 'redeemed_on' | 'appointment_id' | 'karute_record_id'>>> {
   const rows = await prisma.packRedemption.findMany({
-    where: { businessId, customerId, removedAt: null }, select: { packId: true, redeemedOn: true },
+    where: { businessId, customerId, removedAt: null },
+    select: { packId: true, redeemedOn: true, appointmentId: true, karuteRecordId: true },
   })
-  return rows.map((r) => ({ pack_id: r.packId, redeemed_on: ymd(r.redeemedOn) }))
+  return rows.map((r) => ({
+    pack_id: r.packId,
+    redeemed_on: ymd(r.redeemedOn),
+    appointment_id: r.appointmentId,
+    karute_record_id: r.karuteRecordId,
+  }))
 }
 
 /** All redemption pack_ids for the bulk usage aggregation. */
@@ -113,12 +119,19 @@ export async function listRecentRedemptions(
 ): Promise<Array<{
   // id: the correction handle — a wrongly auto-burned no-show is fixed by
   // removeRedemption(id) + recreate, and it is the pack_undo audit target.
-  id: string; customer_id: string; appointment_id: string | null; redeemed_on: string
-  pack_id: string; unit_price: number | null
+  id: string; customer_id: string; appointment_id: string | null; karute_record_id: string | null
+  redeemed_on: string; pack_id: string; unit_price: number | null
 }>> {
   const rows = await prisma.packRedemption.findMany({
     where: { businessId, removedAt: null, redeemedOn: { gte: new Date(since) } },
-    select: { id: true, customerId: true, appointmentId: true, redeemedOn: true, packId: true },
+    select: {
+      id: true,
+      customerId: true,
+      appointmentId: true,
+      karuteRecordId: true,
+      redeemedOn: true,
+      packId: true,
+    },
     orderBy: { redeemedOn: 'asc' },
   })
   // Price each redemption from its pack — by id, NOT status-filtered: a burn
@@ -136,8 +149,13 @@ export async function listRecentRedemptions(
   // unit_price null = orphaned redemption (pack row gone) — consumers must
   // treat the sum as unpriceable rather than skip the row (undercount).
   return rows.map((r) => ({
-    id: r.id, customer_id: r.customerId, appointment_id: r.appointmentId, redeemed_on: ymd(r.redeemedOn),
-    pack_id: r.packId, unit_price: priceById.get(r.packId) ?? null,
+    id: r.id,
+    customer_id: r.customerId,
+    appointment_id: r.appointmentId,
+    karute_record_id: r.karuteRecordId,
+    redeemed_on: ymd(r.redeemedOn),
+    pack_id: r.packId,
+    unit_price: priceById.get(r.packId) ?? null,
   }))
 }
 
