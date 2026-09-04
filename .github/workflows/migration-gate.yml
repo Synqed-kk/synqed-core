@@ -1,0 +1,40 @@
+name: Migration gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect new manual migrations
+        id: detect
+        run: |
+          FILES=$(git diff --name-only --diff-filter=A origin/${{ github.base_ref }}...HEAD \
+            -- 'prisma/migrations/manual/*.sql')
+          if [ -z "$FILES" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "### New manual migrations in this PR:" >> "$GITHUB_STEP_SUMMARY"
+            echo "$FILES" | while read -r f; do echo "- \`$f\`" >> "$GITHUB_STEP_SUMMARY"; done
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Apply these to production **before** merging." >> "$GITHUB_STEP_SUMMARY"
+            echo "Add the \`migrations-applied\` label to this PR once done." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Require migrations-applied label
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          if echo "$LABELS" | grep -q "migrations-applied"; then
+            echo "Label found. Migrations confirmed applied."
+          else
+            echo "::error::This PR adds manual migrations. Apply them to production, then add the 'migrations-applied' label."
+            exit 1
+          fi
