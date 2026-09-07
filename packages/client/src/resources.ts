@@ -15,6 +15,13 @@ export class ResourceClient {
     return this.client.fetch(`/resources${qs ? `?${qs}` : ''}`)
   }
 
+  async availableForAppointment(appointmentId: string, window?: { starts_at?: string; ends_at?: string }): Promise<{ resources: SalonResource[] }> {
+    const query = new URLSearchParams()
+    if (window?.starts_at) query.set('starts_at', window.starts_at)
+    if (window?.ends_at) query.set('ends_at', window.ends_at)
+    return this.client.fetch(`/resources/available-for-appointment/${encodeURIComponent(appointmentId)}${query.size ? `?${query}` : ''}`)
+  }
+
   async create(input: CreateResourceInput): Promise<SalonResource> {
     return this.client.fetch<SalonResource>('/resources', {
       method: 'POST',
