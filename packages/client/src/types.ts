@@ -411,6 +411,9 @@ export interface UpsertKaruteOutcomeInput {
 // ===========================================================================
 
 export interface Pack {
+  /** Full held-pack usage including every linked visitor; supplied on list reads. */
+  usage_count?: number
+  usage_last_redeemed_on?: string | null
   id: string
   customer_id: string
   kind: string
@@ -428,6 +431,8 @@ export interface Pack {
 }
 
 export interface ActivePack {
+  /** Shared balance belongs to customer_id; show it for every eligible member. */
+  eligible_customer_ids?: string[]
   id: string
   customer_id: string
   kind: string
@@ -472,6 +477,8 @@ export interface PackRedemption {
 }
 
 export interface RecentRedemption {
+  /** Holder snapshot; customer_id remains the actual visitor. Legacy orphan rows are null. */
+  pack_holder_customer_id: string | null
   id: string
   source: RedemptionSource
   reason: string | null

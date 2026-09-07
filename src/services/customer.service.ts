@@ -1,3 +1,4 @@
+import { lockPackSharing } from './customer-links.service.js'
 import { prisma } from '../db/client.js'
 import { getStorage } from './storage.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
@@ -388,11 +389,12 @@ export async function deleteCustomer(
   // would block the FK go first, in one transaction. karute_entry_edits +
   // photos + consents + visits cascade via their FKs; redemptions keep their
   // rows (money history) with customer_id intact — they carry no name/PII.
-  await prisma.$transaction([
-    prisma.appointment.deleteMany({ where: { customerId: id, businessId } }),
-    prisma.customerLifecycle.deleteMany({ where: { customerId: id, businessId } }),
-    prisma.customer.delete({ where: { id } }),
-  ])
+  await prisma.$transaction(async tx => {
+    await lockPackSharing(tx, businessId)
+    await tx.appointment.deleteMany({ where: { customerId: id, businessId } })
+    await tx.customerLifecycle.deleteMany({ where: { customerId: id, businessId } })
+    await tx.customer.delete({ where: { id } })
+  })
 
   // Erasure: scrub this customer's audit rows (target hashed, label/detail
   // nulled) through the ONE SECURITY DEFINER path. Best-effort AFTER the

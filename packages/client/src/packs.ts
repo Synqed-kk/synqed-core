@@ -47,9 +47,9 @@ export class PacksClient {
   }
 
   // pack_redemptions
-  async listRedemptions(customerId: string): Promise<PackRedemption[]> {
+  async listRedemptions(customerId: string, options?: { include_shared?: boolean }): Promise<PackRedemption[]> {
     const r = await this.client.fetch<{ redemptions: PackRedemption[] }>(
-      `/packs/redemptions?customer_id=${encodeURIComponent(customerId)}`,
+      `/packs/redemptions?customer_id=${encodeURIComponent(customerId)}${options?.include_shared ? '&include_shared=true' : ''}`,
     )
     return r.redemptions
   }

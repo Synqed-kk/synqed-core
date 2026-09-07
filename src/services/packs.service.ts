@@ -1,3 +1,5 @@
+import { linkedCustomerIds, lockPackSharing, sharingAuditDetail }  from './customer-links.service.js'
+import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { isCorrection } from '../validations/pack.js'
 import { prisma } from '../db/client.js'
@@ -24,6 +26,8 @@ async function validateCorrection(tx: Prisma.TransactionClient, businessId: stri
 // ─── ticket_packs ────────────────────────────────────────────────────────────
 
 export interface PackPublic {
+  usage_count?: number
+  usage_last_redeemed_on?: string | null
   id: string
   customer_id: string
   kind: string
@@ -55,23 +59,46 @@ function packToPublic(p: {
 }
 
 export async function listPacksByCustomer(businessId: string, customerId: string): Promise<PackPublic[]> {
-  const rows = await prisma.ticketPack.findMany({
-    where: { businessId, customerId },
-    orderBy: [{ purchasedAt: 'desc' }, { createdAt: 'desc' }],
-  })
-  return rows.map(packToPublic)
+  return prisma.$transaction(async tx => {
+    const ids = await linkedCustomerIds(tx, businessId, customerId)
+    const rows = await tx.ticketPack.findMany({
+      where: { businessId, OR: [{ customerId }, { customerId: { in: ids }, status: 'active' }] },
+      orderBy: [{ purchasedAt: 'desc' }, { createdAt: 'desc' }],
+    })
+    const usage = await tx.packRedemption.groupBy({ by: ['packId'],
+      where: { businessId, packId: { in: rows.map(row => row.id) }, removedAt: null },
+      _count: { _all: true }, _max: { redeemedOn: true },
+    })
+    const byPack = new Map(usage.map(row => [row.packId, row]))
+    return rows.map(row => ({ ...packToPublic(row), usage_count: byPack.get(row.id)?._count._all ?? 0,
+      usage_last_redeemed_on: byPack.get(row.id)?._max.redeemedOn?.toISOString().slice(0, 10) ?? null,
+    }))
+  }, { isolationLevel: 'RepeatableRead' })
 }
 
 /** All ACTIVE packs (slim) for the bulk usage aggregation, FIFO-ordered. */
 export async function listActivePacks(businessId: string): Promise<
-  Array<{ id: string; customer_id: string; kind: string; pack_size: number; unit_price: number }>
+  Array<{ id: string; customer_id: string; kind: string; pack_size: number; unit_price: number; eligible_customer_ids?: string[] }>
 > {
   const rows = await prisma.ticketPack.findMany({
     where: { businessId, status: 'active' },
     select: { id: true, customerId: true, kind: true, packSize: true, unitPrice: true },
     orderBy: [{ purchasedAt: 'asc' }, { id: 'asc' }],
   })
-  return rows.map((r) => ({ id: r.id, customer_id: r.customerId, kind: r.kind, pack_size: r.packSize, unit_price: r.unitPrice }))
+  const customers = await prisma.customer.findMany({ where: { businessId, deletedAt: null, packSharingGroupId: { not: null } }, select: { id: true, packSharingGroupId: true } })
+  const groups = new Map<string, string[]>()
+  const groupByCustomer = new Map<string, string>()
+  for (const customer of customers) {
+    const group = customer.packSharingGroupId!
+    groups.set(group, [...(groups.get(group) ?? []), customer.id])
+    groupByCustomer.set(customer.id, group)
+  }
+  return rows.map((r) => {
+    const group = groupByCustomer.get(r.customerId)
+    return { id: r.id, customer_id: r.customerId, kind: r.kind, pack_size: r.packSize, unit_price: r.unitPrice,
+      ...(group ? { eligible_customer_ids: groups.get(group)!.sort() } : {}),
+    }
+  })
 }
 
 export interface CreatePackInput {
@@ -130,10 +157,11 @@ export interface RedemptionPublic {
 const ymd = (d: Date) => d.toISOString().slice(0, 10)
 
 export async function listRedemptionsByCustomer(
-  businessId: string, customerId: string,
+  businessId: string, customerId: string, includeShared = false,
 ): Promise<Array<Pick<RedemptionPublic, 'pack_id' | 'redeemed_on' | 'appointment_id' | 'karute_record_id'>>> {
+  const packs = includeShared ? await listPacksByCustomer(businessId, customerId) : []
   const rows = await prisma.packRedemption.findMany({
-    where: { businessId, customerId, removedAt: null },
+    where: { businessId, removedAt: null, OR: [{ customerId }, { packId: { in: packs.map(pack => pack.id) } }] },
     select: { packId: true, redeemedOn: true, appointmentId: true, karuteRecordId: true },
   })
   return rows.map((r) => ({
@@ -155,6 +183,7 @@ export async function listRecentRedemptions(
 ): Promise<Array<{
   // id: the correction handle — a wrongly auto-burned no-show is fixed by
   // removeRedemption(id) + recreate, and it is the pack_undo audit target.
+  pack_holder_customer_id: string | null
   id: string; customer_id: string; appointment_id: string | null; karute_record_id: string | null
   redeemed_on: string; pack_id: string; unit_price: number | null
   source: string; reason: string | null; created_by: string | null; counts_as_visit: boolean
@@ -168,7 +197,7 @@ export async function listRecentRedemptions(
       appointmentId: true,
       karuteRecordId: true,
       redeemedOn: true,
-      packId: true, source: true, reason: true, createdBy: true, countsAsVisit: true,
+      packId: true, packHolderCustomerId: true, source: true, reason: true, createdBy: true, countsAsVisit: true,
       removedAt: true, removedBy: true, removalSource: true, removalReason: true,
     },
     orderBy: { redeemedOn: 'asc' },
@@ -190,6 +219,7 @@ export async function listRecentRedemptions(
   return rows.map((r) => ({
     id: r.id,
     customer_id: r.customerId,
+    pack_holder_customer_id: r.packHolderCustomerId,
     appointment_id: r.appointmentId,
     karute_record_id: r.karuteRecordId,
     redeemed_on: ymd(r.redeemedOn),
@@ -216,10 +246,36 @@ export async function addRedemption(
   audit?: AuditEventInput,
 ): Promise<{ id: string }> {
   const row = await prisma.$transaction(async (tx) => {
+    await lockPackSharing(tx, businessId)
+    const pack = await tx.ticketPack.findFirst({ where: { id: input.pack_id, businessId } })
+    if (!pack) throw new PackError('Pack not found in this business', 400)
+    const shared = pack.customerId !== input.customer_id
+    if (shared) {
+      const eligible = await linkedCustomerIds(tx, businessId, input.customer_id)
+      if (!eligible.includes(pack.customerId)) throw new PackError('Visitor is not linked to the pack holder', 400)
+    }
+    if (shared && pack.status !== 'active') throw new PackError('Shared pack is not active', 409)
+    // Serialize the common live burn path, including the holder, so family
+    // members cannot spend the same final unit. Corrections/imports keep their
+    // existing historical accounting contract.
+    if (['manual', 'auto'].includes(input.source ?? 'manual')) {
+      const used = await tx.packRedemption.count({ where: { businessId, packId: pack.id, removedAt: null } })
+      if (pack.status !== 'active' || used >= pack.packSize) throw new PackError('Pack has no remaining units', 409)
+    }
+    if (input.appointment_id) {
+      if (!z.string().uuid().safeParse(input.appointment_id).success) throw new PackError('Invalid appointment id', 400)
+      const appointment = await tx.appointment.findFirst({ where: { id: input.appointment_id, businessId, customerId: input.customer_id }, select: { id: true } })
+      if (!appointment) throw new PackError('Appointment must belong to the actual visitor', 400)
+    }
+    if (input.karute_record_id) {
+      if (!z.string().uuid().safeParse(input.karute_record_id).success) throw new PackError('Invalid karute record id', 400)
+      const record = await tx.karuteRecord.findFirst({ where: { id: input.karute_record_id, businessId, customerId: input.customer_id }, select: { id: true } })
+      if (!record) throw new PackError('Karute record must belong to the actual visitor', 400)
+    }
     await validateCorrection(tx, businessId, input.source, input.reason, input.created_by)
     const created = await tx.packRedemption.create({
       data: {
-        businessId, packId: input.pack_id, customerId: input.customer_id,
+        businessId, packId: input.pack_id, customerId: input.customer_id, packHolderCustomerId: pack.customerId,
         redeemedOn: new Date(input.redeemed_on), appointmentId: input.appointment_id ?? null,
         karuteRecordId: input.karute_record_id ?? null, source: input.source ?? 'manual',
         createdBy: input.created_by ?? null, reason: input.reason ?? null,
@@ -227,12 +283,12 @@ export async function addRedemption(
       },
       select: { id: true },
     })
-    if (audit) {
-      await logEventIn(tx, businessId, {
-        ...audit,
-        target_id: audit.target_id ?? created.id,
-      })
-    }
+    if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? created.id })
+    if (shared) await logEventIn(tx, businessId, {
+      actor_id: input.created_by ?? null, actor_type: input.created_by ? 'staff' : 'system',
+      category: 'pack', action: 'pack.shared_redeem', target_type: 'pack_redemption', target_id: created.id,
+      detail: await sharingAuditDetail(tx, businessId, pack.id, pack.customerId, input.customer_id),
+    })
     return created
   })
   return { id: row.id }
@@ -248,7 +304,8 @@ export async function removeRedemption(
   // Undo is a SOFT delete so WHO undid a 回数券 burn stays queryable
   // (removed_by/removed_at) — reads exclude removed rows.
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.packRedemption.findFirst({ where: { id, businessId, removedAt: null }, select: { source: true } })
+    await lockPackSharing(tx, businessId)
+    const existing = await tx.packRedemption.findFirst({ where: { id, businessId, removedAt: null } })
     if (!existing) return { ok: false }
     // Removing a correction cannot omit its trail by leaving source out.
     const source = isCorrection(existing.source) && !isCorrection(correction?.source)
@@ -262,6 +319,12 @@ export async function removeRedemption(
     // No-op undo writes no trail — nothing changed.
     if (audit && res.count > 0) {
       await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? id })
+    }
+    if (res.count > 0 && existing.packHolderCustomerId && existing.packHolderCustomerId !== existing.customerId) {
+      await logEventIn(tx, businessId, { actor_id: removedBy ?? null, actor_type: removedBy ? 'staff' : 'system',
+        category: 'pack', action: 'pack.shared_undo', target_type: 'pack_redemption', target_id: id,
+        detail: await sharingAuditDetail(tx, businessId, existing.packId, existing.packHolderCustomerId, existing.customerId),
+      })
     }
     return { ok: res.count > 0 }
   })
