@@ -28,6 +28,7 @@ export type {
 
   // Customers
   Customer,
+  StaffBadgeDefinition,
   CreateCustomerInput,
   UpdateCustomerInput,
   ListCustomersOptions,
@@ -189,3 +190,4 @@ export { ResourceClient } from './resources.js'
 
 export { CoachingConsentClient } from './coaching-consent.js'
 export type { CoachingConsentDecision, CoachingConsentState } from './coaching-consent.js'
+export { CustomerBadgeClient } from './customer-badges.js'

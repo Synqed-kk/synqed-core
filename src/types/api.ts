@@ -1,4 +1,6 @@
 export interface Customer {
+  /** Staff-only annotations; never include in member/public DTOs. */
+  staff_badges: string[]
   id: string
   business_id: string
   name: string
@@ -37,6 +39,7 @@ export interface Customer {
 }
 
 export interface CreateCustomerInput {
+  staff_badges?: string[]
   name: string
   furigana?: string | null
   email?: string | null
@@ -68,6 +71,7 @@ export interface CreateCustomerInput {
 }
 
 export interface UpdateCustomerInput {
+  staff_badges?: string[]
   name?: string
   furigana?: string | null
   email?: string | null
