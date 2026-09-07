@@ -1277,6 +1277,8 @@ export type WeeklyHours = Partial<
   Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', { open: string; close: string } | null>
 >
 
+export type NewClientSessionMinutes = 30 | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 150 | 165 | 180 | 195 | 210 | 225 | 240
+
 export type SpecialOpenDay = { date: string; open: string; close: string }
 
 export interface StoreBookingPolicy {
@@ -1339,7 +1341,7 @@ export interface SetStoreBookingPolicyInput {
   cancel_late_pct?: number
   no_show_pct?: number
   gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
-  new_client_session_minutes?: number
+  new_client_session_minutes?: NewClientSessionMinutes
   /** undefined = keep; null = clear back to unconfigured; object = set. */
   weekly_hours?: WeeklyHours | null
   acting_staff_id: string
