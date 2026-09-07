@@ -4,6 +4,7 @@ export const createStoreSchema = z.object({
   name: z.string().min(1),
   address: z.string().nullish(),
   phone: z.string().nullish(),
+  photo_url: z.string().url().max(2048).nullish(),
   is_primary: z.boolean().optional(),
   active: z.boolean().optional(),
 })
@@ -12,6 +13,7 @@ export const updateStoreSchema = z.object({
   name: z.string().min(1).optional(),
   address: z.string().nullish(),
   phone: z.string().nullish(),
+  photo_url: z.string().url().max(2048).nullish(),
   active: z.boolean().optional(),
 })
 

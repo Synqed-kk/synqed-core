@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import { Prisma } from '@prisma/client'
+import { Prisma, type StoreBookingPolicy } from '@prisma/client'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
 
@@ -12,6 +12,8 @@ export type WeeklyHours = Partial<
     { open: string; close: string } | null
   >
 >
+
+export type SpecialOpenDay = { date: string; open: string; close: string }
 
 export class ClosedDayExistsError extends Error {
   constructor(message = 'This date is already a closed day for the store.') {
@@ -32,9 +34,43 @@ export const POLICY_DEFAULTS = {
   // スキマガード Phase 1: default OFF everywhere; 90-minute protected window.
   gap_guard_mode: 'OFF' as 'OFF' | 'STANDARD' | 'STRICT',
   new_client_session_minutes: 90,
+  override_roles: ['オーナー', '店舗管理者', 'スタッフ'] as string[],
+  override_locked_out: [] as string[],
+  override_hold_to_confirm: true,
+  override_strict_wall: false,
+  min_sellable_min: 30,
+  gap_fill_min_min: null,
+  held_rank_access: 'closed' as 'closed' | 'silver' | 'gold' | 'platinum',
+  release_held_roles: ['オーナー', '店舗管理者'] as string[],
+  booking_step_min: 30,
+  block_step_min: 15,
+  gap_fill_discount_pct: null,
+  lead_time_min: null,
+  reserve_start_grid_min: null,
+  standard_session_min: null,
+  price_lock_during_recalc: null,
+  breaks_paid: false,
+  special_open_days: [] as SpecialOpenDay[],
 } as const
 
 export interface PolicyPublic {
+  override_roles: string[]
+  override_locked_out: string[]
+  override_hold_to_confirm: boolean
+  override_strict_wall: boolean
+  min_sellable_min: number
+  gap_fill_min_min: number | null
+  held_rank_access: 'closed' | 'silver' | 'gold' | 'platinum'
+  release_held_roles: string[]
+  booking_step_min: number
+  block_step_min: number
+  gap_fill_discount_pct: number | null
+  lead_time_min: number | null
+  reserve_start_grid_min: 15 | 30 | 60 | null
+  standard_session_min: number | null
+  price_lock_during_recalc: boolean | null
+  breaks_paid: boolean
+  special_open_days: SpecialOpenDay[]
   store_id: string
   booking_open_days: number
   cutoff_minutes: number
@@ -51,23 +87,29 @@ export interface PolicyPublic {
   updated_at: string | null
 }
 
-function toPublic(storeId: string, r: {
-  bookingOpenDays: number
-  cutoffMinutes: number
-  cancelFreeUntilHours: number
-  cancelLatePct: number
-  noShowPct: number
-  gapGuardMode: 'OFF' | 'STANDARD' | 'STRICT'
-  newClientSessionMinutes: number
-  weeklyHours: unknown
-  updatedBy: string | null
-  updatedAt: Date
-} | null): PolicyPublic {
+function toPublic(storeId: string, r: StoreBookingPolicy | null): PolicyPublic {
   if (!r) {
     return { store_id: storeId, ...POLICY_DEFAULTS, weekly_hours: null, source: 'default', updated_by: null, updated_at: null }
   }
   return {
     store_id: storeId,
+    override_roles: r.overrideRoles,
+    override_locked_out: r.overrideLockedOut,
+    override_hold_to_confirm: r.overrideHoldToConfirm,
+    override_strict_wall: r.overrideStrictWall,
+    min_sellable_min: r.minSellableMin,
+    gap_fill_min_min: r.gapFillMinMin,
+    held_rank_access: r.heldRankAccess as PolicyPublic['held_rank_access'],
+    release_held_roles: r.releaseHeldRoles,
+    booking_step_min: r.bookingStepMin,
+    block_step_min: r.blockStepMin,
+    gap_fill_discount_pct: r.gapFillDiscountPct,
+    lead_time_min: r.leadTimeMin,
+    reserve_start_grid_min: r.reserveStartGridMin as PolicyPublic['reserve_start_grid_min'],
+    standard_session_min: r.standardSessionMin,
+    price_lock_during_recalc: r.priceLockDuringRecalc,
+    breaks_paid: r.breaksPaid,
+    special_open_days: r.specialOpenDays as SpecialOpenDay[],
     booking_open_days: r.bookingOpenDays,
     cutoff_minutes: r.cutoffMinutes,
     cancel_free_until_hours: r.cancelFreeUntilHours,
@@ -104,13 +146,30 @@ export async function listPolicies(businessId: string): Promise<PolicyPublic[]> 
 }
 
 export interface SetPolicyInput {
+  override_roles?: string[]
+  override_locked_out?: string[]
+  override_hold_to_confirm?: boolean
+  override_strict_wall?: boolean
+  min_sellable_min?: number
+  gap_fill_min_min?: number | null
+  held_rank_access?: 'closed' | 'silver' | 'gold' | 'platinum'
+  release_held_roles?: string[]
+  booking_step_min?: number
+  block_step_min?: number
+  gap_fill_discount_pct?: number | null
+  lead_time_min?: number | null
+  reserve_start_grid_min?: 15 | 30 | 60 | null
+  standard_session_min?: number | null
+  price_lock_during_recalc?: boolean | null
+  breaks_paid?: boolean
+  special_open_days?: SpecialOpenDay[]
   booking_open_days?: number
   cutoff_minutes?: number
   cancel_free_until_hours?: number
   cancel_late_pct?: number
   no_show_pct?: number
   gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
-  new_client_session_minutes?: 60 | 75 | 90
+  new_client_session_minutes?: number
   /** undefined = keep; null = clear back to unconfigured; object = set. */
   weekly_hours?: WeeklyHours | null
   updated_by?: string | null
@@ -131,11 +190,37 @@ export async function setPolicy(
   if (!store) return null
 
   const row = await prisma.$transaction(async (tx) => {
+    // Also serializes first saves, when no policy row exists yet.
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM stores WHERE id = ${storeId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE
+    `
+    if (!locked.length) return null
+    const before = toPublic(storeId, await tx.storeBookingPolicy.findFirst({ where: { storeId, businessId } }))
+    const settingsData = {
+      overrideRoles: input.override_roles,
+      overrideLockedOut: input.override_locked_out,
+      overrideHoldToConfirm: input.override_hold_to_confirm,
+      overrideStrictWall: input.override_strict_wall,
+      minSellableMin: input.min_sellable_min,
+      gapFillMinMin: input.gap_fill_min_min,
+      heldRankAccess: input.held_rank_access,
+      releaseHeldRoles: input.release_held_roles,
+      bookingStepMin: input.booking_step_min,
+      blockStepMin: input.block_step_min,
+      gapFillDiscountPct: input.gap_fill_discount_pct,
+      leadTimeMin: input.lead_time_min,
+      reserveStartGridMin: input.reserve_start_grid_min,
+      standardSessionMin: input.standard_session_min,
+      priceLockDuringRecalc: input.price_lock_during_recalc,
+      breaksPaid: input.breaks_paid,
+      specialOpenDays: input.special_open_days as Prisma.InputJsonValue | undefined,
+    }
     const updated = await tx.storeBookingPolicy.upsert({
       where: { storeId },
       create: {
         businessId,
         storeId,
+        ...settingsData,
         bookingOpenDays: input.booking_open_days ?? POLICY_DEFAULTS.booking_open_days,
         cutoffMinutes: input.cutoff_minutes ?? POLICY_DEFAULTS.cutoff_minutes,
         cancelFreeUntilHours: input.cancel_free_until_hours ?? POLICY_DEFAULTS.cancel_free_until_hours,
@@ -147,6 +232,7 @@ export async function setPolicy(
         updatedBy: input.updated_by ?? null,
       },
       update: {
+        ...settingsData,
         ...(input.booking_open_days !== undefined ? { bookingOpenDays: input.booking_open_days } : {}),
         ...(input.cutoff_minutes !== undefined ? { cutoffMinutes: input.cutoff_minutes } : {}),
         ...(input.cancel_free_until_hours !== undefined
@@ -166,12 +252,20 @@ export async function setPolicy(
         updatedBy: input.updated_by ?? null,
       },
     })
-    if (audit) {
-      await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? storeId })
+    const after = toPublic(storeId, updated)
+    const changes = Object.keys(input).filter(key => key !== 'updated_by').flatMap(key => {
+      const field = key as keyof PolicyPublic
+      return JSON.stringify(before[field]) === JSON.stringify(after[field]) ? [] : [{ field, before: before[field], after: after[field] }]
+    })
+    if (changes.length) {
+      await logEventIn(tx, businessId, { ...audit, actor_id: input.updated_by, actor_type: 'staff',
+        actor_staff_ref: undefined, actor_label: undefined, actor_role: undefined,
+        store_id: storeId, category: 'settings', action: 'store_policy.edit',
+        target_type: 'store_booking_policy', target_id: storeId, detail: { changes } })
     }
     return updated
   })
-  return toPublic(storeId, row)
+  return row ? toPublic(storeId, row) : null
 }
 
 // =============================================================================
