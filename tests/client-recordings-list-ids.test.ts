@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe('SDK recordings.list ids filter', () => {
   it('encodes exact audio-path lookups without losing reserved characters', async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ recordings: [], total: 0 })))
+    const fetch = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ recordings: [], total: 0 })))
     vi.stubGlobal('fetch', fetch)
     const client = new SynqedClient({ baseUrl: 'http://core.test', apiKey: 'test-key', businessId: 'test-business' })
     await client.recordings.list({ audio_storage_path: 'audio/with spaces+日本語.webm' })
