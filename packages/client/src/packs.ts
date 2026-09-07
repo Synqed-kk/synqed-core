@@ -2,6 +2,8 @@ import type { SynqedClient } from './client.js'
 import type {
   AuditEventInput,
   Pack,
+  PackStatus,
+  RedemptionSource,
   ActivePack,
   CreatePackInput,
   AddRedemptionInput,
@@ -37,7 +39,7 @@ export class PacksClient {
       ...(options?.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : {}),
     })
   }
-  async updatePackStatus(id: string, status: string): Promise<{ ok: boolean }> {
+  async updatePackStatus(id: string, status: PackStatus): Promise<{ ok: boolean }> {
     return this.client.fetch<{ ok: boolean }>(`/packs/${encodeURIComponent(id)}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
@@ -84,7 +86,7 @@ export class PacksClient {
    *  the redemption row survives with removed_at/removed_by). */
   async removeRedemption(
     id: string,
-    meta?: { removed_by?: string; audit?: AuditEventInput; source?: string; reason?: string },
+    meta?: { removed_by?: string; audit?: AuditEventInput; source?: RedemptionSource; reason?: string },
   ): Promise<{ ok: boolean }> {
     const query = new URLSearchParams()
     if (meta?.removed_by) query.set('removed_by', meta.removed_by)

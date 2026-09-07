@@ -420,7 +420,7 @@ export interface Pack {
   purchase_round: number
   purchased_at: string | null
   source: string
-  status: string
+  status: PackStatus
   notes: string | null
   created_by: string | null
   created_at: string
@@ -457,7 +457,7 @@ export interface AddRedemptionInput {
   redeemed_on: string
   appointment_id?: string | null
   karute_record_id?: string | null
-  source?: string
+  source?: RedemptionSource
   created_by?: string | null
   counts_as_visit?: boolean
   /** Required with a same-business active created_by for recovery/correction. */
@@ -473,13 +473,13 @@ export interface PackRedemption {
 
 export interface RecentRedemption {
   id: string
-  source: string
+  source: RedemptionSource
   reason: string | null
   created_by: string | null
   counts_as_visit: boolean
   removed_at: string | null
   removed_by: string | null
-  removal_source: string | null
+  removal_source: RedemptionSource | null
   removal_reason: string | null
   customer_id: string
   appointment_id: string | null
