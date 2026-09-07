@@ -22,6 +22,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS staff_shifts_business_id_staff_id_store_id_dat
   ON staff_shifts (business_id, staff_id, store_id, date);
 CREATE INDEX IF NOT EXISTS staff_shifts_business_id_store_id_date_idx
   ON staff_shifts (business_id, store_id, date);
+DO $$ BEGIN
+  ALTER TABLE staff_shifts ADD CONSTRAINT staff_shifts_staff_id_fkey
+    FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE staff_shifts ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY business_read_select ON staff_shifts FOR SELECT TO business_read USING (true);

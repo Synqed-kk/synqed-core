@@ -61,17 +61,25 @@ export async function getStaffShift(businessId: string, id: string) {
 export async function createStaffShift(businessId: string, input: CreateStaffShiftInput, actor: ActorContext) {
   assertCanManage(actor, input.store_id)
   const window = validateWindow(input)
-  const [staff, store] = await Promise.all([
-    prisma.staff.findFirst({ where: { id: input.staff_id, businessId, isActive: true }, select: { id: true } }),
-    prisma.store.findFirst({ where: { id: input.store_id, businessId, active: true }, select: { id: true } }),
-  ])
-  if (!staff || !store) throw new StaffShiftError('Active staff and store must belong to this business', 400)
   try {
-    return toPublic(await prisma.staffShift.create({ data: {
-      businessId, staffId: input.staff_id, storeId: input.store_id, date: new Date(input.date),
-      startMinute: window.start, endMinute: window.end, breaks: window.breaks, blocks: window.blocks,
-      createdBy: actor.staffId, updatedBy: actor.staffId,
-    } }))
+    return await prisma.$transaction(async tx => {
+      // Lock the target, including the empty-assignment case. The roster setter
+      // takes the same lock; deletion/deactivation also serialize on this row.
+      const staff = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM staff WHERE id = ${input.staff_id}::uuid AND business_id = ${businessId}::uuid AND is_active = true FOR UPDATE
+      `
+      const store = await tx.store.findFirst({ where: { id: input.store_id, businessId, active: true }, select: { id: true } })
+      if (!staff.length || !store) throw new StaffShiftError('Active staff and store must belong to this business', 400)
+      const assignments = await tx.staffStore.findMany({ where: { businessId, staffId: input.staff_id }, select: { storeId: true } })
+      if (assignments.length && !assignments.some(a => a.storeId === input.store_id)) {
+        throw new StaffShiftError('Staff is not assigned to this store', 400)
+      }
+      return toPublic(await tx.staffShift.create({ data: {
+        businessId, staffId: input.staff_id, storeId: input.store_id, date: new Date(input.date),
+        startMinute: window.start, endMinute: window.end, breaks: window.breaks, blocks: window.blocks,
+        createdBy: actor.staffId, updatedBy: actor.staffId,
+      } }))
+    })
   } catch (err) {
     if (isUniqueViolation(err, 'date')) throw new StaffShiftError('A shift already exists for this staff, store, and date', 409)
     throw err

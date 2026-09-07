@@ -18,7 +18,12 @@ another date/store/person uses a new row and deletion of the old row.
 Reads use the existing trusted-BFF API key/business scope. Writes also require the
 verified bearer actor, `staff.manage`, and access to the shift's store according to
 the core permission answer sheet. Attribution is derived from that actor. Create
-requires active staff and an active store in the selected business.
+requires active staff and an active store in the selected business. A nonempty
+staff store-assignment set must include the selected store; no assignments means
+all stores. Creation and roster changes serialize on the staff row. Later roster
+changes do not rewrite existing dated shifts; managers can explicitly reschedule.
+Staff with shifts cannot be hard-deleted (400); remove their shifts first or
+mark the staff inactive to preserve scheduled history.
 
 List accepts `staff_id`, `store_id`, `date`, and a date range (`from` inclusive,
 `to` exclusive), plus `page`/`page_size` (default 100, max 200). It returns

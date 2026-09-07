@@ -198,6 +198,7 @@ model Staff {
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
 
   appointments Appointment[]
+  shifts StaffShift[]
 
   @@index([businessId])
   @@index([businessId, name])
@@ -846,6 +847,8 @@ model StaffShift {
   updatedBy   String   @map("updated_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, staffId, storeId, date])
   @@index([businessId, storeId, date])
