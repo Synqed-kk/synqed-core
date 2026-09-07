@@ -122,10 +122,16 @@ describe('family pack sharing', () => {
     expect((await req('DELETE', `/customers/${visitor.id}`)).status).toBe(200)
     const prior = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID } })
     expect(JSON.stringify(prior)).not.toContain(visitor.id)
+    expect(prior.find(event => event.action === 'pack.shared_redeem')).toMatchObject({ targetId: added.id, detail: null })
     expect((await req('DELETE', `/packs/redemptions/${added.id}`)).status).toBe(200)
     const after = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID } })
     expect(JSON.stringify(after)).not.toContain(visitor.id)
     expect(await testPrisma.packRedemption.findUnique({ where: { id: added.id } })).toMatchObject({ customerId: visitor.id, packHolderCustomerId: holder.id })
+    expect((await req('DELETE', `/customers/${holder.id}`)).status).toBe(200)
+    const scrubbedEvents = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID, action: { in: ['pack.shared_redeem', 'pack.shared_undo'] } } })
+    expect(scrubbedEvents).toHaveLength(2)
+    for (const event of scrubbedEvents) expect(event).toMatchObject({ targetId: added.id, detail: null })
+    expect(JSON.stringify(scrubbedEvents)).not.toContain(holder.id)
   })
 
   it('keeps customer visit reads separate from shared balance reads and preserves historical holder corrections', async () => {

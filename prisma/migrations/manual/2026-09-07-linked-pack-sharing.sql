@@ -12,7 +12,8 @@ DECLARE scrubbed integer;
 BEGIN
   PERFORM set_config('app.audit_scrub', 'on', true);
   UPDATE audit_log
-     SET target_id = encode(sha256(target_id::bytea), 'hex'), target_label = NULL, detail = NULL
+     SET target_id = CASE WHEN target_type = 'customer' THEN encode(sha256(target_id::bytea), 'hex') ELSE target_id END,
+         target_label = NULL, detail = NULL
    WHERE business_id = p_business_id AND (
      (target_type = 'customer' AND target_id = p_customer_id::text)
      OR (action = 'customer.pack_sharing' AND (
