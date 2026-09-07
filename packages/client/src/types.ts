@@ -810,6 +810,8 @@ export interface Recording {
   staff_id: string
   appointment_id: string | null
   audio_storage_path: string | null
+  shared_at: string | null
+  shared_by_staff_id: string | null
   duration_seconds: number | null
   status: RecordingStatus
   created_at: string
@@ -828,6 +830,8 @@ export interface CreateRecordingInput {
 }
 
 export interface UpdateRecordingInput {
+  shared_at?: string | null
+  shared_by_staff_id?: string | null
   customer_id?: string | null
   audio_storage_path?: string | null
   duration_seconds?: number | null
@@ -835,6 +839,8 @@ export interface UpdateRecordingInput {
 }
 
 export interface ListRecordingsOptions {
+  /** Exact, tenant-scoped lookup of an audio reservation. */
+  audio_storage_path?: string
   /** Batch lookup; non-empty ids bypass pagination like customers.list. */
   ids?: string[]
   from?: string

@@ -14,6 +14,7 @@ export class RecordingClient {
 
   async list(options?: ListRecordingsOptions): Promise<ListRecordingsResponse> {
     const params = new URLSearchParams()
+    if (options?.audio_storage_path !== undefined) params.set('audio_storage_path', options.audio_storage_path)
     if (options?.ids && options.ids.length > 0) params.set('ids', options.ids.join(','))
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
