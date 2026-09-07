@@ -21,7 +21,7 @@ export async function setStaffBadgeDefinitions(businessId: string, badges: Staff
     await logEventIn(tx, businessId, { actor_id: actorId, actor_type: 'staff', category: 'settings',
       action: 'customer_badges.edit', target_type: 'business', target_id: businessId, detail: { badge_count: badges.length } })
   })
-  return getStaffBadgeDefinitions(businessId)
+  return [...badges].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
 }
 
 /** Create-time stamp only. Existing bookings never call this when edited. */
