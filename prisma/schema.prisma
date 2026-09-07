@@ -831,6 +831,27 @@ model StaffStore {
   @@map("staff_stores")
 }
 
+// One dated working window per staff/store; interval offsets are local-day minutes.
+model StaffShift {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  storeId     String   @map("store_id") @db.Uuid
+  staffId     String   @map("staff_id") @db.Uuid
+  date        DateTime @db.Date
+  startMinute Int      @map("start_minute")
+  endMinute   Int      @map("end_minute")
+  breaks      Json     @default("[]")
+  blocks      Json     @default("[]")
+  createdBy   String   @map("created_by") @db.Uuid
+  updatedBy   String   @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@unique([businessId, staffId, storeId, date])
+  @@index([businessId, storeId, date])
+  @@map("staff_shifts")
+}
+
 // =============================================================================
 // Invite — staff invitation, consolidated from the karute app DB.
 // =============================================================================

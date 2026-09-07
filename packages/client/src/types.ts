@@ -792,6 +792,61 @@ export interface SyncRunResult {
 }
 
 // ===========================================================================
+// Staff shifts
+// ===========================================================================
+
+/** Minutes from local midnight of the shift's date; [start, end). */
+export interface ShiftInterval { start: number; end: number }
+export interface StaffShift {
+  id: string
+  business_id: string
+  staff_id: string
+  store_id: string
+  /** Local calendar date (YYYY-MM-DD), independent of server timezone. */
+  date: string
+  start: number
+  end: number
+  breaks: ShiftInterval[]
+  blocks: ShiftInterval[]
+  created_by: string
+  updated_by: string
+  created_at: string
+  updated_at: string
+}
+export interface CreateStaffShiftInput {
+  staff_id: string
+  store_id: string
+  date: string
+  start: number
+  end: number
+  breaks?: ShiftInterval[]
+  blocks?: ShiftInterval[]
+}
+/** Omitted fields remain unchanged; empty arrays clear breaks/blocks. */
+export interface UpdateStaffShiftInput {
+  start?: number
+  end?: number
+  breaks?: ShiftInterval[]
+  blocks?: ShiftInterval[]
+}
+export interface ListStaffShiftsOptions {
+  staff_id?: string
+  store_id?: string
+  date?: string
+  from?: string
+  /** Exclusive upper date bound. */
+  to?: string
+  page?: number
+  page_size?: number
+}
+export interface ListStaffShiftsResponse {
+  shifts: StaffShift[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// ===========================================================================
 // Recordings
 // ===========================================================================
 

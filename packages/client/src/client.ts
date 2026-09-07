@@ -20,6 +20,7 @@ import { PolicyEventClient } from './policy-events.js'
 import { ResourceClient } from './resources.js'
 import { EntitlementClient } from './entitlements.js'
 import { StaffStoreClient } from './staff-stores.js'
+import { StaffShiftClient } from './staff-shifts.js'
 import { InviteClient } from './invites.js'
 import { CustomerMemoryClient } from './customer-memory.js'
 import { KaruteOutcomeClient } from './karute-outcomes.js'
@@ -55,6 +56,7 @@ export class SynqedClient {
   public resources: ResourceClient
   public entitlements: EntitlementClient
   public staffStores: StaffStoreClient
+  public staffShifts: StaffShiftClient
   public invites: InviteClient
   public customerMemory: CustomerMemoryClient
   public karuteOutcomes: KaruteOutcomeClient
@@ -89,6 +91,7 @@ export class SynqedClient {
     this.resources = new ResourceClient(this)
     this.entitlements = new EntitlementClient(this)
     this.staffStores = new StaffStoreClient(this)
+    this.staffShifts = new StaffShiftClient(this)
     this.invites = new InviteClient(this)
     this.customerMemory = new CustomerMemoryClient(this)
     this.karuteOutcomes = new KaruteOutcomeClient(this)
