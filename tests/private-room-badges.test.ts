@@ -183,4 +183,11 @@ describe('private-room booking flag and staff badges', () => {
     expect(editResult.status).toBe(200)
     expect(rebookResult.status).toBe(201)
   })
+
+  it('returns each concurrent badge update’s own committed values', async () => {
+    const { staff } = await fixture()
+    const definitions = ['First', 'Second', 'Third'].map(name => [{ name, colour: '#123456', display_order: 0 }])
+    const responses = await Promise.all(definitions.map(badges => req('PUT', '/customer-badges', { badges, acting_staff_id: staff.id })))
+    expect(await Promise.all(responses.map(response => response.json()))).toEqual(definitions.map(badges => ({ badges })))
+  })
 })
