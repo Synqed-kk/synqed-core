@@ -35,7 +35,10 @@ Defaults are supplied only where the ticket names them; unspecified scalar
 settings stay null until configured. Omitted update fields are preserved; nullable
 settings can be cleared with null and collections with `[]`. Existing
 `new_client_session_minutes` now allows 30–240 in steps of 15, default 90. Its old
-60/75/90 database CHECK is widened in the migration as well. Invalid, fractional,
+60/75/90 database CHECK is widened in the migration as well. SDK inputs use the
+exported `NewClientSessionMinutes` union. Database checks also protect the new
+numeric/rank domains and validate special-day JSON, including calendar dates,
+unique dates and non-inverted windows. Invalid, fractional,
 nonpositive step sizes and non-finite inputs are rejected by the wire schema.
 
 Special open dates must be unique real `YYYY-MM-DD` dates (max 366 entries), with

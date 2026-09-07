@@ -106,6 +106,20 @@ describe('CORE-10 policy settings', () => {
     expect(await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
   })
 
+  it('enforces numeric and special-day domains for direct database writers too', async () => {
+    const { owner, store } = await fixture()
+    await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, booking_step_min: 45 })
+    for (const invalid of [{ bookingStepMin: 0 }, { blockStepMin: -1 }, { heldRankAccess: 'vip' },
+      { gapFillDiscountPct: 31 }, { reserveStartGridMin: 45 }, { newClientSessionMinutes: 31 },
+      { specialOpenDays: {} }, { specialOpenDays: [{ date: '2026-02-30', open: '10:00', close: '20:00' }] },
+      { specialOpenDays: [...settings.special_open_days, ...settings.special_open_days] },
+      { specialOpenDays: [{ date: '2026-09-10', open: '20:00', close: '10:00' }] },
+    ]) await expect(testPrisma.storeBookingPolicy.update({ where: { storeId: store.id }, data: invalid })).rejects.toThrow()
+    await expect(testPrisma.storeBookingPolicy.update({ where: { storeId: store.id }, data: {
+      newClientSessionMinutes: 240, specialOpenDays: [{ date: '2028-02-29', open: '00:00', close: '24:00' }],
+    } })).resolves.toMatchObject({ newClientSessionMinutes: 240 })
+  })
+
   it('serializes concurrent partial first saves and records accurate before/after for overlapping changes', async () => {
     const { owner, store } = await fixture()
     const responses = await Promise.all([
