@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { StaffRole } from '@prisma/client'
+import { Prisma, type StaffRole } from '@prisma/client'
 import type { CreateStaffInput, UpdateStaffInput } from '../validations/staff.js'
 import { hashPin } from './crypto.js'
 import { getStorage } from './storage.js'
@@ -16,6 +16,10 @@ export class StaffAttributedRecordsError extends Error {
     super(`This staff member has ${count} karute record${count === 1 ? '' : 's'} and cannot be deleted.`)
     this.name = 'StaffAttributedRecordsError'
   }
+}
+
+export class StaffLinkedScheduleError extends Error {
+  constructor() { super('Staff with linked shifts or appointments cannot be deleted; remove the schedule or deactivate the staff member.') }
 }
 
 export class StaffForbiddenError extends Error {
@@ -185,7 +189,14 @@ export async function deleteStaff(businessId: string, id: string): Promise<void>
       where: { businessId, staffId: { in: [id, ...(existing.user_id ? [existing.user_id] : [])] } },
     })
     if (recordCount > 0) throw new StaffAttributedRecordsError(recordCount)
-    await tx.staff.delete({ where: { id } })
+    try {
+      await tx.staff.delete({ where: { id } })
+    } catch (error) {
+      // The FK arbitrates concurrent shift creation and deletion; a preliminary
+      // count alone cannot prevent an orphan if a shift arrives after the check.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') throw new StaffLinkedScheduleError()
+      throw error
+    }
   })
 }
 

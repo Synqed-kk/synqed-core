@@ -5,6 +5,7 @@ vi.mock('../src/services/supabase-auth.service.js', () => ({
   verifySupabaseAccessToken: vi.fn(async (token: string) => token),
 }))
 import app from '../src/index.js'
+import { setStaffStores } from '../src/services/staff-store.service.js'
 import { SynqedClient } from '../packages/client/src/index.js'
 import { cleanupTestData, seedTestStaff, testPrisma, TEST_API_KEY, TEST_BUSINESS_ID } from './setup.js'
 
@@ -30,6 +31,7 @@ function input(overrides: Record<string, unknown> = {}) {
 async function clean() {
   vi.unstubAllGlobals()
   await testPrisma.staffShift.deleteMany({ where: { businessId: { in: [TEST_BUSINESS_ID, otherBusiness] } } })
+  await testPrisma.staffStore.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
   await testPrisma.staffPermission.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
   await cleanupTestData()
   await testPrisma.staff.deleteMany({ where: { businessId: otherBusiness } })
@@ -85,6 +87,32 @@ describe('staff shift API', () => {
     await testPrisma.staffPermission.update({ where: { staffId }, data: { assignedStoreIds: [] } })
     expect((await req('PUT', `/${row.id}`, { end: 1100 }, staffUser)).status).toBe(403)
     expect((await req('DELETE', `/${row.id}`, undefined, staffUser)).status).toBe(403)
+  })
+
+  it('honors explicit target-store assignments and retains legacy all-store access for an empty set', async () => {
+    const other = await testPrisma.store.create({ data: { businessId: TEST_BUSINESS_ID, name: 'Other' } })
+    await setStaffStores(TEST_BUSINESS_ID, staffId, [other.id])
+    expect((await req('POST', '', input())).status).toBe(400)
+    expect((await req('POST', '', input({ store_id: other.id }))).status).toBe(201)
+    await setStaffStores(TEST_BUSINESS_ID, staffId, [])
+    expect((await req('POST', '', input())).status).toBe(201)
+  })
+
+  it('rejects staff deletion while shifts exist, including concurrent create/delete', async () => {
+    const deleteStaff = () => app.request(`/v1/staff/${staffId}`, {
+      method: 'DELETE', headers: { 'x-api-key': TEST_API_KEY, 'x-business-id': TEST_BUSINESS_ID },
+    })
+    const row = await (await req('POST', '', input())).json()
+    expect((await deleteStaff()).status).toBe(400)
+    expect((await req('GET', `/${row.id}`)).status).toBe(200)
+    await req('DELETE', `/${row.id}`)
+    const [created, deleted] = await Promise.all([req('POST', '', input()), deleteStaff()])
+    expect([201, 400]).toContain(created.status)
+    expect([200, 400]).toContain(deleted.status)
+    const staff = await testPrisma.staff.findUnique({ where: { id: staffId } })
+    const shifts = await testPrisma.staffShift.count({ where: { staffId } })
+    if (staff) { expect(shifts).toBe(1); expect(deleted.status).toBe(400) }
+    else { expect(shifts).toBe(0); expect(created.status).toBe(400) }
   })
 
   it('rejects cross-business subjects and isolates reads and mutations by business', async () => {
