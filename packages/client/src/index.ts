@@ -142,6 +142,8 @@ export type {
 
   // 回数券 packs subsystem
   Pack,
+  PackStatus,
+  RedemptionSource,
   ActivePack,
   CreatePackInput,
   AddRedemptionInput,
