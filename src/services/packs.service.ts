@@ -1,9 +1,25 @@
+import { Prisma } from '@prisma/client'
+import { isCorrection } from '../validations/pack.js'
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from '../services/audit.service.js'
 
 // 回数券 (ticket-pack) subsystem data access — business-scoped. The karute app
 // keeps the usage aggregation (FIFO / 残 counts); core serves the rows. No
 // PostgREST 1000-row cap here (Prisma), so list endpoints return full sets.
+
+export class PackError extends Error {
+  constructor(message: string, public status: 400 | 409) { super(message) }
+}
+
+// Attribution follows the existing trusted-BFF pack contract. A correction
+// additionally requires a real active staff card in this business.
+async function validateCorrection(tx: Prisma.TransactionClient, businessId: string, source: string | null | undefined, reason: string | null | undefined, actor: string | null | undefined) {
+  if (!isCorrection(source)) return
+  if (!reason?.trim() || !actor) throw new PackError('Corrections require a reason and actor', 400)
+  if (!await tx.staff.findFirst({ where: { id: actor, businessId, isActive: true }, select: { id: true } })) {
+    throw new PackError('Correction actor must be active staff in this business', 400)
+  }
+}
 
 // ─── ticket_packs ────────────────────────────────────────────────────────────
 
@@ -64,8 +80,8 @@ export interface CreatePackInput {
   source?: string; notes?: string | null; created_by?: string | null
 }
 
-export async function createPack(businessId: string, input: CreatePackInput): Promise<PackPublic> {
-  const row = await prisma.ticketPack.create({
+async function createPackIn(tx: Prisma.TransactionClient, businessId: string, input: CreatePackInput): Promise<PackPublic> {
+  const row = await tx.ticketPack.create({
     data: {
       businessId, customerId: input.customer_id, kind: input.kind,
       packSize: input.pack_size, unitPrice: input.unit_price,
@@ -76,6 +92,26 @@ export async function createPack(businessId: string, input: CreatePackInput): Pr
     },
   })
   return packToPublic(row)
+}
+
+/** The key and pack commit together. A crash rolls both back; concurrent
+ * inserts wait on the unique key and then replay the one committed pack.
+ * Separate scope from redemption burns, even when clients reuse a key. */
+export async function createPack(businessId: string, input: CreatePackInput, key?: string): Promise<{ pack: PackPublic; replayed: boolean }> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const claim = key ? await tx.idempotencyKey.create({ data: { businessId, scope: 'pack-create', key } }) : null
+      const pack = await createPackIn(tx, businessId, input)
+      if (claim) await tx.idempotencyKey.update({ where: { id: claim.id }, data: { targetId: pack.id } })
+      return { pack, replayed: false }
+    })
+  } catch (error) {
+    if (!key || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+    const claim = await prisma.idempotencyKey.findUnique({ where: { businessId_scope_key: { businessId, scope: 'pack-create', key } } })
+    const pack = claim?.targetId ? await prisma.ticketPack.findFirst({ where: { id: claim.targetId, businessId } }) : null
+    if (!pack) throw new PackError('Idempotency key has no replayable pack', 409)
+    return { pack: packToPublic(pack), replayed: true }
+  }
 }
 
 export async function updatePackStatus(businessId: string, id: string, status: string): Promise<{ ok: boolean }> {
@@ -115,22 +151,25 @@ export async function listAllRedemptionPackIds(businessId: string): Promise<stri
 }
 
 export async function listRecentRedemptions(
-  businessId: string, since: string,
+  businessId: string, since: string, includeRemoved = false,
 ): Promise<Array<{
   // id: the correction handle — a wrongly auto-burned no-show is fixed by
   // removeRedemption(id) + recreate, and it is the pack_undo audit target.
   id: string; customer_id: string; appointment_id: string | null; karute_record_id: string | null
   redeemed_on: string; pack_id: string; unit_price: number | null
+  source: string; reason: string | null; created_by: string | null; counts_as_visit: boolean
+  removed_at: string | null; removed_by: string | null; removal_source: string | null; removal_reason: string | null
 }>> {
   const rows = await prisma.packRedemption.findMany({
-    where: { businessId, removedAt: null, redeemedOn: { gte: new Date(since) } },
+    where: { businessId, ...(includeRemoved ? {} : { removedAt: null }), redeemedOn: { gte: new Date(since) } },
     select: {
       id: true,
       customerId: true,
       appointmentId: true,
       karuteRecordId: true,
       redeemedOn: true,
-      packId: true,
+      packId: true, source: true, reason: true, createdBy: true, countsAsVisit: true,
+      removedAt: true, removedBy: true, removalSource: true, removalReason: true,
     },
     orderBy: { redeemedOn: 'asc' },
   })
@@ -156,6 +195,9 @@ export async function listRecentRedemptions(
     redeemed_on: ymd(r.redeemedOn),
     pack_id: r.packId,
     unit_price: priceById.get(r.packId) ?? null,
+    source: r.source, reason: r.reason, created_by: r.createdBy, counts_as_visit: r.countsAsVisit,
+    removed_at: r.removedAt?.toISOString() ?? null, removed_by: r.removedBy,
+    removal_source: r.removalSource, removal_reason: r.removalReason,
   }))
 }
 
@@ -163,6 +205,7 @@ export interface AddRedemptionInput {
   pack_id: string; customer_id: string; redeemed_on: string
   appointment_id?: string | null; karute_record_id?: string | null; source?: string; created_by?: string | null
   counts_as_visit?: boolean
+  reason?: string | null
 }
 
 export async function addRedemption(
@@ -173,12 +216,13 @@ export async function addRedemption(
   audit?: AuditEventInput,
 ): Promise<{ id: string }> {
   const row = await prisma.$transaction(async (tx) => {
+    await validateCorrection(tx, businessId, input.source, input.reason, input.created_by)
     const created = await tx.packRedemption.create({
       data: {
         businessId, packId: input.pack_id, customerId: input.customer_id,
         redeemedOn: new Date(input.redeemed_on), appointmentId: input.appointment_id ?? null,
         karuteRecordId: input.karute_record_id ?? null, source: input.source ?? 'manual',
-        createdBy: input.created_by ?? null,
+        createdBy: input.created_by ?? null, reason: input.reason ?? null,
         countsAsVisit: input.counts_as_visit ?? true,
       },
       select: { id: true },
@@ -199,13 +243,21 @@ export async function removeRedemption(
   id: string,
   removedBy?: string | null,
   audit?: AuditEventInput,
+  correction?: { source?: string; reason?: string | null },
 ): Promise<{ ok: boolean }> {
   // Undo is a SOFT delete so WHO undid a 回数券 burn stays queryable
   // (removed_by/removed_at) — reads exclude removed rows.
   return prisma.$transaction(async (tx) => {
+    const existing = await tx.packRedemption.findFirst({ where: { id, businessId, removedAt: null }, select: { source: true } })
+    if (!existing) return { ok: false }
+    // Removing a correction cannot omit its trail by leaving source out.
+    const source = isCorrection(existing.source) && !isCorrection(correction?.source)
+      ? existing.source
+      : correction?.source ?? 'manual'
+    await validateCorrection(tx, businessId, isCorrection(existing.source) ? existing.source : source, correction?.reason, removedBy)
     const res = await tx.packRedemption.updateMany({
       where: { id, businessId, removedAt: null },
-      data: { removedAt: new Date(), removedBy: removedBy ?? null },
+      data: { removedAt: new Date(), removedBy: removedBy ?? null, removalSource: source, removalReason: correction?.reason ?? null },
     })
     // No-op undo writes no trail — nothing changed.
     if (audit && res.count > 0) {

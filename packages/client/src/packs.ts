@@ -31,8 +31,11 @@ export class PacksClient {
     const r = await this.client.fetch<{ packs: ActivePack[] }>('/packs/active')
     return r.packs
   }
-  async createPack(input: CreatePackInput): Promise<Pack> {
-    return this.client.fetch<Pack>('/packs', { method: 'POST', body: JSON.stringify(input) })
+  async createPack(input: CreatePackInput, options?: { idempotencyKey?: string }): Promise<Pack> {
+    return this.client.fetch<Pack>('/packs', {
+      method: 'POST', body: JSON.stringify(input),
+      ...(options?.idempotencyKey ? { headers: { 'Idempotency-Key': options.idempotencyKey } } : {}),
+    })
   }
   async updatePackStatus(id: string, status: string): Promise<{ ok: boolean }> {
     return this.client.fetch<{ ok: boolean }>(`/packs/${encodeURIComponent(id)}/status`, {
@@ -52,9 +55,11 @@ export class PacksClient {
     const r = await this.client.fetch<{ pack_ids: string[] }>('/packs/redemptions/pack-ids')
     return r.pack_ids
   }
-  async listRecentRedemptions(since: string): Promise<RecentRedemption[]> {
+  /** Complete set since the inclusive date; no implicit LIMIT/pagination.
+   * include_removed opts into correction history; default hides soft deletes. */
+  async listRecentRedemptions(since: string, options?: { include_removed?: boolean }): Promise<RecentRedemption[]> {
     const r = await this.client.fetch<{ redemptions: RecentRedemption[] }>(
-      `/packs/redemptions/recent?since=${encodeURIComponent(since)}`,
+      `/packs/redemptions/recent?since=${encodeURIComponent(since)}${options?.include_removed ? '&include_removed=true' : ''}`,
     )
     return r.redemptions
   }
@@ -79,9 +84,13 @@ export class PacksClient {
    *  the redemption row survives with removed_at/removed_by). */
   async removeRedemption(
     id: string,
-    meta?: { removed_by?: string; audit?: AuditEventInput },
+    meta?: { removed_by?: string; audit?: AuditEventInput; source?: string; reason?: string },
   ): Promise<{ ok: boolean }> {
-    const qs = meta?.removed_by ? `?removed_by=${encodeURIComponent(meta.removed_by)}` : ''
+    const query = new URLSearchParams()
+    if (meta?.removed_by) query.set('removed_by', meta.removed_by)
+    if (meta?.source) query.set('source', meta.source)
+    if (meta?.reason) query.set('reason', meta.reason)
+    const qs = query.size ? `?${query}` : ''
     return this.client.fetch<{ ok: boolean }>(
       `/packs/redemptions/${encodeURIComponent(id)}${qs}`,
       {
