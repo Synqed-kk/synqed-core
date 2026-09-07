@@ -1,5 +1,8 @@
 # Pack corrections (CORE-12)
 
+SDK status/redemption inputs use the exported `PackStatus` and `RedemptionSource`
+unions. Callers holding arbitrary strings must validate/narrow them before calling.
+
 New redemption sources are `recovery` and `correction`. Existing `manual`, `auto`,
 `import`, `qr`, `pos`, and `backfill` remain accepted. Recovery and correction adds
 require a nonblank `reason` (up to 2000 characters) and `created_by` identifying an
