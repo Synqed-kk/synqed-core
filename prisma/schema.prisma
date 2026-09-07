@@ -949,11 +949,14 @@ model PackRedemption {
   source         String   @default("manual")
   // A no-show burn is money-tracked but must never count as a visit.
   countsAsVisit  Boolean  @default(true) @map("counts_as_visit")
+  reason         String?
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
   // Undo is a soft delete so WHO undid a 回数券 burn stays queryable.
   removedAt      DateTime? @map("removed_at") @db.Timestamptz()
   removedBy      String?   @map("removed_by") @db.Uuid
+  removalSource  String?   @map("removal_source")
+  removalReason  String?   @map("removal_reason")
 
   @@index([businessId, customerId])
   @@index([businessId, packId])

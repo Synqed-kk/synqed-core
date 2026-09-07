@@ -1,10 +1,16 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
+import { createPackSchema, addRedemptionSchema, removeRedemptionSchema, recentRedemptionsSchema, packStatus } from '../validations/pack.js'
 import type { AppEnv } from '../types/api.js'
 import * as packs from '../services/packs.service.js'
 import { auditEventSchema } from '../validations/audit.js'
 import * as idempotencyService from '../services/idempotency.service.js'
 
 export const packRoutes = new Hono<AppEnv>()
+packRoutes.onError((error, c) => {
+  if (error instanceof packs.PackError) return c.json({ error: error.message }, error.status)
+  throw error
+})
 
 // ─── ticket_packs ────────────────────────────────────────────────────────────
 
@@ -20,16 +26,15 @@ packRoutes.get('/', async (c) => {
 
 packRoutes.post('/', async (c) => {
   const b = await c.req.json().catch(() => ({}))
-  if (typeof b.customer_id !== 'string' || typeof b.kind !== 'string') {
-    return c.json({ error: 'customer_id and kind required' }, 400)
-  }
-  const pack = await packs.createPack(c.get('businessId'), b)
-  return c.json(pack, 201)
+  const parsed = createPackSchema.safeParse(b)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  const { pack, replayed } = await packs.createPack(c.get('businessId'), parsed.data, c.req.header('Idempotency-Key'))
+  return c.json(pack, replayed ? 200 : 201)
 })
 
 packRoutes.patch('/:id/status', async (c) => {
   const b = await c.req.json().catch(() => ({}))
-  if (typeof b.status !== 'string') return c.json({ error: 'status required' }, 400)
+  if (!packStatus.safeParse(b.status).success || !z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Valid pack id and status required' }, 400)
   return c.json(await packs.updatePackStatus(c.get('businessId'), c.req.param('id'), b.status))
 })
 
@@ -40,9 +45,9 @@ packRoutes.get('/redemptions/pack-ids', async (c) => {
 })
 
 packRoutes.get('/redemptions/recent', async (c) => {
-  const since = c.req.query('since')
-  if (!since) return c.json({ error: 'since required' }, 400)
-  return c.json({ redemptions: await packs.listRecentRedemptions(c.get('businessId'), since) })
+  const parsed = recentRedemptionsSchema.safeParse(c.req.query())
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  return c.json({ redemptions: await packs.listRecentRedemptions(c.get('businessId'), parsed.data.since, parsed.data.include_removed) })
 })
 
 packRoutes.get('/redemptions', async (c) => {
@@ -53,11 +58,11 @@ packRoutes.get('/redemptions', async (c) => {
 
 packRoutes.post('/redemptions', async (c) => {
   const b = await c.req.json().catch(() => ({}))
-  if (typeof b.pack_id !== 'string' || typeof b.customer_id !== 'string' || typeof b.redeemed_on !== 'string') {
-    return c.json({ error: 'pack_id, customer_id, redeemed_on required' }, 400)
-  }
+  const parsed = addRedemptionSchema.safeParse(b)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   // A1: optional audit payload commits atomically with the burn.
-  const { audit: rawAudit, ...input } = b
+  const rawAudit = b.audit
+  const input = parsed.data
   let audit
   if (rawAudit !== undefined) {
     const parsedAudit = auditEventSchema.safeParse(rawAudit)
@@ -95,7 +100,9 @@ packRoutes.post('/redemptions', async (c) => {
 packRoutes.delete('/redemptions/:id', async (c) => {
   // removed_by records WHO undid the burn (query param — DELETE bodies are
   // unreliable through proxies). Soft delete; reads exclude removed rows.
-  const removedBy = c.req.query('removed_by') ?? null
+  const parsed = removeRedemptionSchema.safeParse(c.req.query())
+  if (!parsed.success || !z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Valid removal metadata and redemption id required' }, 400)
+  const removedBy = parsed.data.removed_by ?? null
   // A1 audit rides the (optional) JSON body — proxies that drop DELETE bodies
   // simply degrade to the untrailed behavior.
   const b = await c.req.json().catch(() => ({}))
@@ -106,7 +113,7 @@ packRoutes.delete('/redemptions/:id', async (c) => {
     audit = parsedAudit.data
   }
   return c.json(
-    await packs.removeRedemption(c.get('businessId'), c.req.param('id'), removedBy, audit),
+    await packs.removeRedemption(c.get('businessId'), c.req.param('id'), removedBy, audit, parsed.data),
   )
 })
 

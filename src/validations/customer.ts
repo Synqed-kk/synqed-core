@@ -94,7 +94,7 @@ export const listCustomersSchema = z.object({
     .string()
     .max(5_000)
     .optional()
-    .transform((s) => (s ? s.split(',').filter(Boolean) : undefined)),
+    .transform((s) => (s ? s.split(',').map((id) => id.trim()).filter((id) => z.string().uuid().safeParse(id).success) : undefined)),
   // Recycle-bin opt-in: soft-deleted customers are hidden by default.
   include_deleted: z.coerce.boolean().optional(),
   page: z.coerce.number().int().min(1).default(1),

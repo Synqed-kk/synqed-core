@@ -448,6 +448,9 @@ export interface CreatePackInput {
   created_by?: string | null
 }
 
+export type RedemptionSource = 'manual' | 'auto' | 'import' | 'qr' | 'pos' | 'backfill' | 'recovery' | 'correction'
+export type PackStatus = 'active' | 'exhausted' | 'cancelled' | 'void'
+
 export interface AddRedemptionInput {
   pack_id: string
   customer_id: string
@@ -456,6 +459,9 @@ export interface AddRedemptionInput {
   karute_record_id?: string | null
   source?: string
   created_by?: string | null
+  counts_as_visit?: boolean
+  /** Required with a same-business active created_by for recovery/correction. */
+  reason?: string | null
 }
 
 export interface PackRedemption {
@@ -466,6 +472,15 @@ export interface PackRedemption {
 }
 
 export interface RecentRedemption {
+  id: string
+  source: string
+  reason: string | null
+  created_by: string | null
+  counts_as_visit: boolean
+  removed_at: string | null
+  removed_by: string | null
+  removal_source: string | null
+  removal_reason: string | null
   customer_id: string
   appointment_id: string | null
   karute_record_id: string | null
