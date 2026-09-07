@@ -69,6 +69,26 @@ describe('CORE-10 policy settings', () => {
     expect(audit[0].detail).toMatchObject({ changes: expect.arrayContaining([{ field: 'booking_step_min', before: 45, after: 30 }]) })
   })
 
+  it('retains complete large collection changes and later scalar changes within the audit limit', async () => {
+    const { owner, store } = await fixture()
+    const ids = Array.from({ length: 100 }, () => randomUUID())
+    const response = await req('PUT', `/store-policies/${store.id}`, {
+      acting_staff_id: owner.id, override_locked_out: ids, booking_step_min: 45,
+    })
+    expect(response.status).toBe(200)
+    const rows = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID, action: 'store_policy.edit' } })
+    expect(rows.length).toBeGreaterThan(1)
+    expect(new Set(rows.map(r => r.requestId)).size).toBe(1)
+    const parts = rows.map(r => r.detail as { changes: Array<{ field: string; index?: number; before?: unknown; after?: unknown; before_length?: number; after_length?: number }>; part: number; parts: number })
+      .sort((a, b) => a.part - b.part)
+    expect(parts.map(p => p.part)).toEqual(Array.from({ length: parts.length }, (_, i) => i + 1))
+    expect(parts.every(p => p.parts === parts.length && Buffer.byteLength(JSON.stringify(p)) < 2048)).toBe(true)
+    const changes = parts.flatMap(p => p.changes)
+    expect(changes).toContainEqual({ field: 'booking_step_min', before: 30, after: 45 })
+    expect(changes).toContainEqual({ field: 'override_locked_out', before_length: 0, after_length: 100 })
+    expect(changes.filter(c => c.field === 'override_locked_out' && c.index !== undefined).sort((a,b) => a.index! - b.index!).map(c => c.after)).toEqual(ids)
+  })
+
   it('rejects invalid numeric controls, dates, duplicate dates, and unauthorized or foreign-store writes', async () => {
     const { owner, store } = await fixture()
     for (const bad of [{ booking_step_min: 0 }, { block_step_min: -1 }, { booking_step_min: null },
