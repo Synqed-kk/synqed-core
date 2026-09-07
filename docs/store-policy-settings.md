@@ -3,10 +3,12 @@
 `storePolicies.get/list/set` persist all 17 new policy fields; `stores.create/update`
 also accept nullable `photo_url`. Policy `set` retains the existing HQ gate and
 required session-derived `acting_staff_id` trusted-BFF contract. Each effective
-change writes an automatic audit row in the same transaction, containing changed
+change writes automatic audit rows in the same transaction, containing changed
 fields with before/after values and the acting staff. Caller-supplied audit metadata
 is optional; it cannot override the authoritative actor, store, action or changes.
-No-op saves do not add a change event. Store locking serializes partial first saves
+Large collection changes use indexed entries with before/after lengths; bounded
+chunks share `request_id` and carry `part`/`parts` so the complete change can be
+reconstructed without the audit service truncating it. No-op saves do not add a change event. Store locking serializes partial first saves
 and ensures concurrent audit comparisons use the committed previous state.
 
 | Setting | Default / accepted values |

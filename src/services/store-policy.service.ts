@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { prisma } from '../db/client.js'
 import { Prisma, type StoreBookingPolicy } from '@prisma/client'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
@@ -175,6 +176,37 @@ export interface SetPolicyInput {
   updated_by?: string | null
 }
 
+type PolicyChange = { field: keyof PolicyPublic; before: unknown; after: unknown }
+
+/** Audit details have a 2KB cap. Oversized collection changes become indexed
+ * entries (plus original lengths), then all entries are packed into bounded
+ * records. The request id and part numbers reconstruct one atomic save. */
+function auditParts(changes: PolicyChange[]) {
+  const entries = changes.flatMap<unknown>(change => {
+    if (Buffer.byteLength(JSON.stringify(change), 'utf8') <= 1700 ||
+      !Array.isArray(change.before) || !Array.isArray(change.after)) return [change]
+    const before: unknown[] = change.before
+    const after: unknown[] = change.after
+    return [
+      { field: change.field, before_length: before.length, after_length: after.length },
+      ...Array.from({ length: Math.max(before.length, after.length) }, (_, index) => ({
+        field: change.field, index, before: before[index] ?? null, after: after[index] ?? null,
+      })),
+    ]
+  })
+  const parts: unknown[][] = []
+  let part: unknown[] = []
+  for (const entry of entries) {
+    if (part.length && Buffer.byteLength(JSON.stringify({ changes: [...part, entry] }), 'utf8') > 1800) {
+      parts.push(part)
+      part = []
+    }
+    part.push(entry)
+  }
+  if (part.length) parts.push(part)
+  return parts.map((changes, index) => ({ changes, part: index + 1, parts: parts.length }))
+}
+
 /** Upsert a store's policy. Partial: omitted fields keep their current value
  *  (or the default on first save). Optional audit commits transactionally. */
 export async function setPolicy(
@@ -257,11 +289,12 @@ export async function setPolicy(
       const field = key as keyof PolicyPublic
       return JSON.stringify(before[field]) === JSON.stringify(after[field]) ? [] : [{ field, before: before[field], after: after[field] }]
     })
-    if (changes.length) {
+    const requestId = audit?.request_id ?? randomUUID()
+    for (const detail of auditParts(changes)) {
       await logEventIn(tx, businessId, { ...audit, actor_id: input.updated_by, actor_type: 'staff',
         actor_staff_ref: undefined, actor_label: undefined, actor_role: undefined,
         store_id: storeId, category: 'settings', action: 'store_policy.edit',
-        target_type: 'store_booking_policy', target_id: storeId, detail: { changes } })
+        target_type: 'store_booking_policy', target_id: storeId, request_id: requestId, detail })
     }
     return updated
   })
