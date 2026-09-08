@@ -32,6 +32,11 @@ policy `v1.0-2026-05`. A version change invalidates earlier grants and returns
 stale dialog and is stamped with the current policy. UI code must fetch the current
 version before offering consent and must not import a localStorage grant.
 
+Consent decisions hold a short SHARE table lock on org_settings before locking
+the staff row. This serializes with policy UPDATE and first INSERT, including
+direct SQL; publication that wins the lock makes the old grant return 409.
+The table lock briefly spans businesses and must never include a provider call.
+
 The log is append-only, with an internal monotonic sequence for deterministic order
 even when timestamps tie. An insertion trigger validates the active staff card's
 business and a CHECK requires self-authorship. As with `staff_policy_events`, history
@@ -56,7 +61,7 @@ module persistence, and L3 config remain tracked work. Consent itself is never
 manager-shareable. Existing `recordings.viewAll` remains unchanged: listening to raw
 recordings can reconstruct detail the coaching boundary hides.
 
-Verification: nine database/HTTP regressions cover active verified identities,
+Verification: twelve database/HTTP regressions cover active verified identities,
 self-only history including owner denial, store-scoped aggregate-only adoption,
 policy changes/withdrawal, pagination ties, immutable DB history, scope/authorship,
 offboarding, and the absence of direct browser RLS policies.

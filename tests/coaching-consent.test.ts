@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { prisma } from '../src/db/client.js'
 import app from '../src/index.js'
+import { upsertOrgSettings } from '../src/services/org-settings.service.js'
 
 vi.mock('../src/services/supabase-auth.service.js', () => ({
   verifySupabaseAccessToken: vi.fn(async (token: string) => subjects.get(token) ?? null),
@@ -142,6 +143,52 @@ describe('coaching consent privacy', () => {
     expect(await (await req()).json()).toMatchObject({ status: 'declined' })
   })
 
+
+  it.each([false, true])('serializes consent with policy publication (existing settings: %s)', async (existing) => {
+    if (existing) await prisma.orgSettings.create({ data: { businessId, settings: { coaching_policy_version: policy } } })
+    let release!: () => void, published!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const ready = new Promise<void>(resolve => { published = resolve })
+    const publisher = prisma.$transaction(async tx => {
+      await tx.orgSettings.upsert({ where: { businessId },
+        create: { businessId, settings: { coaching_policy_version: 'new-policy' } },
+        update: { settings: { coaching_policy_version: 'new-policy' } } })
+      published()
+      await hold
+    })
+    await ready
+    const pendingDecision = decide('granted')
+    try {
+      await waitForLock('org_settings', 'ShareLock', false)
+    } finally { release() }
+    await publisher
+    expect((await pendingDecision).status).toBe(409)
+    expect(await prisma.coachingConsent.count({ where: { businessId } })).toBe(0)
+  })
+
+  it('holds publication until an already-started grant transaction commits', async () => {
+    let release!: () => void, locked!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const ready = new Promise<void>(resolve => { locked = resolve })
+    const staffLock = prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM staff WHERE id=${staffId}::uuid FOR UPDATE`
+      locked()
+      await hold
+    })
+    await ready
+    const pendingDecision = decide('granted')
+    let publisher: Promise<unknown> | undefined
+    try {
+      await waitForLock('org_settings', 'ShareLock', true)
+      publisher = upsertOrgSettings(businessId, { settings: { coaching_policy_version: 'next-policy' } })
+      await waitForLock('org_settings', 'RowExclusiveLock', false)
+    } finally { release() }
+    await staffLock
+    expect((await pendingDecision).status).toBe(201)
+    await publisher
+    expect(await (await req()).json()).toMatchObject({ status: 'unset', current_policy_version: 'next-policy' })
+  })
+
   it('denies every direct browser policy, including any owner or manager L1 exception', async () => {
     const [table] = await prisma.$queryRaw<{ relrowsecurity: boolean }[]>`SELECT relrowsecurity FROM pg_class WHERE oid = 'coaching_consent'::regclass`
     expect(table.relrowsecurity).toBe(true)
@@ -150,3 +197,13 @@ describe('coaching consent privacy', () => {
     expect(await prisma.$queryRaw`SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = 'coaching_consent'`).toEqual([])
   })
 })
+
+async function waitForLock(table: string, mode: string, granted: boolean) {
+  for (let i = 0; i < 150; i++) {
+    const rows = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) FROM pg_locks WHERE relation = ${table}::regclass AND mode = ${mode} AND granted = ${granted}`
+    if (rows[0].count > 0n) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`Expected ${table} ${mode} granted=${granted}`)
+}

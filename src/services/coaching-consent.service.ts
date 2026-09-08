@@ -40,6 +40,10 @@ export async function ownConsent(businessId: string, staffId: string, authUserId
 export async function appendConsent(businessId: string, staffId: string, userId: string,
   input: { status: 'granted' | 'declined'; policy_version: string }) {
   return prisma.$transaction(async tx => {
+    // Covers both UPDATE and first INSERT of settings, including direct SQL
+    // publishers. Consent writes are short and infrequent; no provider call
+    // happens while this lock is held. Acquire settings before staff.
+    await tx.$executeRaw`LOCK TABLE org_settings IN SHARE MODE`
     // The same staff-row lock is the serialization point for future generation
     // persistence. Never keep it held during a provider request.
     const staff = await tx.$queryRaw<{ id: string }[]>`
