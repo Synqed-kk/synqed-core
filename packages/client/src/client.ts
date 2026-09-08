@@ -1,3 +1,4 @@
+import { CoachingConsentClient } from './coaching-consent.js'
 import type { SynqedClientConfig } from './types.js'
 import { CustomerClient } from './customers.js'
 import { StaffClient } from './staff.js'
@@ -34,6 +35,7 @@ export class SynqedClient {
   private businessId: string
   private accessToken?: string
 
+  public coachingConsent: CoachingConsentClient
   public customers: CustomerClient
   public staff: StaffClient
   public appointments: AppointmentClient
@@ -68,6 +70,7 @@ export class SynqedClient {
     this.apiKey = config.apiKey
     this.businessId = config.businessId
     this.accessToken = config.accessToken
+    this.coachingConsent = new CoachingConsentClient(this)
     this.customers = new CustomerClient(this)
     this.staff = new StaffClient(this)
     this.appointments = new AppointmentClient(this)

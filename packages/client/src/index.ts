@@ -173,3 +173,6 @@ export { nameKey, sameName, deniedResult, allowedResult } from './privacy.js'
 export type { DeniedAware } from './privacy.js'
 export { PolicyEventClient } from './policy-events.js'
 export { ResourceClient } from './resources.js'
+
+export { CoachingConsentClient } from './coaching-consent.js'
+export type { CoachingConsentDecision, CoachingConsentState } from './coaching-consent.js'

@@ -1410,3 +1410,18 @@ model Resource {
   @@index([businessId, storeId, active])
   @@map("resources")
 }
+
+// Staff-authored, append-only decisions. No manager-readable row endpoint.
+model CoachingConsent {
+  id            String   @id @default(uuid()) @db.Uuid
+  sequence      BigInt   @unique @default(autoincrement())
+  businessId    String   @map("business_id") @db.Uuid
+  staffId       String   @map("staff_id") @db.Uuid
+  createdBy     String   @map("created_by") @db.Uuid
+  status        String
+  policyVersion String   @map("policy_version")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([businessId, staffId, sequence])
+  @@map("coaching_consent")
+}
