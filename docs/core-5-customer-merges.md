@@ -24,7 +24,7 @@ Known child history is retargeted without changing its other fields. Existing au
 
 Confirm seven `merge_duplicate` audits and one `correct_pack_import_date` audit carrying migration `2026-09-08-core-5-customer-merges`. Confirm all seven twins are soft-deleted, the KEEP records are active, and moved history belongs to KEEP. Confirm unchanged pack balances: 伊藤照子 2/6; 木下文 7/10; 山形佳美 1/6 plus 5/6; 中山世奈 5/10; 中川由佳理 13/20; 金高恩 2/10 plus 1/6. 小澤真里奈 still has no pack. Confirm 入江真之 still has exactly six active burns, both corrected dates are 2025-12-25, and the pack is exhausted.
 
-Only after successful live verification, add the `migrations-applied` PR label and report that holds can be released. Committing, merging, and passing local tests do not execute the production repair.
+Deploy the accompanying canonical lookup and merged-record restore/delete guards before releasing the sync holds. These preserve old import/email lookup identities but return KEEP, and refuse ordinary edits, restoration or deletion of FOLD. Only after successful live verification, add the `migrations-applied` PR label and report that holds can be released. Committing, merging, and passing local tests do not execute the production repair.
 
 ## Local regression
 

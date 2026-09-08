@@ -101,6 +101,9 @@ customerRoutes.put('/:id', async (c) => {
     const customer = await customerService.updateCustomer(businessId, id, parsed.data)
     return c.json(customer)
   } catch (err) {
+    if (err instanceof Error && err.message === 'Customer was merged; use the retained record') {
+      return c.json({ error: err.message, code: 'CUSTOMER_MERGED' }, 409)
+    }
     if (err instanceof Error && err.message === 'Customer not found') {
       return c.json({ error: 'Customer not found' }, 404)
     }
@@ -116,8 +119,15 @@ customerRoutes.delete('/:id', async (c) => {
   const businessId = c.get('businessId')
   const id = c.req.param('id')
 
-  await customerService.deleteCustomer(businessId, id)
-  return c.json({ success: true })
+  try {
+    await customerService.deleteCustomer(businessId, id)
+    return c.json({ success: true })
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Customer was merged; use the retained record') {
+      return c.json({ error: err.message, code: 'CUSTOMER_MERGED' }, 409)
+    }
+    throw err
+  }
 })
 
 // PUT /v1/customers/:id/visits  (bulk idempotent upsert of crawled visits)
