@@ -21,6 +21,7 @@ const stylistUserId = '90000000-0000-0000-0000-000000000091'
 const ownerUserId = '90000000-0000-0000-0000-000000000092'
 const managerUserId = '90000000-0000-0000-0000-000000000093'
 const otherStylistUserId = '90000000-0000-0000-0000-000000000094'
+const assistantUserId = '90000000-0000-0000-0000-000000000095'
 
 function req(method: string, path: string, userId?: string, body?: unknown) {
   const headers: Record<string, string> = {
@@ -123,6 +124,20 @@ describe('actor-authenticated recording writes', () => {
     })
     expect(elevated.status).toBe(200)
     expect((await elevated.json()).duration_seconds).toBe(40)
+
+    // Owning the row is not enough: the ASSISTANT coarse role maps to the
+    // frontdesk preset, which carries no records.write.
+    await seedTestStaff({ userId: assistantUserId, role: 'ASSISTANT' })
+    const assistantStamped = await testPrisma.recordingSession.create({
+      data: { businessId: TEST_BUSINESS_ID, staffId: assistantUserId, durationSeconds: 15 },
+    })
+    const noWrite = await req('PUT', `/recordings/${assistantStamped.id}`, assistantUserId, {
+      duration_seconds: 30,
+    })
+    expect(noWrite.status).toBe(403)
+    expect(
+      await testPrisma.recordingSession.findUnique({ where: { id: assistantStamped.id } }),
+    ).toMatchObject({ durationSeconds: 15 })
   })
 })
 
