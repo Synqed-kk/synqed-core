@@ -171,12 +171,12 @@ export async function updateStaff(
 
 export async function deleteStaff(businessId: string, id: string): Promise<void> {
   await prisma.$transaction(async tx => {
-    // Lock before checking attributed records: a Karute writer holds SHARE
-    // through commit. Lock all business cards in order so concurrent deletes
-    // also cannot both pass the last-member guard.
+    // Acquire the conflicting namespace lock before touching any row, matching
+    // Karute creation's lock order. Also serializes the last-member guard.
+    await tx.$executeRaw`LOCK TABLE staff IN SHARE ROW EXCLUSIVE MODE`
     const cards = await tx.$queryRaw<Array<{ id: string; user_id: string | null }>>`
       SELECT id, user_id FROM staff WHERE business_id = ${businessId}::uuid
-      ORDER BY id FOR UPDATE
+      ORDER BY id
     `
     const existing = cards.find(card => card.id === id)
     if (!existing) throw new Error('Staff not found')

@@ -8,6 +8,10 @@ produce a stored value that the next repair would interpret differently.
 Inactive cards remain valid for delayed historical writes. This normalizes
 ownership; it does not replace human-actor authorization or implement coaching
 consent and grants. Business-key callers retain their existing write authority.
+Chart creation holds a shared staff-table lock through commit so concurrent
+login alias inserts/reassignments cannot invalidate resolution. Chart writers
+can run together; roster writes briefly wait. Staff deletion takes a conflicting
+table lock before checking ownership, in the same lock order.
 
 ## Historical repair
 

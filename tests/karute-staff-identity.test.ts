@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import app from '../src/index.js'
 import { cleanupTestData, seedTestStaff, testPrisma, TEST_API_KEY, TEST_BUSINESS_ID } from './setup.js'
 import { normalizeKaruteStaffIdentities } from '../src/services/karute-staff-normalization.service.js'
@@ -11,6 +12,22 @@ const create = (staffId: string) => app.request('/v1/karute-records', {
   method: 'POST', headers: { 'x-api-key': TEST_API_KEY, 'x-business-id': TEST_BUSINESS_ID, 'content-type': 'application/json' },
   body: JSON.stringify({ staff_id: staffId, entries: [{ category: 'SYMPTOM', content: 'identity-test' }] }),
 })
+
+async function expectStaffLockWait(tx: Prisma.TransactionClient) {
+  const deadline = Date.now() + 2_000
+  let blocked = false
+  while (Date.now() < deadline) {
+    await tx.$executeRaw`SELECT pg_stat_clear_snapshot()`
+    const [row] = await tx.$queryRaw<Array<{ blocked: boolean }>>`
+      SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid()
+          AND wait_event_type = 'Lock' AND query ILIKE '%staff%') AS blocked
+    `
+    if (row.blocked) { blocked = true; break }
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  expect(blocked).toBe(true)
+}
 
 afterEach(async () => {
   await cleanupTestData()
@@ -107,29 +124,34 @@ describe('CORE-4 karute owner identity', () => {
     let deletion: Promise<unknown> | undefined
     try {
       await testPrisma.$transaction(async tx => {
-        await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staff.id}::uuid FOR SHARE`
+        await tx.$executeRaw`LOCK TABLE staff IN SHARE MODE`
         deletion = deleteStaff(TEST_BUSINESS_ID, staff.id).then(() => null, error => error)
         // Observe the real database wait rather than assuming a timer ordered
         // the deletion behind this writer. The old delete also waits here,
         // but only after reading an obsolete count of zero attributed charts.
-        const deadline = Date.now() + 2_000
-        let blocked = false
-        while (Date.now() < deadline) {
-          const [row] = await tx.$queryRaw<Array<{ blocked: boolean }>>`
-            SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-              WHERE datname = current_database() AND pid <> pg_backend_pid()
-                AND wait_event_type = 'Lock' AND query ILIKE '%staff%') AS blocked
-          `
-          if (row.blocked) { blocked = true; break }
-          await new Promise(resolve => setTimeout(resolve, 10))
-        }
-        expect(blocked).toBe(true)
+        await expectStaffLockWait(tx)
         await tx.karuteRecord.create({ data: { businessId: TEST_BUSINESS_ID, staffId: staff.id } })
       })
       expect(await deletion).toBeInstanceOf(StaffAttributedRecordsError)
       expect(await testPrisma.staff.findUnique({ where: { id: staff.id } })).not.toBeNull()
     } finally {
       await deletion
+    }
+  })
+
+  it('waits for a concurrent alias insertion before resolving the namespace', async () => {
+    const staff = await seedTestStaff({ userId: randomUUID() })
+    let pending: Promise<Response> | undefined
+    try {
+      await testPrisma.$transaction(async tx => {
+        await tx.staff.create({ data: { businessId: TEST_BUSINESS_ID, name: 'alias', role: 'STYLIST', userId: staff.id } })
+        pending = create(staff.userId!)
+        await expectStaffLockWait(tx)
+      })
+      expect((await pending)?.status).toBe(400)
+      expect(await testPrisma.karuteRecord.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
+    } finally {
+      await pending
     }
   })
 })

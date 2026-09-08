@@ -302,9 +302,12 @@ async function createKaruteRecordInner(
   input: CreateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
   const row = await prisma.$transaction(async tx => {
+    // A row lock cannot protect against a new alias on a different card.
+    // SHARE stabilizes inserts/reassignments as well; chart writers coexist.
+    await tx.$executeRaw`LOCK TABLE staff IN SHARE MODE`
     // Interactive callers may send a login UUID; workers send the permanent
     // card. Resolve both within this business and reject namespace ambiguity.
-    // The shared lock holds that mapping stable until the record is written.
+    // The namespace lock holds that mapping stable through the chart write.
     const staff = await tx.$queryRaw<Array<{ id: string; canonical_unambiguous: boolean }>>(Prisma.sql`
       SELECT s.id, NOT EXISTS (
         SELECT 1 FROM staff alias WHERE alias.business_id = s.business_id
@@ -312,7 +315,7 @@ async function createKaruteRecordInner(
       ) AS canonical_unambiguous
       FROM staff s WHERE s.business_id = ${businessId}::uuid
       AND (s.id = ${input.staff_id}::uuid OR s.user_id = ${input.staff_id}::uuid)
-      ORDER BY s.id FOR SHARE OF s
+      ORDER BY s.id
     `)
     if (staff.length !== 1 || !staff[0].canonical_unambiguous) throw new InvalidKaruteStaffError()
     return tx.karuteRecord.create({
