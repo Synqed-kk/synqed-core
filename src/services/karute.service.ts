@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db/client.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
-import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction, Prisma } from '@prisma/client'
+import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
@@ -260,6 +261,13 @@ export async function getByRecordingSession(
   return getKaruteRecord(businessId, row.id, { ...opts, includeDiscarded: true })
 }
 
+export class InvalidKaruteStaffError extends Error {
+  constructor() {
+    super('Staff identity must resolve to exactly one card in this business')
+    this.name = 'InvalidKaruteStaffError'
+  }
+}
+
 export async function createKaruteRecord(
   businessId: string,
   input: CreateKaruteRecordInput,
@@ -291,36 +299,47 @@ async function createKaruteRecordInner(
   businessId: string,
   input: CreateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
-  const row = await prisma.karuteRecord.create({
-    data: {
-      businessId,
-      customerId: input.customer_id ?? null,
-      storeId: input.store_id ?? null,
-      staffId: input.staff_id,
-      appointmentId: input.appointment_id ?? null,
-      recordingSessionId: input.recording_session_id ?? null,
-      status: input.status ?? 'DRAFT',
-      aiSummary: input.ai_summary ?? null,
-      transcript: input.transcript ?? null,
-      service: input.service ?? null,
-      durationMinutes: input.duration_minutes ?? null,
-      sessionDate: input.session_date ? new Date(input.session_date) : null,
-      entries: input.entries
-        ? {
-            create: input.entries.map((e, i) => ({
-              category: e.category,
-              content: e.content,
-              originalQuote: e.original_quote ?? null,
-              confidence: e.confidence ?? 0,
-              tags: e.tags ?? [],
-              sortOrder: e.sort_order ?? i,
-              isManual: e.is_manual ?? false,
-              author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
-            })),
-          }
-        : undefined,
-    },
-    include: { entries: { orderBy: { sortOrder: 'asc' } } },
+  const row = await prisma.$transaction(async tx => {
+    // Interactive callers may send a login UUID; workers send the permanent
+    // card. Resolve both within this business and reject namespace ambiguity.
+    // The shared lock holds that mapping stable until the record is written.
+    const staff = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM staff WHERE business_id = ${businessId}::uuid
+      AND (id = ${input.staff_id}::uuid OR user_id = ${input.staff_id}::uuid)
+      ORDER BY id FOR SHARE
+    `)
+    if (staff.length !== 1) throw new InvalidKaruteStaffError()
+    return tx.karuteRecord.create({
+      data: {
+        businessId,
+        customerId: input.customer_id ?? null,
+        storeId: input.store_id ?? null,
+        staffId: staff[0].id,
+        appointmentId: input.appointment_id ?? null,
+        recordingSessionId: input.recording_session_id ?? null,
+        status: input.status ?? 'DRAFT',
+        aiSummary: input.ai_summary ?? null,
+        transcript: input.transcript ?? null,
+        service: input.service ?? null,
+        durationMinutes: input.duration_minutes ?? null,
+        sessionDate: input.session_date ? new Date(input.session_date) : null,
+        entries: input.entries
+          ? {
+              create: input.entries.map((e, i) => ({
+                category: e.category,
+                content: e.content,
+                originalQuote: e.original_quote ?? null,
+                confidence: e.confidence ?? 0,
+                tags: e.tags ?? [],
+                sortOrder: e.sort_order ?? i,
+                isManual: e.is_manual ?? false,
+                author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
+              })),
+            }
+          : undefined,
+      },
+      include: { entries: { orderBy: { sortOrder: 'asc' } } },
+    })
   })
   return toPublic(row, row.entries.map(entryToPublic))
 }
