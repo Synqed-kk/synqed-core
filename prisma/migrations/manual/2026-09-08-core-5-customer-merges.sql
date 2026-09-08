@@ -89,6 +89,17 @@ BEGIN
     THEN RAISE EXCEPTION 'CORE5 external reference conflict: %', pair.fold_id; END IF;
   END LOOP;
 
+  -- Preserve the existing one-active-booking-per-customer/start invariant.
+  -- Colliding history needs an explicit operator decision, never cancellation
+  -- or deletion invented by this repair.
+  IF EXISTS(SELECT 1 FROM core5_pairs pairs
+    JOIN appointments keep_booking ON keep_booking.customer_id=pairs.keep_id
+    JOIN appointments fold_booking ON fold_booking.customer_id=pairs.fold_id
+      AND fold_booking.starts_at=keep_booking.starts_at
+    WHERE keep_booking.status NOT IN ('CANCELLED','NO_SHOW')
+      AND fold_booking.status NOT IN ('CANCELLED','NO_SHOW'))
+  THEN RAISE EXCEPTION 'CORE5 active appointment collision: reconcile before applying'; END IF;
+
   -- Inventory schema additions instead of silently leaving new family/member
   -- references behind. Known singleton lifecycle rows are reconciled below.
   FOR col IN SELECT DISTINCT table_name,column_name FROM (
