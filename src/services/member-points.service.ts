@@ -82,7 +82,7 @@ export async function dailyOpen(scope: Scope) {
 
 export async function pointLedger(scope: Scope, cursor?: string, limit = 50) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new MemberPointsError('VALIDATION')
-  if (cursor && !z.string().uuid().safeParse(cursor).success) throw new MemberPointsError('VALIDATION')
+  if (cursor !== undefined && !z.string().uuid().safeParse(cursor).success) throw new MemberPointsError('VALIDATION')
   return prisma.$transaction(async tx => {
     const store = await tx.store.findFirst({ where: { id: scope.storeId, businessId: scope.businessId } })
     const account = await tx.memberAccount.findFirst({ where: { id: scope.accountId, deletedAt: null } })
