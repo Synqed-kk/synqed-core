@@ -72,6 +72,7 @@ describe('store points ledger', () => {
   it('returns full balance on every page and fences account, store and business scope', async () => {
     await credit(10)
     await credit(10)
+    expect((await req(`/members/me/stores/${storeId}/points?cursor=`)).status).toBe(400)
     const first = await pointLedger(scope(), undefined, 1)
     expect(first.balance).toBe(20)
     expect(first.entries).toHaveLength(1)
