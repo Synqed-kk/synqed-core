@@ -2,7 +2,11 @@ import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { PrismaClient } from '@prisma/client'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../src/db/client.js', () => ({ get prisma() { return db } }))
+import { createCustomer, updateCustomer, deleteCustomer } from '../src/services/customer.service.js'
+import { resolveMergedCustomer } from '../src/services/customer-merge.service.js'
 
 // The migration names production UUIDs. Run it ONLY in a newly created, empty
 // local database, with the test DB's schema (including its manual constraints).
@@ -128,6 +132,16 @@ describe('CORE-5 exact manual migration', () => {
     apply()
     expect(await db.customer.findMany({ orderBy: { id: 'asc' } })).toEqual(customers)
     expect(await db.auditLog.findMany({ orderBy: { id: 'asc' } })).toEqual(audit)
+  })
+
+  it('resolves retained import identity and rejects restoration or deletion of a merged twin', async () => {
+    await db.customer.update({ where: { id: pairs[0][1] }, data: { email: 'import@example.test' } })
+    apply()
+    expect((await createCustomer(businessId, { name: 'Imported', email: 'import@example.test' })).id).toBe(pairs[0][0])
+    expect((await resolveMergedCustomer(businessId, pairs[0][1])).id).toBe(pairs[0][0])
+    await expect(resolveMergedCustomer(randomUUID(), pairs[0][1])).rejects.toThrow('Customer not found')
+    await expect(updateCustomer(businessId, pairs[0][1], { deleted_at: null })).rejects.toThrow('Customer was merged')
+    await expect(deleteCustomer(businessId, pairs[0][1])).rejects.toThrow('Customer was merged')
   })
 
   it('aborts the whole repair if an expected balance has changed', async () => {
