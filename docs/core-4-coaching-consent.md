@@ -26,7 +26,7 @@ The SDK exposes these as `client.coachingConsent.me/decide/history/adoption`.
 Construct it with the current human's `accessToken`. Responses are private/no-store.
 
 Policy version comes from `org_settings.settings.coaching_policy_version`; legacy
-positive integers normalize to strings. An absent value uses the current Karute
+positive integers normalize to strings. An absent or invalid value (including an oversized string) uses the current Karute
 policy `v1.0-2026-05`. A version change invalidates earlier grants and returns
 `unset`; stale grant submissions return 409. Withdrawal is always allowed from a
 stale dialog and is stamped with the current policy. UI code must fetch the current
@@ -35,8 +35,9 @@ version before offering consent and must not import a localStorage grant.
 The log is append-only, with an internal monotonic sequence for deterministic order
 even when timestamps tie. An insertion trigger validates the active staff card's
 business and a CHECK requires self-authorship. As with `staff_policy_events`, history
-retains only card identifiers after ordinary staff deletion; no FK blocks existing
-offboarding, and a deleted/inactive login cannot read the history. This is consent
+retains only card and authenticated-subject identifiers after ordinary staff deletion; no FK blocks existing
+offboarding, and a deleted/inactive login cannot read the history. Consent is bound to both the card and the verified login: reassigning a card
+to a new account cannot transfer prior consent or expose its history. This is consent
 evidence, not the generated L1 artifact store.
 
 ## Deployment and remaining work
@@ -55,7 +56,7 @@ module persistence, and L3 config remain tracked work. Consent itself is never
 manager-shareable. Existing `recordings.viewAll` remains unchanged: listening to raw
 recordings can reconstruct detail the coaching boundary hides.
 
-Verification: seven database/HTTP regressions cover active verified identities,
+Verification: nine database/HTTP regressions cover active verified identities,
 self-only history including owner denial, store-scoped aggregate-only adoption,
 policy changes/withdrawal, pagination ties, immutable DB history, scope/authorship,
 offboarding, and the absence of direct browser RLS policies.

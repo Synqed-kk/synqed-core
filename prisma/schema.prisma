@@ -1415,6 +1415,7 @@ model Resource {
 model CoachingConsent {
   id            String   @id @default(uuid()) @db.Uuid
   sequence      BigInt   @unique @default(autoincrement())
+  authUserId    String   @map("auth_user_id") @db.Uuid
   businessId    String   @map("business_id") @db.Uuid
   staffId       String   @map("staff_id") @db.Uuid
   createdBy     String   @map("created_by") @db.Uuid

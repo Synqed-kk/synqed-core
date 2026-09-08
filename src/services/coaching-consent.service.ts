@@ -15,7 +15,7 @@ export async function coachingPolicyVersion(tx: Prisma.TransactionClient, busine
   const settings = row?.settings
   const version = settings && typeof settings === 'object' && !Array.isArray(settings)
     ? settings.coaching_policy_version : undefined
-  return (typeof version === 'string' && version.trim()) ||
+  return (typeof version === 'string' && version.trim().length <= 200 && version.trim()) ||
     (typeof version === 'number' && Number.isSafeInteger(version) && version > 0
       ? String(version) : DEFAULT_POLICY_VERSION)
 }
@@ -25,10 +25,10 @@ function publicConsent(row: CoachingConsent) {
     policy_version: row.policyVersion, decided_at: row.createdAt.toISOString() }
 }
 
-export async function ownConsent(businessId: string, staffId: string) {
+export async function ownConsent(businessId: string, staffId: string, authUserId: string) {
   return prisma.$transaction(async tx => {
     const policyVersion = await coachingPolicyVersion(tx, businessId)
-    const row = await tx.coachingConsent.findFirst({ where: { businessId, staffId }, orderBy: { sequence: 'desc' } })
+    const row = await tx.coachingConsent.findFirst({ where: { businessId, staffId, authUserId }, orderBy: { sequence: 'desc' } })
     return {
       current_policy_version: policyVersion,
       status: row?.policyVersion === policyVersion ? row.status as 'granted' | 'declined' : 'unset' as const,
@@ -52,17 +52,17 @@ export async function appendConsent(businessId: string, staffId: string, userId:
     if (input.status === 'granted' && input.policy_version !== policyVersion)
       throw new CoachingConsentError(409, 'Coaching policy changed; review the current policy')
     const row = await tx.coachingConsent.create({ data: {
-      businessId, staffId, createdBy: staffId, status: input.status, policyVersion,
+      businessId, staffId, authUserId: userId, createdBy: staffId, status: input.status, policyVersion,
     } })
     return publicConsent(row)
   })
 }
 
-export async function ownConsentHistory(businessId: string, staffId: string, cursor?: string) {
-  const anchor = cursor ? await prisma.coachingConsent.findFirst({ where: { id: cursor, businessId, staffId } }) : null
+export async function ownConsentHistory(businessId: string, staffId: string, authUserId: string, cursor?: string) {
+  const anchor = cursor ? await prisma.coachingConsent.findFirst({ where: { id: cursor, businessId, staffId, authUserId } }) : null
   if (cursor && !anchor) throw new CoachingConsentError(404, 'Decision not found')
   const rows = await prisma.coachingConsent.findMany({
-    where: { businessId, staffId, ...(anchor ? { sequence: { lt: anchor.sequence } } : {}) },
+    where: { businessId, staffId, authUserId, ...(anchor ? { sequence: { lt: anchor.sequence } } : {}) },
     orderBy: { sequence: 'desc' }, take: 51,
   })
   const page = rows.slice(0, 50)
@@ -82,7 +82,7 @@ export async function consentAdoption(businessId: string, storeId: string) {
       FROM staff s
       LEFT JOIN LATERAL (
         SELECT status, policy_version FROM coaching_consent c
-        WHERE c.business_id = s.business_id AND c.staff_id = s.id ORDER BY sequence DESC LIMIT 1
+        WHERE c.business_id = s.business_id AND c.staff_id = s.id AND c.auth_user_id = s.user_id ORDER BY sequence DESC LIMIT 1
       ) latest ON true
       WHERE s.business_id = ${businessId}::uuid AND s.is_active = true
         AND (NOT EXISTS (SELECT 1 FROM staff_stores ss WHERE ss.business_id = s.business_id AND ss.staff_id = s.id)
