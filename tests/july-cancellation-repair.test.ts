@@ -70,6 +70,17 @@ describe('CORE-7 exact July correction', () => {
     expect(await testPrisma.appointmentStatusEvent.count({ where: { appointmentId: appointment.id } })).toBe(1)
   })
 
+  it('refuses oversized UTF-8 audit detail in preview and apply without truncating evidence', async () => {
+    const { appointment, manifest } = await fixture()
+    const oversized = { ...manifest, evidence: 'あ'.repeat(800) }
+    for (const apply of [false, true]) {
+      await expect(repairJulyCancellations(oversized, apply)).rejects.toThrow('audit detail exceeds 2048 bytes')
+      expect(await testPrisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } })).toEqual(appointment)
+      expect(await testPrisma.auditLog.count({ where: { targetId: appointment.id } })).toBe(0)
+      expect(await testPrisma.appointmentStatusEvent.count({ where: { appointmentId: appointment.id } })).toBe(0)
+    }
+  })
+
   it('rejects concurrent active burns in the database and permits a replacement after undo', async () => {
     const { customer, appointment } = await fixture()
     const pack = await testPrisma.ticketPack.create({ data: { businessId: TEST_BUSINESS_ID, customerId: customer.id, kind: 'pack', packSize: 10, unitPrice: 8000, status: 'active' } })

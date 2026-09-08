@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../db/client.js'
+import { DETAIL_CAP_BYTES, logEventIn } from './audit.service.js'
 
 export const julyCancellationManifest = z.object({
   business_id: z.string().uuid(),
@@ -60,7 +61,19 @@ export async function repairJulyCancellations(input: unknown, apply = false) {
           row.updatedAt.getTime() !== Date.parse(expected.updated_at)) {
         throw new Error(`Repair refused: stale appointment snapshot ${row.id}`)
       }
-      changes.push(row)
+      const auditDetail = { manifest_sha256: fingerprint, evidence: manifest.evidence,
+        previous_status: row.status, previous_reason: row.statusReason,
+        previous_source: row.statusSource, previous_set_by: row.statusSetBy,
+        previous_set_at: row.statusSetAt?.toISOString() ?? null,
+        previous_cancelled_at: row.cancelledAt?.toISOString() ?? null,
+        previous_updated_at: row.updatedAt.toISOString(), status: 'CANCELLED', reason }
+      // Refuse rather than truncate: replay requires the fingerprint and the
+      // repair must retain the entire prior-value snapshot. Check in preview
+      // too, before any appointment in the batch is mutated.
+      if (Buffer.byteLength(JSON.stringify(auditDetail), 'utf8') > DETAIL_CAP_BYTES) {
+        throw new Error(`Repair refused: audit detail exceeds ${DETAIL_CAP_BYTES} bytes for ${row.id}; use a shorter evidence reference`)
+      }
+      changes.push({ ...row, auditDetail })
     }
     const customers = []
     for (const customerId of new Set(changes.map(row => row.customerId!))) {
@@ -76,16 +89,10 @@ export async function repairJulyCancellations(input: unknown, apply = false) {
           statusSetAt: now, cancelledAt: row.cancelledAt ?? now,
           statusEvents: { create: { businessId: manifest.business_id, status: 'CANCELLED', statusSource: 'STAFF', reason } },
         } })
-        await tx.auditLog.create({ data: {
-          businessId: manifest.business_id, storeId: row.storeId, actorType: 'system',
-          category: 'appointment', action, targetType: 'appointment', targetId: row.id,
-          detail: { manifest_sha256: fingerprint, evidence: manifest.evidence,
-            previous_status: row.status, previous_reason: row.statusReason,
-            previous_source: row.statusSource, previous_set_by: row.statusSetBy,
-            previous_set_at: row.statusSetAt?.toISOString() ?? null,
-            previous_cancelled_at: row.cancelledAt?.toISOString() ?? null,
-            previous_updated_at: row.updatedAt.toISOString(), status: 'CANCELLED', reason },
-        } })
+        await logEventIn(tx, manifest.business_id, {
+          store_id: row.storeId, actor_type: 'system', category: 'appointment', action,
+          target_type: 'appointment', target_id: row.id, detail: row.auditDetail,
+        })
       }
     }
     return { business_id: manifest.business_id, manifest_sha256: fingerprint,

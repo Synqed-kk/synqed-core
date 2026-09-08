@@ -54,7 +54,10 @@ locks the named bookings in order, validates every business/customer/date/versio
 and original reason, then changes the whole batch atomically. Any mismatch
 refuses the batch. It stamps CANCELLED + cancel-same-day-contact, preserves an
 existing cancellation timestamp, adds status history and an audit of previous
-values, and uses STAFF status source to preserve the correction against sync.
+values. The complete audit detail must fit the shared 2,048-byte UTF-8 limit;
+preview and apply both refuse oversized detail instead of truncating evidence
+or the replay fingerprint. Use a short evidence reference. It uses STAFF
+status source to preserve the correction against sync.
 It does not alter pack redemptions or monetary balances.
 
 Keep the exact manifest for reruns: matching audit fingerprints acknowledge
