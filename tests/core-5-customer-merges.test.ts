@@ -6,7 +6,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 vi.mock('../src/db/client.js', () => ({ get prisma() { return db } }))
 import { createCustomer, updateCustomer, deleteCustomer } from '../src/services/customer.service.js'
+import { runSyncForTenant } from '../src/services/sync.service.js'
+import { qrGetReservations } from '../src/services/quickreserve.js'
 import { resolveMergedCustomer } from '../src/services/customer-merge.service.js'
+
+vi.mock('../src/services/quickreserve.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/services/quickreserve.js')>(),
+  qrLogin: vi.fn(async () => ({ token: 'test', cookies: '' })),
+  qrGetReservations: vi.fn(),
+}))
+vi.mock('../src/services/crypto.js', () => ({ decryptJson: () => ({ username: 'test', password: 'test', storeSlug: 'test', storeId: 1 }), encryptJson: () => 'test' }))
 
 // The migration names production UUIDs. Run it ONLY in a newly created, empty
 // local database, with the test DB's schema (including its manual constraints).
@@ -145,6 +154,36 @@ describe('CORE-5 exact manual migration', () => {
     await deleteCustomer(businessId, pairs[0][0])
     await deleteCustomer(businessId, pairs[0][1])
     expect(await db.customer.count({ where: { id: { in: [pairs[0][0], pairs[0][1]] } } })).toBe(0)
+  })
+
+  it('rejects an active booking collision before moving any history', async () => {
+    await db.appointment.updateMany({ where: { customerId: { in: [pairs[0][0], pairs[0][1]] } }, data: { status: 'SCHEDULED' } })
+    expect(apply).toThrow('active appointment collision')
+    expect(await db.auditLog.count()).toBe(0)
+    expect(await db.customer.count({ where: { deletedAt: { not: null } } })).toBe(0)
+  })
+
+  it('routes a later QuickReserve name match on FOLD to KEEP and preserves the soft deletion', async () => {
+    await db.customer.update({ where: { id: pairs[0][1] }, data: { name: 'Unique old spelling' } })
+    apply()
+    await db.syncConfig.create({ data: { businessId, provider: 'QUICKRESERVE', credentialsEncrypted: 'test',
+      storeSlug: 'test', storeId: 1, lookaheadDays: 1, timezone: 'Asia/Tokyo' } })
+    vi.mocked(qrGetReservations).mockResolvedValueOnce([{
+      id: 9876, store_id: 1, customer_id: 54321, treatment_course_id: 5, staff_id: 7, booth_id: 1,
+      start_at: new Date('2026-10-01T04:00:00Z').getTime(), end_at: new Date('2026-10-01T05:00:00Z').getTime(),
+      request: '', deleted: false, rid: 'core5-sync', is_new_customer_flag: false, nominated_staff_id: null,
+      resolvedCustomerId: 54321, resolvedCustomerName: 'Unique old spelling',
+      staff: { id: 7, name: 'Test staff', name_kana: '' },
+      treatment_course: { id: 5, name: 'Visit', duration: 3600000, price: 5000 },
+    }]).mockResolvedValue([])
+    const result = await runSyncForTenant(businessId, 'QUICKRESERVE')
+    expect(result.created).toBe(1)
+    const booking = await db.appointment.findFirstOrThrow({ where: { businessId, source: 'QUICKRESERVE' } })
+    expect(booking.customerId).toBe(pairs[0][0])
+    const keep = await db.customer.findUniqueOrThrow({ where: { id: pairs[0][0] } })
+    expect(keep.externalRefs).toMatchObject({ quickreserve: { customerId: 54321 } })
+    expect((await db.customer.findUniqueOrThrow({ where: { id: pairs[0][1] } })).deletedAt).not.toBeNull()
+    expect(await db.customer.count()).toBe(15)
   })
 
   it('aborts the whole repair if an expected balance has changed', async () => {
