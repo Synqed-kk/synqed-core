@@ -6,7 +6,7 @@ interface NormalizationReport {
   changeable: number
   unresolved: number
   ambiguous: number
-  issues: Array<{ record_id: string; staff_id: string; matches: number }>
+  issues: Array<{ record_id: string; staff_id: string; matches: number; target_shadowed: boolean }>
   changed: number
 }
 
@@ -24,22 +24,25 @@ export async function normalizeKaruteStaffIdentities(
     await tx.$executeRaw`LOCK TABLE karute_records IN SHARE ROW EXCLUSIVE MODE`
     const mapping = Prisma.sql`
       SELECT k.id, k.business_id, k.store_id, k.staff_id,
-        count(s.id)::int AS matches, min(s.id::text)::uuid AS canonical_id
+        count(s.id)::int AS matches, min(s.id::text)::uuid AS canonical_id,
+        bool_or(alias.id IS NOT NULL) AS target_shadowed
       FROM karute_records k
       LEFT JOIN staff s ON s.business_id = k.business_id
         AND (s.id = k.staff_id OR s.user_id = k.staff_id)
+      LEFT JOIN staff alias ON alias.business_id = s.business_id
+        AND alias.user_id = s.id AND alias.id <> s.id
       WHERE k.business_id = ${businessId}::uuid
       GROUP BY k.id
     `
     const [report] = await tx.$queryRaw<Omit<NormalizationReport, 'changed'>[]>(Prisma.sql`
       WITH mapping AS (${mapping})
       SELECT count(*)::int AS total,
-        count(*) FILTER (WHERE matches = 1 AND staff_id <> canonical_id)::int AS changeable,
+        count(*) FILTER (WHERE matches = 1 AND NOT target_shadowed AND staff_id <> canonical_id)::int AS changeable,
         count(*) FILTER (WHERE matches = 0)::int AS unresolved,
-        count(*) FILTER (WHERE matches > 1)::int AS ambiguous,
+        count(*) FILTER (WHERE matches > 1 OR target_shadowed)::int AS ambiguous,
         COALESCE((SELECT jsonb_agg(issue) FROM (
-          SELECT id AS record_id, staff_id, matches FROM mapping
-          WHERE matches <> 1 ORDER BY id LIMIT 100
+          SELECT id AS record_id, staff_id, matches, target_shadowed FROM mapping
+          WHERE matches <> 1 OR target_shadowed ORDER BY id LIMIT 100
         ) issue), '[]'::jsonb) AS issues
       FROM mapping
     `)
@@ -51,6 +54,7 @@ export async function normalizeKaruteStaffIdentities(
       WITH mapping AS (${mapping}), changed AS (
         UPDATE karute_records k SET staff_id = m.canonical_id
         FROM mapping m WHERE k.id = m.id AND m.matches = 1
+          AND NOT m.target_shadowed
           AND m.staff_id <> m.canonical_id
         RETURNING k.id, k.business_id, k.store_id, m.staff_id AS previous_staff_id, k.staff_id
       )

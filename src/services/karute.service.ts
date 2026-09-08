@@ -280,9 +280,11 @@ export async function createKaruteRecord(
     // P2002 instead of a duplicate row — return the record already saved rather
     // than surfacing a 500. Match the target column explicitly (not just any
     // P2002) so a future second unique index on this table can't misroute here.
+    // A saved record also survives a later removed/unlinked staff identity;
+    // returning that historical result does not authorize a new write.
     if (
       input.recording_session_id &&
-      isUniqueViolation(e, 'recording_session_id')
+      (isUniqueViolation(e, 'recording_session_id') || e instanceof InvalidKaruteStaffError)
     ) {
       const existing = await getByRecordingSession(
         businessId,
@@ -303,12 +305,16 @@ async function createKaruteRecordInner(
     // Interactive callers may send a login UUID; workers send the permanent
     // card. Resolve both within this business and reject namespace ambiguity.
     // The shared lock holds that mapping stable until the record is written.
-    const staff = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id FROM staff WHERE business_id = ${businessId}::uuid
-      AND (id = ${input.staff_id}::uuid OR user_id = ${input.staff_id}::uuid)
-      ORDER BY id FOR SHARE
+    const staff = await tx.$queryRaw<Array<{ id: string; canonical_unambiguous: boolean }>>(Prisma.sql`
+      SELECT s.id, NOT EXISTS (
+        SELECT 1 FROM staff alias WHERE alias.business_id = s.business_id
+          AND alias.user_id = s.id AND alias.id <> s.id
+      ) AS canonical_unambiguous
+      FROM staff s WHERE s.business_id = ${businessId}::uuid
+      AND (s.id = ${input.staff_id}::uuid OR s.user_id = ${input.staff_id}::uuid)
+      ORDER BY s.id FOR SHARE OF s
     `)
-    if (staff.length !== 1) throw new InvalidKaruteStaffError()
+    if (staff.length !== 1 || !staff[0].canonical_unambiguous) throw new InvalidKaruteStaffError()
     return tx.karuteRecord.create({
       data: {
         businessId,

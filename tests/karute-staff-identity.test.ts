@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import app from '../src/index.js'
 import { cleanupTestData, seedTestStaff, testPrisma, TEST_API_KEY, TEST_BUSINESS_ID } from './setup.js'
 import { normalizeKaruteStaffIdentities } from '../src/services/karute-staff-normalization.service.js'
+import { deleteStaff, StaffAttributedRecordsError } from '../src/services/staff.service.js'
 
 process.env.API_KEYS = TEST_API_KEY
 const foreignBusiness = randomUUID()
@@ -13,6 +14,12 @@ const create = (staffId: string) => app.request('/v1/karute-records', {
 
 afterEach(async () => {
   await cleanupTestData()
+  // Match the audit suite's test-only cleanup, retaining append-only behavior
+  // throughout the repair itself and keeping later suite counts isolated.
+  await testPrisma.$transaction(async tx => {
+    await tx.$executeRaw`SET LOCAL app.audit_scrub = 'on'`
+    await tx.auditLog.deleteMany({ where: { businessId: TEST_BUSINESS_ID, action: 'normalize_staff_identity' } })
+  })
   await testPrisma.karuteRecord.deleteMany({ where: { businessId: foreignBusiness } })
   await testPrisma.staff.deleteMany({ where: { businessId: foreignBusiness } })
 })
@@ -82,5 +89,47 @@ describe('CORE-4 karute owner identity', () => {
     await expect(normalizeKaruteStaffIdentities(TEST_BUSINESS_ID, true)).rejects.toThrow('Normalization refused')
     expect(await testPrisma.karuteRecord.count({ where: { businessId: TEST_BUSINESS_ID, staffId: staff.userId! } })).toBe(1)
     expect(await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID, action: 'normalize_staff_identity' } })).toBe(priorAudits)
+  })
+
+  it('rejects a unique login whose permanent card is shadowed by another login', async () => {
+    const staff = await seedTestStaff({ userId: randomUUID() })
+    await seedTestStaff({ userId: staff.id })
+    expect((await create(staff.userId!)).status).toBe(400)
+    const legacy = await testPrisma.karuteRecord.create({ data: { businessId: TEST_BUSINESS_ID, staffId: staff.userId! } })
+    expect(await normalizeKaruteStaffIdentities(TEST_BUSINESS_ID)).toMatchObject({ changeable: 0, ambiguous: 1 })
+    await expect(normalizeKaruteStaffIdentities(TEST_BUSINESS_ID, true)).rejects.toThrow('Normalization refused')
+    expect((await testPrisma.karuteRecord.findUniqueOrThrow({ where: { id: legacy.id } })).staffId).toBe(staff.userId)
+  })
+
+  it('rechecks ownership after waiting for a concurrent chart writer', async () => {
+    const staff = await seedTestStaff()
+    await seedTestStaff()
+    let deletion: Promise<unknown> | undefined
+    try {
+      await testPrisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM staff WHERE id = ${staff.id}::uuid FOR SHARE`
+        deletion = deleteStaff(TEST_BUSINESS_ID, staff.id).then(() => null, error => error)
+        // Observe the real database wait rather than assuming a timer ordered
+        // the deletion behind this writer. The old delete also waits here,
+        // but only after reading an obsolete count of zero attributed charts.
+        const deadline = Date.now() + 2_000
+        let blocked = false
+        while (Date.now() < deadline) {
+          const [row] = await tx.$queryRaw<Array<{ blocked: boolean }>>`
+            SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+              WHERE datname = current_database() AND pid <> pg_backend_pid()
+                AND wait_event_type = 'Lock' AND query ILIKE '%staff%') AS blocked
+          `
+          if (row.blocked) { blocked = true; break }
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        expect(blocked).toBe(true)
+        await tx.karuteRecord.create({ data: { businessId: TEST_BUSINESS_ID, staffId: staff.id } })
+      })
+      expect(await deletion).toBeInstanceOf(StaffAttributedRecordsError)
+      expect(await testPrisma.staff.findUnique({ where: { id: staff.id } })).not.toBeNull()
+    } finally {
+      await deletion
+    }
   })
 })

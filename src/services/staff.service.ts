@@ -170,18 +170,23 @@ export async function updateStaff(
 }
 
 export async function deleteStaff(businessId: string, id: string): Promise<void> {
-  const existing = await prisma.staff.findFirst({ where: { id, businessId } })
-  if (!existing) throw new Error('Staff not found')
-
-  const [totalCount, recordCount] = await Promise.all([
-    prisma.staff.count({ where: { businessId } }),
-    prisma.karuteRecord.count({ where: { businessId, staffId: id } }),
-  ])
-
-  if (totalCount <= 1) throw new StaffLastMemberError()
-  if (recordCount > 0) throw new StaffAttributedRecordsError(recordCount)
-
-  await prisma.staff.delete({ where: { id } })
+  await prisma.$transaction(async tx => {
+    // Lock before checking attributed records: a Karute writer holds SHARE
+    // through commit. Lock all business cards in order so concurrent deletes
+    // also cannot both pass the last-member guard.
+    const cards = await tx.$queryRaw<Array<{ id: string; user_id: string | null }>>`
+      SELECT id, user_id FROM staff WHERE business_id = ${businessId}::uuid
+      ORDER BY id FOR UPDATE
+    `
+    const existing = cards.find(card => card.id === id)
+    if (!existing) throw new Error('Staff not found')
+    if (cards.length <= 1) throw new StaffLastMemberError()
+    const recordCount = await tx.karuteRecord.count({
+      where: { businessId, staffId: { in: [id, ...(existing.user_id ? [existing.user_id] : [])] } },
+    })
+    if (recordCount > 0) throw new StaffAttributedRecordsError(recordCount)
+    await tx.staff.delete({ where: { id } })
+  })
 }
 
 export async function setPin(

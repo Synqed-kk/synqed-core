@@ -3,6 +3,8 @@
 New Karute records accept a permanent staff-card UUID or a login UUID. Both must
 resolve to exactly one card in the caller's business. Missing, foreign-business,
 and ambiguous identities return HTTP 400 without creating records or entries.
+The resulting card ID must also be unambiguous: a login alias chain cannot
+produce a stored value that the next repair would interpret differently.
 Inactive cards remain valid for delayed historical writes. This normalizes
 ownership; it does not replace human-actor authorization or implement coaching
 consent and grants. Business-key callers retain their existing write authority.

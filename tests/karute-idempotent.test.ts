@@ -63,5 +63,12 @@ describe('Karute Records — idempotent create by recording_session_id', () => {
       where: { recordingSessionId, businessId: TEST_BUSINESS_ID },
     })
     expect(count).toBe(1)
+
+    // Losing the originating card must not break acknowledgement of a save
+    // that already committed (for example an offline client's delayed retry).
+    await prisma.staff.delete({ where: { id: staff.id } })
+    const afterRemoval = await req('POST', '/karute-records', body)
+    expect(afterRemoval.status).toBeLessThan(300)
+    expect((await afterRemoval.json()).id).toBe(firstJson.id)
   })
 })
