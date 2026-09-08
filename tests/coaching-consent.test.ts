@@ -67,7 +67,7 @@ describe('coaching consent privacy', () => {
   it('appends changes, orders tied timestamps by sequence, and paginates only own history', async () => {
     const time = new Date('2026-01-01T00:00:00Z')
     await prisma.coachingConsent.createMany({ data: Array.from({ length: 52 }, (_, i) => ({
-      businessId, staffId, createdBy: staffId, status: i === 51 ? 'declined' : 'granted', policyVersion: policy, createdAt: time,
+      businessId, staffId, authUserId: subjects.get('staff')!, createdBy: staffId, status: i === 51 ? 'declined' : 'granted', policyVersion: policy, createdAt: time,
     })) })
     expect(await (await req()).json()).toMatchObject({ status: 'declined' })
     const first = await (await req('/me/history')).json()
@@ -111,13 +111,35 @@ describe('coaching consent privacy', () => {
     const row = await (await decide('declined')).json()
     await expect(prisma.coachingConsent.update({ where: { id: row.id }, data: { status: 'granted' } })).rejects.toThrow('append-only')
     await expect(prisma.coachingConsent.delete({ where: { id: row.id } })).rejects.toThrow('append-only')
-    await expect(prisma.coachingConsent.create({ data: { businessId: randomUUID(), staffId, createdBy: staffId,
+    await expect(prisma.coachingConsent.create({ data: { businessId: randomUUID(), staffId, authUserId: subjects.get('staff')!, createdBy: staffId,
       status: 'granted', policyVersion: policy } })).rejects.toThrow('Active staff not found')
-    await expect(prisma.coachingConsent.create({ data: { businessId, staffId, createdBy: ownerId,
+    await expect(prisma.coachingConsent.create({ data: { businessId, staffId, authUserId: subjects.get('staff')!, createdBy: ownerId,
       status: 'granted', policyVersion: policy } })).rejects.toThrow('coaching_consent_self_authored')
     await prisma.staff.delete({ where: { id: staffId } })
     expect(await prisma.coachingConsent.count({ where: { id: row.id } })).toBe(1)
     expect((await req()).status).toBe(403)
+  })
+
+
+  it('does not transfer consent or private history when a staff card changes login', async () => {
+    const decision = await (await decide('granted')).json()
+    const replacement = randomUUID()
+    subjects.set('replacement', replacement)
+    await prisma.staff.update({ where: { id: staffId }, data: { userId: replacement } })
+    expect(await (await req('/me', 'GET', undefined, 'replacement')).json()).toMatchObject({ status: 'unset', decision: null })
+    expect(await (await req('/me/history', 'GET', undefined, 'replacement')).json()).toEqual({ decisions: [], next_cursor: null })
+    expect((await req(`/me/history?cursor=${decision.id}`, 'GET', undefined, 'replacement')).status).toBe(404)
+    expect(await (await req(`/stores/${storeId}/adoption`, 'GET', undefined, 'owner')).json()).toEqual({ granted: 0, total: 2 })
+    expect((await req()).status).toBe(403)
+    expect((await decide('granted', 'replacement')).status).toBe(201)
+  })
+
+  it('keeps withdrawal possible when an older settings writer saved an oversized policy version', async () => {
+    await decide('granted')
+    await prisma.orgSettings.create({ data: { businessId, settings: { coaching_policy_version: 'x'.repeat(201) } } })
+    expect(await (await req()).json()).toMatchObject({ current_policy_version: policy })
+    expect((await decide('declined')).status).toBe(201)
+    expect(await (await req()).json()).toMatchObject({ status: 'declined' })
   })
 
   it('denies every direct browser policy, including any owner or manager L1 exception', async () => {

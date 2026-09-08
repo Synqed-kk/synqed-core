@@ -5,6 +5,7 @@ CREATE TABLE coaching_consent (
   sequence bigserial NOT NULL UNIQUE,
   business_id uuid NOT NULL,
   staff_id uuid NOT NULL,
+  auth_user_id uuid NOT NULL,
   created_by uuid NOT NULL,
   status text NOT NULL CHECK (status IN ('granted', 'declined')),
   policy_version text NOT NULL CHECK (length(policy_version) BETWEEN 1 AND 200),
@@ -13,10 +14,10 @@ CREATE TABLE coaching_consent (
 );
 -- Like staff_policy_events, consent evidence outlives normal staff deletion.
 -- Validate the live tenant/card at insertion without blocking offboarding.
-CREATE FUNCTION validate_coaching_consent_staff() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION validate_coaching_consent_staff() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM id FROM staff WHERE id = NEW.staff_id AND business_id = NEW.business_id
-    AND is_active = true AND user_id IS NOT NULL FOR KEY SHARE;
+    AND is_active = true AND user_id = NEW.auth_user_id FOR KEY SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Active staff not found in consent business'; END IF;
   RETURN NEW;
 END $$;

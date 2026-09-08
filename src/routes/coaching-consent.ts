@@ -27,7 +27,7 @@ coachingConsentRoutes.onError((error, c) => {
   throw error
 })
 
-coachingConsentRoutes.get('/me', async c => c.json(await ownConsent(c.get('businessId'), c.get('actor').staffId)))
+coachingConsentRoutes.get('/me', async c => c.json(await ownConsent(c.get('businessId'), c.get('actor').staffId, c.get('actor').userId)))
 
 coachingConsentRoutes.post('/me', async c => {
   const input = z.object({ status: z.enum(['granted', 'declined']), policy_version: z.string().min(1).max(200) }).strict()
@@ -41,7 +41,7 @@ coachingConsentRoutes.get('/me/history', async c => {
   const cursor = z.string().uuid().optional()
     .safeParse(c.req.query('cursor'))
   if (!cursor.success) return c.json({ error: 'Invalid cursor' }, 400)
-  return c.json(await ownConsentHistory(c.get('businessId'), c.get('actor').staffId, cursor.data))
+  return c.json(await ownConsentHistory(c.get('businessId'), c.get('actor').staffId, c.get('actor').userId, cursor.data))
 })
 
 coachingConsentRoutes.get('/stores/:storeId/adoption', async c => {
