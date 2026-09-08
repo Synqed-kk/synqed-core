@@ -17,6 +17,34 @@ afterEach(async () => {
 })
 
 describe('CORE-4 read filters', () => {
+  it('pages equal-timestamp discard and outcome rows by their ID tie-breaker', async () => {
+    const ids = [randomUUID(), randomUUID(), randomUUID()].sort()
+    const time = new Date('2026-09-01T00:00:00Z')
+    const staff = await seedTestStaff()
+    // Insert opposite to the promised order so timestamp ordering alone does
+    // not accidentally prove this contract through insertion order.
+    for (const id of ids) await testPrisma.recordingDiscardEvent.create({ data: {
+      id, businessId: TEST_BUSINESS_ID, recordingSessionId: randomUUID(), source: 'SYSTEM', createdAt: time,
+    } })
+    for (const id of [...ids].reverse()) {
+      await testPrisma.karuteRecord.create({ data: { id, businessId: TEST_BUSINESS_ID, staffId: staff.id } })
+      await testPrisma.karuteOutcome.create({ data: { karuteRecordId: id, businessId: TEST_BUSINESS_ID, outcome: 'success', updatedAt: time } })
+    }
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const discards: string[] = [], outcomes: string[] = []
+      for (let page = 1; page <= 3; page++) {
+        const discard = await (await get(`/recording-discards?page_size=1&page=${page}`)).json()
+        const outcome = await (await get(`/karute-outcomes?staff_id=${staff.id}&page_size=1&page=${page}`)).json()
+        expect(discard.total).toBe(3)
+        expect(outcome.total).toBe(3)
+        discards.push(discard.events[0].id)
+        outcomes.push(outcome.outcomes[0].karute_record_id)
+      }
+      expect(discards).toEqual([...ids].reverse())
+      expect(outcomes).toEqual(ids)
+    }
+  })
+
   it('carries the new filters through the SDK without turning an empty set into an unfiltered read', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ events: [], outcomes: [], total: 0, page: 1, page_size: 100 }))
     vi.stubGlobal('fetch', fetch)
