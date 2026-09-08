@@ -94,9 +94,14 @@ export async function pointLedger(scope: Scope, cursor?: string, limit = 50) {
     }
     const anchor = cursor ? await tx.pointEntry.findFirst({ where: { id: cursor, walletId: wallet.id } }) : null
     if (cursor && !anchor) throw new MemberPointsError('NOT_FOUND')
-    const rows = await tx.pointEntry.findMany({ where: { walletId: wallet.id,
-      ...(anchor ? { OR: [{ occurredAt: { lt: anchor.occurredAt } }, { occurredAt: anchor.occurredAt, id: { lt: anchor.id } }] } : {}) },
-      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: limit + 1 })
+    // Compare with the original DB timestamp: JS Date truncates PostgreSQL
+    // microseconds and can otherwise skip entries sharing a cursor timestamp.
+    const rows = await tx.$queryRaw<{ id: string; amount: number; source: string; eventRef: string; occurredAt: Date }[]>`
+      SELECT id,amount,source,event_ref AS "eventRef",occurred_at AS "occurredAt"
+      FROM point_entries WHERE wallet_id=${wallet.id}::uuid
+        AND (${cursor ?? null}::uuid IS NULL OR (occurred_at,id) < (
+          SELECT occurred_at,id FROM point_entries WHERE id=${cursor ?? null}::uuid AND wallet_id=${wallet.id}::uuid))
+      ORDER BY occurred_at DESC,id DESC LIMIT ${limit + 1}`
     const entries = rows.slice(0, limit).map(row => ({ entryId: row.id, accountId: scope.accountId,
       businessId: scope.businessId, storeId: scope.storeId, amount: Math.abs(row.amount),
       direction: row.amount > 0 ? 'EARN' as const : 'SPEND' as const, source: row.source,

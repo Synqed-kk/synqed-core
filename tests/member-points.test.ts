@@ -87,6 +87,22 @@ describe('store points ledger', () => {
     expect(noMemberAward.status).toBe(403)
   })
 
+  it('paginates every entry when PostgreSQL timestamps share microseconds', async () => {
+    const first = await credit(1)
+    await db.$executeRaw`INSERT INTO point_entries(id,wallet_id,amount,source,event_ref,occurred_at) VALUES
+      (gen_random_uuid(),${first.entry.walletId}::uuid,1,'VISIT_CHECKIN','micro-1','2030-01-01 00:00:00.123456+00'),
+      (gen_random_uuid(),${first.entry.walletId}::uuid,1,'VISIT_CHECKIN','micro-2','2030-01-01 00:00:00.123456+00')`
+    let cursor: string | undefined
+    const ids: string[] = []
+    do {
+      const page = await pointLedger(scope(), cursor, 1)
+      expect(page.balance).toBe(3)
+      ids.push(...page.entries.map(row => row.entryId))
+      cursor = page.nextCursor ?? undefined
+    } while (cursor)
+    expect(new Set(ids).size).toBe(3)
+  })
+
   it('grants configured daily points once per store and JST day, including after policy changes', async () => {
     await credit(20)
     expect(await dailyOpen(scope())).toMatchObject({ granted: 0, alreadyClaimedToday: false })
