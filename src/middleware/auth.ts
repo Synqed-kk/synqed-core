@@ -22,6 +22,7 @@ function isCrossBusinessPath(path: string): boolean {
 // discovered from a per-resource secret (e.g. the pre-auth invite-by-token
 // lookup). The API key still gates access; only x-business-id is waived.
 const BUSINESS_OPTIONAL_PATHS = [
+  /^\/v1\/members\/me(?:\/claim)?$/,
   /\/v1\/invites\/by-token\//,
   /\/v1\/ai-cache(\/|$)/,
   // Worker verbs: the karute job worker sweeps ALL businesses with the trusted

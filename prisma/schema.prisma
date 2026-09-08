@@ -794,6 +794,9 @@ model Store {
 
   @@index([businessId])
   @@map("stores")
+  pointWallets PointWallet[]
+  pointPolicy StorePointPolicy?
+  @@unique([id, businessId])
   resources  Resource[]
   closedDays StoreClosedDay[]
 }
@@ -1409,4 +1412,57 @@ model Resource {
 
   @@index([businessId, storeId, active])
   @@map("resources")
+}
+
+// CORE-2: one verified platform account. Existing Customer claiming is deferred;
+// neither this account nor its points grants access to salon customer history.
+model MemberAccount {
+  id          String @id @default(uuid()) @db.Uuid
+  authUserId  String @unique @map("auth_user_id") @db.Uuid
+  displayName String @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  wallets     PointWallet[]
+  @@map("member_accounts")
+}
+
+model PointWallet {
+  id         String @id @default(uuid()) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  businessId String @map("business_id") @db.Uuid
+  storeId    String @map("store_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  account    MemberAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  store      Store @relation(fields: [storeId, businessId], references: [id, businessId], onDelete: Restrict)
+  entries    PointEntry[]
+  // A wallet is a locking/scope row, NEVER a stored balance.
+  @@unique([accountId, storeId])
+  @@index([businessId, storeId])
+  @@map("point_wallets")
+}
+
+model PointEntry {
+  id         String @id @default(uuid()) @db.Uuid
+  walletId   String @map("wallet_id") @db.Uuid
+  amount     Int
+  source     String
+  eventRef   String @map("event_ref")
+  actorId    String? @map("actor_id") @db.Uuid
+  reason     String?
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz()
+  wallet     PointWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  @@unique([walletId, source, eventRef])
+  @@index([walletId, occurredAt, id])
+  @@map("point_entries")
+}
+
+model StorePointPolicy {
+  storeId         String @id @map("store_id") @db.Uuid
+  businessId      String @map("business_id") @db.Uuid
+  dailyOpenPoints Int @default(0) @map("daily_open_points")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+  store Store @relation(fields: [storeId, businessId], references: [id, businessId], onDelete: Restrict)
+  @@unique([storeId, businessId])
+  @@map("store_point_policies")
 }
