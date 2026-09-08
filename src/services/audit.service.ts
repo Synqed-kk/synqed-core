@@ -49,7 +49,7 @@ export interface AuditEventPublic {
   severity: string
 }
 
-export const DETAIL_CAP_BYTES = 2048
+const DETAIL_CAP_BYTES = 2048
 
 function toPublic(r: {
   id: string

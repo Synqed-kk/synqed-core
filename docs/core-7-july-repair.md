@@ -1,8 +1,27 @@
-# CORE-7: double-burn protection and July corrections
+# CORE-7: burn and restore verification
 
-The partial unique index already exists in the migration dated 2026-07-28, which
-records production application that day. Verify the intended database before
-calling the live guard complete:
+Liam's September 9 correction on CORE-7 supersedes the original July relabel
+request. His read-only live query found zero NO_SHOW appointments on July 9–10
+or any other date in Core. The business had 2,640 SCHEDULED and 183 CANCELLED
+appointments, no NO_SHOW history/audit trace, and no persisted no-show counter.
+The proposed July status-repair command has therefore been removed.
+
+Four already-cancelled appointments are candidates for a reason-only correction:
+
+- 16a2d0d6-f1e3-4019-891f-5a3943bb7d85
+- 70e314fd-1c35-4bcd-942a-85cdb5670295
+- 7631b003-8b79-420d-a1f5-a1178646ddb1
+- d88b4812-ec96-4e7e-9796-9829877954c3
+
+Same-day cancellation timestamps alone do not establish customer contact. Liam
+must confirm which candidates qualify before a manual migration changes their
+reason to cancel-same-day-contact. Do not change their status or invent a
+counter decrement. Core's enrichment derives no-show counts from NO_SHOW rows.
+
+## Existing guards
+
+The 2026-07-28 migration records the active-redemption unique index as applied
+in production. Verify the intended database:
 
 ```sql
 SELECT i.indisunique, i.indisvalid, pg_get_indexdef(i.indexrelid)
@@ -13,59 +32,11 @@ WHERE removed_at IS NULL AND appointment_id IS NOT NULL
 GROUP BY appointment_id HAVING count(*) > 1;
 ```
 
-The index must be valid and unique, cover appointment_id and exclude removed
-rows; the second query must return zero rows. Do not test live uniqueness by
-charging a real customer. Integration tests exercise concurrent inserts locally.
+The index must be valid and unique on appointment_id, excluding removed rows;
+the duplicate query must return no rows. The local integration test races two
+active burns, checks that the database rejects one, and verifies a replacement
+is allowed after undo. The restore test explicitly checks that status_reason
+is cleared when a cancellation is restored without a new reason.
 
-The appointment update service already clears status_reason when restoring a
-cancelled booking without a new reason. No-show count is **derived** from current
-NO_SHOW appointments by customerEnrichment; there is no customer counter column
-to decrement. Correcting the appointment reduces the next enrichment result.
-
-## Exact-record repair
-
-Obtain Liam's confirmed July 9–10, 2026 appointment IDs and the target business
-UUID. Being a July no-show is not proof that the customer contacted the salon.
-Build a private JSON manifest from the current database snapshot:
-
-```json
-{
-  "business_id": "<exact business UUID>",
-  "evidence": "<link or reference to the confirmed correction list>",
-  "appointments": [{
-    "appointment_id": "<exact appointment UUID>",
-    "customer_id": "<exact customer UUID>",
-    "starts_at": "2026-07-09T03:00:00.000Z",
-    "updated_at": "<current ISO timestamp>",
-    "status_reason": null
-  }]
-}
-```
-
-Keep customer data and credentials out of the repository. With DATABASE_URL set
-to the intended environment, preview with:
-
-```sh
-npx tsx scripts/repair-july-cancellations.ts /secure/path/manifest.json
-```
-
-After reviewing IDs and projected no-show counts, add `--apply`. The command
-locks the named bookings in order, validates every business/customer/date/version
-and original reason, then changes the whole batch atomically. Any mismatch
-refuses the batch. It stamps CANCELLED + cancel-same-day-contact, preserves an
-existing cancellation timestamp, adds status history and an audit of previous
-values. The complete audit detail must fit the shared 2,048-byte UTF-8 limit;
-preview and apply both refuse oversized detail instead of truncating evidence
-or the replay fingerprint. Use a short evidence reference. It uses STAFF
-status source to preserve the correction against sync.
-It does not alter pack redemptions or monetary balances.
-
-Keep the exact manifest for reruns: matching audit fingerprints acknowledge
-already-applied rows without duplicate history or audit entries. A modified or
-stale manifest requires a fresh investigation, not an override. Counts in the
-report are a point-in-time projection; unrelated appointments can change them.
-Verify corrected rows and fresh customer enrichment after application, and
-allow Karute's enrichment cache to refresh before checking its badge.
-
-This PR prepares and locally verifies the repair. Exact production targets and
-production database access are still required; no live repair is claimed.
+No production data mutation is included. CORE-5 carries the seven customer
+merges and 入江真之's purchase/redemption date correction separately.
