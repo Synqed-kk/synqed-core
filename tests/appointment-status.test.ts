@@ -87,6 +87,7 @@ describe('PUT /appointments/:id — staff-set status + audit', () => {
     const restored = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(restored.status).toBe('SCHEDULED')
     expect(restored.cancelledAt).toBeNull()
+    expect(restored.statusReason).toBeNull()
   })
 
   it('non-status edits leave the audit trail untouched', async () => {
