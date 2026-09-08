@@ -137,6 +137,9 @@ export async function confirmDiscardEvent(
 
 export interface ListDiscardOptions {
   recording_session_id?: string
+  recording_session_ids?: string[]
+  created_from?: string
+  created_before?: string
   source?: RecordingDiscardSource
   page?: number
   page_size?: number
@@ -150,11 +153,16 @@ export async function listDiscardEvents(
   const pageSize = Math.min(options.page_size ?? 100, 500)
   const where: Record<string, unknown> = { businessId }
   if (options.recording_session_id) where.recordingSessionId = options.recording_session_id
+  if (options.recording_session_ids) where.recordingSessionId = { in: options.recording_session_ids }
+  if (options.created_from || options.created_before) where.createdAt = {
+    ...(options.created_from ? { gte: new Date(options.created_from) } : {}),
+    ...(options.created_before ? { lt: new Date(options.created_before) } : {}),
+  }
   if (options.source) where.source = options.source
   const [rows, total] = await Promise.all([
     prisma.recordingDiscardEvent.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
