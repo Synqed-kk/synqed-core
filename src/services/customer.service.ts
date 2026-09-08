@@ -384,7 +384,11 @@ export async function deleteCustomer(
   })
 
   if (!existing) throw new Error('Customer not found')
-  if (mergedCustomerTarget(existing.externalRefs)) throw new Error('Customer was merged; use the retained record')
+  const mergeTarget = mergedCustomerTarget(existing.externalRefs)
+  if (mergeTarget && await prisma.customer.findFirst({ where: { id: mergeTarget, businessId } })) {
+    throw new Error('Customer was merged; use the retained record')
+  }
+  // Once KEEP is erased, the normal erasure job may scrub its orphaned alias.
 
   // CORE OWNS THE CASCADE (decided 2026-07-17; the app used to pre-delete
   // appointments one by one). Hard delete = the day-30 path: child rows that

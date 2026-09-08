@@ -142,6 +142,9 @@ describe('CORE-5 exact manual migration', () => {
     await expect(resolveMergedCustomer(randomUUID(), pairs[0][1])).rejects.toThrow('Customer not found')
     await expect(updateCustomer(businessId, pairs[0][1], { deleted_at: null })).rejects.toThrow('Customer was merged')
     await expect(deleteCustomer(businessId, pairs[0][1])).rejects.toThrow('Customer was merged')
+    await deleteCustomer(businessId, pairs[0][0])
+    await deleteCustomer(businessId, pairs[0][1])
+    expect(await db.customer.count({ where: { id: { in: [pairs[0][0], pairs[0][1]] } } })).toBe(0)
   })
 
   it('aborts the whole repair if an expected balance has changed', async () => {
