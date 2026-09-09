@@ -33,6 +33,8 @@ import { recordingJobRoutes } from './routes/recording-jobs.js'
 import { aiCacheRoutes } from './routes/ai-cache.js'
 import { authMiddleware } from './middleware/auth.js'
 
+import { memberRoutes, memberPointAdminRoutes } from './routes/members.js'
+
 const app = new Hono().basePath('/v1')
 
 app.use('*', logger())
@@ -47,6 +49,8 @@ app.onError((err, c) => {
   )
 })
 
+app.route('/members', memberRoutes)
+app.route('/member-points', memberPointAdminRoutes)
 app.route('/customers', customerRoutes)
 app.route('/staff', staffRoutes)
 app.route('/appointments', appointmentRoutes)

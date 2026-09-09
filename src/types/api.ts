@@ -162,6 +162,7 @@ export interface ActorContext {
 export type AppEnv = {
   Variables: {
     businessId: string
+    memberUserId: string
     actor: ActorContext
   }
 }
