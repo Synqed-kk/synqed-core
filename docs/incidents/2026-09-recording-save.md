@@ -14,9 +14,9 @@ Replaying the pre-#93 ownership predicate makes the auth-user case fail with 403
 
 The `Recording save contract` workflow runs these tests alongside authorization and discarded-status regressions against a fresh PostgreSQL database. It substitutes token verification and AI/storage outputs, so it does not prove a real iPhone, provider calls or the production worker completed a recording.
 
-The migration workflow now checks all manual SQL changes, including modifications, deletions and renames, and requires an exact `migrations-applied` label. The label remains a human attestation and must be revisited after SQL changes. It does not query production. Production migration application is still a separate operation; `prisma db push` in the recording workflow is only for the disposable test database.
+The migration workflow now checks all manual SQL changes, including modifications, deletions and renames, and requires an exact `db-ok:<full PR head SHA>` label. Any new commit invalidates older confirmations, including the legacy `migrations-applied` label. The label remains a human attestation; after every push, recheck the production SQL and add the new revision’s label. It does not query production. Production migration application is still a separate operation; `prisma db push` in the recording workflow is only for the disposable test database.
 
-Repository settings must require both `check` (Migration gate) and `recording-contract` before merges. Core main was unprotected when inspected. Workflow files alone cannot enforce merge blocking. No production migration, deployment or branch-protection change is performed by this patch.
+Repository settings must require both `check` (Migration gate) and `recording-contract` before merges. Core main was unprotected when initially inspected. On September 9 the existing GitHub Actions `check` was made required with strict up-to-date enforcement, including for admins; force pushes and branch deletion are disabled. Add `recording-contract` to required checks once this new workflow lands. Workflow files alone cannot enforce merge blocking. No production migration or deployment is performed by this patch.
 
 ## Outstanding production verification
 
@@ -24,4 +24,4 @@ The supplied audit screenshots distinguish audio receipts (`recording.capture_fi
 
 For each affected session, inspect the recording row, finalized audio pointer, job status/attempts/last error, Karute-by-recording lookup and correlated audit events. Verify one fresh ordinary-staff recording through the deployed iPhone flow, including the worker and final list visibility. Distinguish a recovered audio upload that still needs customer selection/processing from a fresh stopped take that should automatically save.
 
-Use the Synqed Vercel team (`synqed-kk`) and Supabase project `synqed-core-tokyo`. The investigator's configured Vercel account only exposes `spases-ai`; no authenticated production verification or recovery was performed. Do not bulk requeue recordings without checking customer binding, consent, explicit discards and whether a record already exists.
+Use the Synqed Vercel team (`synqed-kk`) and Supabase project `synqed-core-tokyo`. The initial Vercel login exposed only `spases-ai`. Re-login as `alee9011` succeeded but exposes only `alee9011s-projects`, without `synqed-kk` membership. No authenticated production verification or recovery was performed. Do not bulk requeue recordings without checking customer binding, consent, explicit discards and whether a record already exists.

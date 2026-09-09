@@ -32,13 +32,24 @@ test('real git changes include additions, edits, deletions and moves out of manu
 })
 
 test('requires the exact confirmation label and rejects malformed labels', () => {
-  assert.throws(() => requireMigrationConfirmation(['change.sql'], []))
-  assert.throws(() => requireMigrationConfirmation(['change.sql'], ['not-migrations-applied']))
-  assert.throws(() => requireMigrationConfirmation(['change.sql'], 'migrations-applied'))
-  assert.doesNotThrow(() => requireMigrationConfirmation(['change.sql'], ['migrations-applied']))
-  assert.doesNotThrow(() => requireMigrationConfirmation([], []))
+  const head = 'c'.repeat(40)
+  assert.throws(() => requireMigrationConfirmation(['change.sql'], [], head))
+  assert.throws(() => requireMigrationConfirmation(['change.sql'], [`not-db-ok:${head}`], head))
+  assert.throws(() => requireMigrationConfirmation(['change.sql'], `db-ok:${head}`, head))
+  assert.doesNotThrow(() => requireMigrationConfirmation(['change.sql'], [`db-ok:${head}`], head))
+  assert.doesNotThrow(() => requireMigrationConfirmation([], [], head))
 })
 
 test('rejects refs other than complete commit IDs', () => {
   assert.throws(() => changedManualMigrations('main', '--help'), /commit SHAs/)
+})
+
+test('confirmation is bound to the exact PR head and cannot survive a new revision', () => {
+  const oldHead = 'a'.repeat(40)
+  const newHead = 'b'.repeat(40)
+  const files = ['change.sql']
+  assert.throws(() => requireMigrationConfirmation(files, ['migrations-applied'], newHead))
+  assert.throws(() => requireMigrationConfirmation(files, [`db-ok:${oldHead}`], newHead))
+  assert.doesNotThrow(() => requireMigrationConfirmation(files, [`db-ok:${newHead}`], newHead))
+  assert.throws(() => requireMigrationConfirmation(files, [`db-ok:${newHead}`], 'main'))
 })
