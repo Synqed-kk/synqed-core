@@ -1,0 +1,43 @@
+name: Recording save contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  recording-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: recording_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Disposable CI database only. This does not run production migrations.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/recording_contract
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: node --test scripts/check-migration-gate.test.mjs
+      - name: Create disposable test schema
+        run: npx prisma db push
+      - name: Staff finalization, job/save/read lifecycle and discard compatibility
+        run: npx vitest run tests/recording-save-lifecycle.test.ts tests/recording-actor-authorization.test.ts tests/karute-discarded-status.test.ts
