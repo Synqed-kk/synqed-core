@@ -5,6 +5,7 @@ import {
   checkSchemaContract,
   derivedRequirements,
   CONSTRAINT_CONTRACT,
+  MIGRATION_HINTS,
   type DerivedRequirements,
 } from '../src/db/schema-contract.js'
 import { resetReadinessCache } from '../src/routes/health.js'
@@ -100,6 +101,50 @@ describe('schema contract — detects drift', () => {
       kind: 'enum_value',
       subject: 'KaruteStatus.NEVER_ADDED',
     })
+  })
+
+  it('names the migration for a hinted object, so recovery matches the runbook', async () => {
+    // The runbook tells an operator to apply the files in gaps[].migration.
+    // Deriving the contract must not cost that attribution.
+    const gaps = await checkSchemaContract(
+      { tables: new Map([['never_created_table', []]]), enums: new Map() },
+      [],
+      testPrisma,
+      { never_created_table: '2026-01-01-some-migration' },
+    )
+
+    expect(gaps).toEqual([
+      {
+        kind: 'table',
+        subject: 'never_created_table',
+        migration: '2026-01-01-some-migration',
+      },
+    ])
+  })
+
+  it('still reports an UNHINTED gap, just without a filename', async () => {
+    // Attribution is best-effort; detection is not. A missing hint must cost
+    // a grep, never the alert.
+    const gaps = await checkSchemaContract(
+      { tables: new Map([['never_created_table', []]]), enums: new Map() },
+      [],
+      testPrisma,
+      {},
+    )
+
+    expect(gaps).toEqual([{ kind: 'table', subject: 'never_created_table' }])
+  })
+
+  it('hints the objects behind the 2026-09-04 outage', () => {
+    expect(MIGRATION_HINTS['KaruteStatus.DISCARDED']).toBe(
+      '2026-09-01-karute-discarded-status',
+    )
+    expect(MIGRATION_HINTS['recording_discard_events.confirmed_by']).toBe(
+      '2026-09-03-recording-discard-confirmation',
+    )
+    expect(MIGRATION_HINTS['retention_signals']).toBe(
+      '2026-08-20-retention-signals',
+    )
   })
 
   it('reports a missing table ONCE, not once per column', async () => {

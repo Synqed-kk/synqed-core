@@ -43,6 +43,11 @@ Apply the files named in `gaps[].migration` from `prisma/migrations/manual/`,
 in filename order, then re-probe. No redeploy is needed — that matches how the
 2026-09-04 recovery actually worked.
 
+A gap without a `migration` is still a real gap; it just has no hint recorded.
+Find the object in `prisma/migrations/manual/` with
+`grep -rl '<subject>' prisma/migrations/manual/`, and add it to
+`MIGRATION_HINTS` so the next operator does not repeat the search.
+
 `database: "unreachable"` is a different problem: core cannot reach Postgres at
 all. Migrations will not help.
 
@@ -65,6 +70,12 @@ runtime.
 **CHECK and UNIQUE constraints are the exception.** The DMMF does not model
 them, so `CONSTRAINT_CONTRACT` lists them by hand. Add an entry when a manual
 migration adds one the code relies on.
+
+**`MIGRATION_HINTS` maps an object to the manual migration that adds it.** It
+is attribution, never coverage: an object missing from the map is still
+reported as a gap, it just arrives without a filename. Detection is derived and
+cannot silently under-cover; attribution only saves an operator a `grep`, so it
+is allowed to be incomplete. Add a hint when you add a manual migration.
 
 A missing table or enum type is reported once rather than once per column, so
 the one line an operator needs is not buried.

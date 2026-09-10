@@ -127,8 +127,8 @@ async function runReadiness(): Promise<ReadinessResult> {
         schema: 'drift',
         gap_count: gaps.length,
         gaps,
-        // Only constraint gaps can name a migration; derived table/column
-        // gaps cannot, so an empty list here is normal and not a bug.
+        // Best-effort: a gap carries a migration when MIGRATION_HINTS knows
+        // the object. An unattributed gap is still fully reported in `gaps`.
         pending_migrations: [
           ...new Set(gaps.flatMap((g) => (g.migration ? [g.migration] : []))),
         ],

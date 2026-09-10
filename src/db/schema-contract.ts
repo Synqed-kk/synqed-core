@@ -26,6 +26,34 @@ export interface ConstraintRequirement {
   migration: string
 }
 
+/** Best-effort attribution: which manual migration adds a given object.
+ *
+ *  This is a HINT, never the coverage mechanism. Detection comes from the
+ *  derived contract, so an object missing from this map is still reported as a
+ *  gap — it just arrives without a filename. That split is deliberate: the
+ *  thing that must never silently under-cover is derived, and the thing that
+ *  only saves an operator a `grep` is allowed to be incomplete.
+ *
+ *  Keyed by the same `subject` string the gap carries. */
+export const MIGRATION_HINTS: Record<string, string> = {
+  // The four behind the 2026-09-04 outage.
+  'KaruteStatus.DISCARDED': '2026-09-01-karute-discarded-status',
+  'recording_discard_events.karute_record_id':
+    '2026-09-02-recording-discard-karute-key',
+  'recording_discard_events.confirmed_by':
+    '2026-09-03-recording-discard-confirmation',
+  'recording_discard_events.confirmed_at':
+    '2026-09-03-recording-discard-confirmation',
+  // Recent manual migrations whose tables the code reads.
+  recording_discard_events: '2026-08-17-recording-discard-events',
+  retention_signals: '2026-08-20-retention-signals',
+  RetentionSignalStatus: '2026-08-20-retention-signals',
+  staff_permissions: '2026-08-21-staff-permissions',
+  idempotency_keys: '2026-07-28-idempotency-keys',
+  recording_jobs: '2026-07-20-recording-jobs',
+  ai_cache: '2026-06-25-ai-cache',
+}
+
 export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [
   {
     table: 'recording_discard_events',
@@ -93,6 +121,7 @@ export async function checkSchemaContract(
   requirements: DerivedRequirements = derivedRequirements(),
   constraints: ConstraintRequirement[] = CONSTRAINT_CONTRACT,
   client: typeof prisma = prisma,
+  hints: Record<string, string> = MIGRATION_HINTS,
 ): Promise<SchemaGap[]> {
   const gaps: SchemaGap[] = []
 
@@ -136,17 +165,22 @@ export async function checkSchemaContract(
     constraintRows.map((r) => `${r.relname}.${r.conname}`),
   )
 
+  const gap = (kind: SchemaGap['kind'], subject: string): SchemaGap => {
+    const migration = hints[subject]
+    return migration ? { kind, subject, migration } : { kind, subject }
+  }
+
   for (const [table, columns] of requirements.tables) {
     const live = liveColumns.get(table)
     // A missing TABLE is reported once. Listing each of its forty columns
     // would bury the one line an operator needs.
     if (!live) {
-      gaps.push({ kind: 'table', subject: table })
+      gaps.push(gap('table', table))
       continue
     }
     for (const column of columns) {
       if (!live.has(column)) {
-        gaps.push({ kind: 'column', subject: `${table}.${column}` })
+        gaps.push(gap('column', `${table}.${column}`))
       }
     }
   }
@@ -154,12 +188,12 @@ export async function checkSchemaContract(
   for (const [type, values] of requirements.enums) {
     const live = liveEnums.get(type)
     if (!live) {
-      gaps.push({ kind: 'enum', subject: type })
+      gaps.push(gap('enum', type))
       continue
     }
     for (const value of values) {
       if (!live.has(value)) {
-        gaps.push({ kind: 'enum_value', subject: `${type}.${value}` })
+        gaps.push(gap('enum_value', `${type}.${value}`))
       }
     }
   }
