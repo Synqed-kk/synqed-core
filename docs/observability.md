@@ -48,19 +48,35 @@ all. Migrations will not help.
 
 ## The schema contract
 
-`src/db/schema-contract.ts` lists the enum values, columns and constraints that
-manual migrations add and the code depends on. `checkSchemaContract()` asks the
-live database whether each one is really there.
+`src/db/schema-contract.ts` asks the live database whether it really has the
+schema this build was compiled against.
 
 The migration gate (`.github/workflows/migration-gate.yml`) blocks a merge on a
 human attestation. As the incident write-up says, that label *"does not query
 production"*. This contract is the half that does.
 
-**Add an entry whenever a manual migration adds an object the code reads.** A
-missing entry is a blind spot; a misspelled entry makes readiness cry drift
-forever, get muted, and hide the next real one. `tests/observability-health.test.ts`
-asserts every shipped entry actually resolves against a migrated database, so a
-typo fails CI rather than production.
+**Tables, columns and enum values are derived from the Prisma schema**, via
+`Prisma.dmmf`. Nothing to maintain: every model Prisma knows about is checked
+automatically. A hand-curated list is only as good as the last person who
+remembered to update it, and a contract that silently under-covers is worse
+than none, because it reports healthy while the routes it forgot fail at
+runtime.
+
+**CHECK and UNIQUE constraints are the exception.** The DMMF does not model
+them, so `CONSTRAINT_CONTRACT` lists them by hand. Add an entry when a manual
+migration adds one the code relies on.
+
+A missing table or enum type is reported once rather than once per column, so
+the one line an operator needs is not buried.
+
+Every catalog query is scoped to `current_schema()`. Supabase databases carry
+`auth`, `storage` and `extensions` schemas alongside the application's, and an
+identically named enum or constraint in one of those would otherwise satisfy
+the contract while the object actually needed is missing.
+
+`tests/observability-health.test.ts` asserts the whole derived contract
+resolves against a migrated database, so drift or a broken derivation fails CI
+rather than production.
 
 ## Logs
 
@@ -135,14 +151,29 @@ Required repository secrets:
 | `CORE_URL` | Base URL, no trailing slash, e.g. `https://core.synqed.jp` |
 | `CORE_API_KEY` | Optional. Without it the run still detects the 503 but cannot print which migrations are missing. |
 
+On a **push**, the monitor will not accept a green answer from the build being
+replaced. Readiness echoes the `release` it is serving
+(`VERCEL_GIT_COMMIT_SHA`), and the push run waits until that matches the pushed
+commit before trusting a 200. Without that check a push could probe the
+previous deploy, report `Readiness OK`, and let a drifted new build through
+until the next scheduled run.
+
 GitHub's scheduler is best-effort and can lag under load. It is a safety net,
 not a substitute for a real uptime monitor pointed at the same endpoint.
+
+Readiness memoizes its verdict for 5 seconds. The endpoint is unauthenticated,
+and each miss costs a reachability query plus three catalog queries, so without
+a bound public traffic could contend with real requests for connections. A
+monitor polling every 15 minutes always gets a fresh verdict; an operator
+re-probing during a migration waits at most 5 seconds to see their fix.
 
 ## Deploying a change that needs a manual migration
 
 1. Apply the SQL to production **before** merging (`docs/incidents/…` explains
    why; the migration gate enforces the label).
-2. Add the new objects to `SCHEMA_CONTRACT`.
+2. If the migration adds a CHECK or UNIQUE constraint, add it to
+   `CONSTRAINT_CONTRACT`. Tables, columns and enum values need no action — they
+   are derived from the Prisma schema.
 3. Merge and deploy.
 4. Confirm `/v1/health/ready` returns 200. The push-triggered monitor run does
-   this automatically.
+   this automatically, and waits for your commit to be the serving release.

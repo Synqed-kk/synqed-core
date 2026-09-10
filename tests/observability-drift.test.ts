@@ -4,14 +4,10 @@ import { TEST_API_KEY } from './setup.js'
 process.env.API_KEYS = TEST_API_KEY
 
 const gaps = [
+  { kind: 'enum_value' as const, subject: 'KaruteStatus.DISCARDED' },
   {
-    kind: 'enum_value' as const,
-    subject: 'KaruteStatus.DISCARDED',
-    migration: '2026-09-01-karute-discarded-status',
-  },
-  {
-    kind: 'column' as const,
-    subject: 'recording_discard_events.confirmed_by',
+    kind: 'constraint' as const,
+    subject: 'recording_discard_events.rde_confirmation_pair',
     migration: '2026-09-03-recording-discard-confirmation',
   },
 ]
@@ -27,9 +23,12 @@ vi.mock('../src/db/schema-contract.js', async (importOriginal) => {
 })
 
 const { default: app } = await import('../src/index.js')
+const { resetReadinessCache } = await import('../src/routes/health.js')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Readiness memoizes its verdict; each case must see its own probe.
+  resetReadinessCache()
 })
 
 describe('readiness under the 2026-09-04 conditions', () => {
@@ -48,15 +47,18 @@ describe('readiness under the 2026-09-04 conditions', () => {
     expect(body.schema).toBe('drift')
   })
 
-  it('gives an authorized caller the exact migrations to apply', async () => {
+  it('gives an authorized caller the exact objects to fix', async () => {
     const res = await app.request('/v1/health/ready', {
       headers: { 'x-api-key': TEST_API_KEY },
     })
     const body = await res.json()
 
     expect(body.gaps).toHaveLength(2)
-    expect(body.gaps.map((g: { migration: string }) => g.migration)).toContain(
-      '2026-09-01-karute-discarded-status',
+    expect(body.gaps.map((g: { subject: string }) => g.subject)).toContain(
+      'KaruteStatus.DISCARDED',
+    )
+    expect(body.gaps.map((g: { migration?: string }) => g.migration)).toContain(
+      '2026-09-03-recording-discard-confirmation',
     )
   })
 

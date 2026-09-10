@@ -9,10 +9,15 @@ const getApiKeys = (): Set<string> => {
 // Paths that don't require business scoping — cron dispatch, health, anything
 // that operates across businesses. These do their own auth (e.g. CRON_SECRET).
 const CROSS_BUSINESS_PATHS = [
-  // `/health` AND `/health/ready`. Readiness must be reachable without a key
-  // so an uptime monitor can page on it; the route itself withholds the
+  // `/v1/health` AND `/v1/health/ready`. Readiness must be reachable without
+  // a key so an uptime monitor can page on it; the route itself withholds the
   // detailed gap list from unauthenticated callers.
-  /\/health(\/|$)/,
+  //
+  // ANCHORED to the real route. An unanchored /\/health(\/|$)/ also matched
+  // any path with a `health` segment — including `/v1/ai-cache/health`, whose
+  // `/:key` handler would then serve a global cache entry to an
+  // unauthenticated caller.
+  /^\/v1\/health(\/|$)/,
   /\/v1\/sync\/cron\/dispatch$/,
   /\/v1\/retention-signals\/cron\/sweep$/,
 ]

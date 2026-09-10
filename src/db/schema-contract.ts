@@ -1,105 +1,97 @@
-/** The schema this build requires production to already have.
+/** Does production really have the schema this build was compiled against?
  *
- *  Prisma's own migrations are applied by the deploy. The entries below come
- *  from `prisma/migrations/manual/` — SQL a human runs by hand, which is
- *  exactly the set that can be missing when code goes live. On 2026-09-04 all
- *  four September files were unapplied at deploy time and every record read
- *  failed for five hours.
+ *  On 2026-09-04 four manual migrations were unapplied when code that needed
+ *  them went live, and every record read failed for five hours. The migration
+ *  gate blocks a MERGE on a human attestation; as the incident write-up says,
+ *  that label "does not query production". This is the half that does.
  *
- *  The migration gate (PR #82/#98) blocks the MERGE on a human attestation.
- *  As the incident write-up says, that label "does not query production".
- *  This contract is the half that does: `checkSchemaContract` asks the live
- *  database whether each item is really there.
+ *  Tables, columns and enum values are DERIVED from the Prisma schema rather
+ *  than hand-listed. A curated list is only as good as the last person who
+ *  remembered to update it, and a contract that silently under-covers is worse
+ *  than none: it reports healthy while the routes it forgot fail at runtime.
+ *  Deriving means every model Prisma knows about is checked, automatically,
+ *  forever.
  *
- *  Add an entry here whenever a manual migration adds an enum value, a column,
- *  or a constraint the code reads. */
+ *  CHECK and UNIQUE constraints are the exception — Prisma's DMMF does not
+ *  model them, so those stay hand-declared below. */
 
+import { Prisma } from '@prisma/client'
 import { prisma } from './client.js'
 
-export interface EnumValueRequirement {
-  type: string
-  value: string
-  migration: string
-}
-
-export interface ColumnRequirement {
-  table: string
-  column: string
-  migration: string
-}
-
+/** Constraints added by manual SQL that the DMMF cannot tell us about.
+ *  Add an entry when a manual migration adds one the code relies on. */
 export interface ConstraintRequirement {
   table: string
   name: string
   migration: string
 }
 
-export interface SchemaContract {
-  enumValues: EnumValueRequirement[]
-  columns: ColumnRequirement[]
-  constraints: ConstraintRequirement[]
-}
-
-export const SCHEMA_CONTRACT: SchemaContract = {
-  enumValues: [
-    // The 22P02 that took every Karute list read down.
-    {
-      type: 'KaruteStatus',
-      value: 'DISCARDED',
-      migration: '2026-09-01-karute-discarded-status',
-    },
-  ],
-  columns: [
-    // The P2022s on the discard ledger.
-    {
-      table: 'recording_discard_events',
-      column: 'karute_record_id',
-      migration: '2026-09-02-recording-discard-karute-key',
-    },
-    {
-      table: 'recording_discard_events',
-      column: 'confirmed_by',
-      migration: '2026-09-03-recording-discard-confirmation',
-    },
-    {
-      table: 'recording_discard_events',
-      column: 'confirmed_at',
-      migration: '2026-09-03-recording-discard-confirmation',
-    },
-  ],
-  constraints: [
-    {
-      table: 'recording_discard_events',
-      name: 'rde_has_subject',
-      migration: '2026-09-02-recording-discard-karute-key',
-    },
-    {
-      table: 'recording_discard_events',
-      name: 'rde_confirmation_pair',
-      migration: '2026-09-03-recording-discard-confirmation',
-    },
-    {
-      table: 'transcription_segments',
-      name: 'transcription_segments_recording_session_id_segment_index_key',
-      migration: '2026-09-03-transcription-segment-unique',
-    },
-  ],
-}
+export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [
+  {
+    table: 'recording_discard_events',
+    name: 'rde_has_subject',
+    migration: '2026-09-02-recording-discard-karute-key',
+  },
+  {
+    table: 'recording_discard_events',
+    name: 'rde_confirmation_pair',
+    migration: '2026-09-03-recording-discard-confirmation',
+  },
+  {
+    table: 'transcription_segments',
+    name: 'transcription_segments_recording_session_id_segment_index_key',
+    migration: '2026-09-03-transcription-segment-unique',
+  },
+]
 
 /** One missing piece of schema, named well enough to fix without digging. */
 export interface SchemaGap {
-  kind: 'enum_value' | 'column' | 'constraint'
+  kind: 'table' | 'column' | 'enum' | 'enum_value' | 'constraint'
   /** e.g. `KaruteStatus.DISCARDED` or `recording_discard_events.confirmed_by` */
   subject: string
-  /** The manual migration file that would add it. */
-  migration: string
+  /** The manual migration that adds it, when we can name one. */
+  migration?: string
+}
+
+/** What the Prisma schema says the database must contain. */
+export interface DerivedRequirements {
+  tables: Map<string, string[]>
+  enums: Map<string, string[]>
+}
+
+export function derivedRequirements(): DerivedRequirements {
+  const tables = new Map<string, string[]>()
+  for (const model of Prisma.dmmf.datamodel.models) {
+    const table = model.dbName ?? model.name
+    const columns = model.fields
+      // Relations are not columns. Scalars and enums are.
+      .filter((f) => f.kind === 'scalar' || f.kind === 'enum')
+      .map((f) => f.dbName ?? f.name)
+    tables.set(table, columns)
+  }
+
+  const enums = new Map<string, string[]>()
+  for (const e of Prisma.dmmf.datamodel.enums) {
+    enums.set(
+      e.dbName ?? e.name,
+      e.values.map((v) => v.dbName ?? v.name),
+    )
+  }
+
+  return { tables, enums }
 }
 
 /** Ask the LIVE database whether the contract holds. Returns every gap, not
  *  just the first — an operator applying migrations at 3am wants the whole
- *  list in one line, not one per restart. */
+ *  list in one line, not one per restart.
+ *
+ *  Every catalog query is scoped to `current_schema()`. Supabase databases
+ *  carry auth/storage/extensions schemas alongside the application's, and an
+ *  identically named enum or constraint in one of those would otherwise
+ *  satisfy the contract while the object we actually need is missing. */
 export async function checkSchemaContract(
-  contract: SchemaContract = SCHEMA_CONTRACT,
+  requirements: DerivedRequirements = derivedRequirements(),
+  constraints: ConstraintRequirement[] = CONSTRAINT_CONTRACT,
   client: typeof prisma = prisma,
 ): Promise<SchemaGap[]> {
   const gaps: SchemaGap[] = []
@@ -109,6 +101,8 @@ export async function checkSchemaContract(
       SELECT t.typname, e.enumlabel
       FROM pg_type t
       JOIN pg_enum e ON e.enumtypid = t.oid
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = current_schema()
     `,
     client.$queryRaw<{ table_name: string; column_name: string }[]>`
       SELECT table_name, column_name
@@ -119,39 +113,59 @@ export async function checkSchemaContract(
       SELECT c.conname, r.relname
       FROM pg_constraint c
       JOIN pg_class r ON r.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = c.connamespace
+      WHERE n.nspname = current_schema()
     `,
   ])
 
-  const haveEnum = new Set(
-    enumRows.map((r) => `${r.typname}.${r.enumlabel}`),
-  )
-  const haveColumn = new Set(
-    columnRows.map((r) => `${r.table_name}.${r.column_name}`),
-  )
-  const haveConstraint = new Set(
+  const liveColumns = new Map<string, Set<string>>()
+  for (const r of columnRows) {
+    let set = liveColumns.get(r.table_name)
+    if (!set) liveColumns.set(r.table_name, (set = new Set()))
+    set.add(r.column_name)
+  }
+
+  const liveEnums = new Map<string, Set<string>>()
+  for (const r of enumRows) {
+    let set = liveEnums.get(r.typname)
+    if (!set) liveEnums.set(r.typname, (set = new Set()))
+    set.add(r.enumlabel)
+  }
+
+  const liveConstraints = new Set(
     constraintRows.map((r) => `${r.relname}.${r.conname}`),
   )
 
-  for (const r of contract.enumValues) {
-    if (!haveEnum.has(`${r.type}.${r.value}`)) {
-      gaps.push({
-        kind: 'enum_value',
-        subject: `${r.type}.${r.value}`,
-        migration: r.migration,
-      })
+  for (const [table, columns] of requirements.tables) {
+    const live = liveColumns.get(table)
+    // A missing TABLE is reported once. Listing each of its forty columns
+    // would bury the one line an operator needs.
+    if (!live) {
+      gaps.push({ kind: 'table', subject: table })
+      continue
+    }
+    for (const column of columns) {
+      if (!live.has(column)) {
+        gaps.push({ kind: 'column', subject: `${table}.${column}` })
+      }
     }
   }
-  for (const r of contract.columns) {
-    if (!haveColumn.has(`${r.table}.${r.column}`)) {
-      gaps.push({
-        kind: 'column',
-        subject: `${r.table}.${r.column}`,
-        migration: r.migration,
-      })
+
+  for (const [type, values] of requirements.enums) {
+    const live = liveEnums.get(type)
+    if (!live) {
+      gaps.push({ kind: 'enum', subject: type })
+      continue
+    }
+    for (const value of values) {
+      if (!live.has(value)) {
+        gaps.push({ kind: 'enum_value', subject: `${type}.${value}` })
+      }
     }
   }
-  for (const r of contract.constraints) {
-    if (!haveConstraint.has(`${r.table}.${r.name}`)) {
+
+  for (const r of constraints) {
+    if (!liveConstraints.has(`${r.table}.${r.name}`)) {
       gaps.push({
         kind: 'constraint',
         subject: `${r.table}.${r.name}`,

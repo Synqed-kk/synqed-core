@@ -36,11 +36,37 @@ export interface ReadinessResult {
   schema: 'ok' | 'drift' | 'unknown'
   gaps: SchemaGap[]
   checked_at: string
+  /** The deploy that answered. Lets a post-deploy probe confirm it is
+   *  talking to the NEW build and not the one still being replaced. */
+  release: string | null
+}
+
+/** The endpoint is unauthenticated so monitors can page on it, and each call
+ *  costs a reachability query plus three catalog queries. Without a bound,
+ *  public traffic could contend with real requests for connections.
+ *
+ *  Short on purpose: a monitor polling every 15 minutes always gets a fresh
+ *  verdict, while an operator re-probing during a migration waits at most
+ *  this long to see their fix land. */
+const CACHE_MS = 5_000
+let cached: { at: number; result: ReadinessResult } | null = null
+
+/** Testing seam — drops the memo so a case can observe a fresh verdict. */
+export function resetReadinessCache(): void {
+  cached = null
 }
 
 /** Run the deep check. Exported so tests and the boot probe share one path. */
 export async function evaluateReadiness(): Promise<ReadinessResult> {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.result
+  const result = await runReadiness()
+  cached = { at: Date.now(), result }
+  return result
+}
+
+async function runReadiness(): Promise<ReadinessResult> {
   const checked_at = new Date().toISOString()
+  const release = process.env.VERCEL_GIT_COMMIT_SHA ?? null
 
   try {
     await prisma.$queryRaw`SELECT 1`
@@ -63,6 +89,7 @@ export async function evaluateReadiness(): Promise<ReadinessResult> {
       schema: 'unknown',
       gaps: [],
       checked_at,
+      release,
     }
   }
 
@@ -86,6 +113,7 @@ export async function evaluateReadiness(): Promise<ReadinessResult> {
       schema: 'unknown',
       gaps: [],
       checked_at,
+      release,
     }
   }
 
@@ -99,7 +127,11 @@ export async function evaluateReadiness(): Promise<ReadinessResult> {
         schema: 'drift',
         gap_count: gaps.length,
         gaps,
-        pending_migrations: [...new Set(gaps.map((g) => g.migration))],
+        // Only constraint gaps can name a migration; derived table/column
+        // gaps cannot, so an empty list here is normal and not a bug.
+        pending_migrations: [
+          ...new Set(gaps.flatMap((g) => (g.migration ? [g.migration] : []))),
+        ],
       },
     })
     captureSchemaDrift(gaps)
@@ -109,6 +141,7 @@ export async function evaluateReadiness(): Promise<ReadinessResult> {
       schema: 'drift',
       gaps,
       checked_at,
+      release,
     }
   }
 
@@ -118,6 +151,7 @@ export async function evaluateReadiness(): Promise<ReadinessResult> {
     schema: 'ok',
     gaps: [],
     checked_at,
+    release,
   }
 }
 

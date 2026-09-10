@@ -30,6 +30,11 @@ jobs:
         env:
           CORE_URL: ${{ secrets.CORE_URL }}
           CORE_API_KEY: ${{ secrets.CORE_API_KEY }}
+          # On a push we must not accept a green answer from the build being
+          # replaced. Readiness echoes the release it is serving, so we wait
+          # for THIS commit before believing a 200. Empty on schedule and
+          # manual runs, where any live release is the right thing to check.
+          EXPECT_RELEASE: ${{ github.event_name == 'push' && github.sha || '' }}
         run: |
           set -uo pipefail
 
@@ -38,9 +43,11 @@ jobs:
             exit 1
           fi
 
-          # A deploy needs a moment to become routable; retry before crying.
+          # A deploy takes time to build and become routable, so a push run
+          # waits noticeably longer than a scheduled poll.
+          if [ -n "${EXPECT_RELEASE}" ]; then max=30; else max=3; fi
+
           attempt=0
-          max=3
           while [ "$attempt" -lt "$max" ]; do
             attempt=$((attempt + 1))
 
@@ -51,16 +58,28 @@ jobs:
 
             code=$(printf '%s' "$body" | tail -n1)
             payload=$(printf '%s' "$body" | sed '$d')
+            serving=$(printf '%s' "$payload" \
+              | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')
 
             if [ "$code" = "200" ]; then
-              echo "Readiness OK"
-              echo "$payload"
-              exit 0
+              if [ -z "${EXPECT_RELEASE}" ] || [ "$serving" = "${EXPECT_RELEASE}" ]; then
+                echo "Readiness OK${serving:+ (release ${serving})}"
+                echo "$payload"
+                exit 0
+              fi
+              # Healthy, but still the previous deploy. Keep waiting.
+              echo "Attempt ${attempt}/${max}: 200 from release '${serving:-unknown}', waiting for '${EXPECT_RELEASE}'"
+            else
+              echo "Attempt ${attempt}/${max}: HTTP ${code}"
             fi
 
-            echo "Attempt ${attempt}/${max}: HTTP ${code}"
             [ "$attempt" -lt "$max" ] && sleep 20
           done
+
+          if [ "$code" = "200" ] && [ -n "${EXPECT_RELEASE}" ]; then
+            echo "::error::Timed out waiting for release ${EXPECT_RELEASE} to serve; last healthy release was '${serving:-unknown}'."
+            exit 1
+          fi
 
           echo "### Readiness probe FAILED" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
