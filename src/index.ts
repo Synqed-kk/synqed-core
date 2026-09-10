@@ -131,10 +131,15 @@ const port = Number(process.env.PORT) || 3100
 if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port }, (info) => {
     log({ evt: 'boot', detail: { port: info.port } })
-    // Probe the schema once at boot so drift is announced at startup rather
-    // than discovered by the first user. Deliberately does NOT abort: refusing
-    // to start would turn a degraded deploy into a total outage, and readiness
-    // already reports 503 for the load balancer.
+    // Announce drift to a DEVELOPER at startup rather than letting them chase
+    // a confusing query failure. This block is skipped in production (Vercel
+    // imports the default export and never calls serve()), which is
+    // deliberate: probing on every cold start would add database latency to
+    // each one. Production drift is caught by the readiness monitor, which
+    // runs on every push to main and every 15 minutes.
+    //
+    // Does NOT abort on failure — refusing to start would turn a degraded
+    // deploy into a total outage, and readiness already reports 503.
     void evaluateReadiness()
   })
 }

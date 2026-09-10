@@ -28,10 +28,6 @@ export function initSentry(): void {
   enabled = true
 }
 
-export function isSentryEnabled(): boolean {
-  return enabled
-}
-
 export interface CaptureContext {
   requestId?: string | null
   businessId?: string | null
