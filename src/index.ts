@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { logger } from 'hono/logger'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { customerRoutes } from './routes/customers.js'
@@ -32,15 +31,63 @@ import { auditRoutes } from './routes/audit.js'
 import { recordingJobRoutes } from './routes/recording-jobs.js'
 import { aiCacheRoutes } from './routes/ai-cache.js'
 import { authMiddleware } from './middleware/auth.js'
+import { requestContext } from './middleware/request-context.js'
+import { healthRoutes, evaluateReadiness } from './routes/health.js'
+import { log } from './lib/log.js'
+import { normalizeError } from './lib/errors.js'
+import { initSentry, captureError } from './lib/sentry.js'
+import type { AppEnv } from './types/api.js'
 
-const app = new Hono().basePath('/v1')
+initSentry()
 
-app.use('*', logger())
+const app = new Hono<AppEnv>().basePath('/v1')
+
+// requestContext FIRST: a request rejected by auth still needs an id and an
+// access-log line. Hono's own logger() is gone — it wrote unstructured prose
+// that could not be grouped or alerted on, which is the whole defect here.
+app.use('*', requestContext)
 app.use('*', cors())
 app.use('*', authMiddleware)
 
 app.onError((err, c) => {
-  console.error('[synqed-core] unhandled error:', err)
+  const normalized = normalizeError(err)
+  const requestId = c.get('requestId') ?? null
+  const businessId = c.get('businessId') ?? null
+
+  log({
+    evt: 'error',
+    severity: 'error',
+    request_id: requestId,
+    business_id: businessId,
+    detail: {
+      kind: normalized.kind,
+      prisma_code: normalized.prisma_code,
+      pg_code: normalized.pg_code,
+      message: normalized.message,
+      method: c.req.method,
+      path: c.req.path,
+      stack: err instanceof Error ? err.stack : null,
+    },
+  })
+
+  captureError(err, {
+    requestId,
+    businessId,
+    method: c.req.method,
+    path: c.req.path,
+    normalized,
+  })
+
+  // Schema drift is an operator problem, not a caller problem: the database
+  // lacks something this build requires and no retry will fix it. Say so with
+  // 503 rather than a 500 that reads like a transient bug.
+  if (normalized.kind === 'schema_drift') {
+    return c.json(
+      { error: 'Service temporarily unavailable: database schema mismatch' },
+      503,
+    )
+  }
+
   return c.json(
     { error: err instanceof Error ? err.message : 'Internal server error' },
     500,
@@ -77,13 +124,18 @@ app.route('/audit', auditRoutes)
 app.route('/recording-jobs', recordingJobRoutes)
 app.route('/ai-cache', aiCacheRoutes)
 
-app.get('/health', (c) => c.json({ status: 'ok' }))
+app.route('/health', healthRoutes)
 
 const port = Number(process.env.PORT) || 3100
 
 if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`synqed-core running on http://localhost:${info.port}`)
+    log({ evt: 'boot', detail: { port: info.port } })
+    // Probe the schema once at boot so drift is announced at startup rather
+    // than discovered by the first user. Deliberately does NOT abort: refusing
+    // to start would turn a degraded deploy into a total outage, and readiness
+    // already reports 503 for the load balancer.
+    void evaluateReadiness()
   })
 }
 
