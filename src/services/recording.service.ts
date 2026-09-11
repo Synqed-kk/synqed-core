@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { RecordingLifecycleState, RecordingStatus } from '@prisma/client'
+import type { RecordingLifecycleState, RecordingStatus, Prisma } from '@prisma/client'
 import type {
   CreateRecordingInput,
   UpdateRecordingInput,
@@ -201,6 +201,34 @@ export async function getRecording(
 ): Promise<RecordingPublic | null> {
   const row = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   return row ? toPublic(row) : null
+}
+
+/** Owner/manager read door for sessions that have not produced a karute. */
+export async function listUnfinishedRecordings(
+  businessId: string,
+  options: { from?: string; to?: string; store_id?: string; page?: number; page_size?: number },
+  visibleStoreIds: string[] | null,
+): Promise<{ recordings: RecordingPublic[]; total: number; page: number; page_size: number }> {
+  const page = options.page ?? 1
+  const pageSize = options.page_size ?? 100
+  const where: Prisma.RecordingSessionWhereInput = {
+    businessId,
+    lifecycleState: { notIn: ['SAVED', 'DISCARDED'] },
+    karuteRecord: null,
+  }
+  if (options.store_id) where.storeId = options.store_id
+  else if (visibleStoreIds) where.storeId = { in: visibleStoreIds }
+  if (options.from || options.to) {
+    where.createdAt = {
+      ...(options.from ? { gte: new Date(options.from) } : {}),
+      ...(options.to ? { lte: new Date(options.to) } : {}),
+    }
+  }
+  const [rows, total] = await Promise.all([
+    prisma.recordingSession.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.recordingSession.count({ where }),
+  ])
+  return { recordings: rows.map(toPublic), total, page, page_size: pageSize }
 }
 
 export async function createRecording(

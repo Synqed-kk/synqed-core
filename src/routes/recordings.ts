@@ -24,6 +24,22 @@ recordingRoutes.get('/', async (c) => {
   return c.json(result)
 })
 
+recordingRoutes.get('/unfinished', actorAuthMiddleware, async (c) => {
+  const actor = c.get('actor')
+  if (!actor.capabilities.includes('stores.viewAll') && !actor.capabilities.includes('recordings.viewAll')) {
+    return c.json({ error: 'Only owners and managers may view unfinished recordings' }, 403)
+  }
+  const query = c.req.query()
+  const page = query.page ? Number(query.page) : undefined
+  const pageSize = query.page_size ? Number(query.page_size) : undefined
+  const result = await recordingService.listUnfinishedRecordings(
+    c.get('businessId'),
+    { from: query.from, to: query.to, store_id: query.store_id, page, page_size: pageSize },
+    actor.visibleStoreIds,
+  )
+  return c.json(result)
+})
+
 recordingRoutes.get('/:id', async (c) => {
   const businessId = c.get('businessId')
   const rec = await recordingService.getRecording(businessId, c.req.param('id'))
