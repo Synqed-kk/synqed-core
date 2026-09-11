@@ -19,6 +19,11 @@ BEGIN
            ELSE target_label
          END,
          detail = CASE
+           -- A target-customer row is about that person. Keeping arbitrary
+           -- detail after hard deletion can retain names or other PII under
+           -- keys this migration cannot anticipate, so remove it wholesale.
+           WHEN target_type = 'customer' AND target_id = p_customer_id::text
+             THEN NULL
            WHEN detail IS NULL OR jsonb_typeof(detail) <> 'object' THEN detail
            ELSE jsonb_set(
              jsonb_set(

@@ -141,7 +141,7 @@ describe('audit_log', () => {
     await req('POST', '/audit', { actor_type: 'system', category: 'recording', action: 'other', severity: 'info' })
     const merged = await (await req('GET', '/audit?severity=warn,critical')).json()
     expect(merged.total).toBe(2)
-    expect(merged.events.map((e: { severity: string }) => e.severity)).toEqual(['critical', 'warn'])
+    expect(merged.events.map((e: { severity: string }) => e.severity).sort()).toEqual(['critical', 'warn'])
     const action = await (await req('GET', '/audit?action=recording.karute_missing')).json()
     expect(action.total).toBe(1)
     expect(action.events[0].action).toBe('recording.karute_missing')

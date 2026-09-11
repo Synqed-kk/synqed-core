@@ -12,7 +12,9 @@ export default defineConfig({
     // Run test files serially to prevent shared test-DB state from
     // causing cross-file interference (all tests share TEST_TENANT_ID).
     fileParallelism: false,
-    exclude: ['**/node_modules/**', '**/.worktrees/**'],
+    // This script uses node:test and is run independently with `node --test`.
+    // Letting Vitest collect it produces a false "No test suite found" failure.
+    exclude: ['**/node_modules/**', '**/.worktrees/**', 'scripts/check-migration-gate.test.mjs'],
   },
   resolve: {
     alias: {

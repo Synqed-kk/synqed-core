@@ -236,7 +236,9 @@ export async function listAuditLog(
   const [rows, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
-      orderBy: { at: 'desc' },
+      // Millisecond timestamps can tie during bursts. Keep pagination stable
+      // with an immutable secondary key instead of letting Postgres choose.
+      orderBy: [{ at: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
