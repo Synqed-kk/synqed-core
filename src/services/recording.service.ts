@@ -214,7 +214,14 @@ export async function updateRecording(
 
   const canWrite = actor.capabilities.includes('records.write')
   const canUpdateOtherStaff = actor.capabilities.includes('recordings.viewAll')
-  if (!canWrite || (existing.staffId !== actor.staffId && !canUpdateOtherStaff)) {
+  // ⚖ ONE ROW, TWO ID SPACES. The Karute app stamps recording_sessions.staff_id
+  // with the recorder's AUTH USER id (karute customer-facade.ts#resolveSelfStaffId
+  // → session-mint.ts), while the answer sheet's staff_id is the staff ROW id
+  // (permission.service.ts#answerSheet). Both name the same person, and "own
+  // session" must hold in either — comparing the row id alone refused every
+  // non-manager finalize in production (2026-09-08, PUT /v1/recordings/:id 403).
+  const ownSession = existing.staffId === actor.staffId || existing.staffId === actor.userId
+  if (!canWrite || (!ownSession && !canUpdateOtherStaff)) {
     throw new RecordingForbiddenError()
   }
 

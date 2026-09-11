@@ -1,0 +1,103 @@
+name: Readiness monitor
+
+# The 2026-09-04 outage began at 16:37 and was reported by a person at 20:35.
+# Nothing watched production in between. This is the watcher.
+#
+# It polls the deep readiness probe, which answers 503 when the database is
+# unreachable OR when the deployed code needs a manual migration that has not
+# been applied. A failed scheduled run notifies the repo owners by email.
+#
+# Required secrets:
+#   CORE_URL      e.g. https://core.synqed.jp   (no trailing slash)
+#   CORE_API_KEY  optional; without it the run still detects the 503 but
+#                 cannot print which migrations are missing.
+
+on:
+  schedule:
+    # Every 15 minutes, matching the existing cron cadence in vercel.json.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  # Also run right after a deploy lands on main, so drift surfaces in minutes
+  # rather than at the next quarter hour.
+  push:
+    branches: [main]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe readiness
+        env:
+          CORE_URL: ${{ secrets.CORE_URL }}
+          CORE_API_KEY: ${{ secrets.CORE_API_KEY }}
+          # On a push we must not accept a green answer from the build being
+          # replaced. Readiness echoes the release it is serving, so we wait
+          # for THIS commit before believing a 200. Empty on schedule and
+          # manual runs, where any live release is the right thing to check.
+          EXPECT_RELEASE: ${{ github.event_name == 'push' && github.sha || '' }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${CORE_URL:-}" ]; then
+            echo "::error::CORE_URL secret is not set — the monitor cannot probe anything."
+            exit 1
+          fi
+
+          # A deploy takes time to build and become routable, so a push run
+          # waits noticeably longer than a scheduled poll.
+          if [ -n "${EXPECT_RELEASE}" ]; then max=30; else max=3; fi
+
+          attempt=0
+          while [ "$attempt" -lt "$max" ]; do
+            attempt=$((attempt + 1))
+
+            body=$(curl -sS --max-time 20 \
+              -H "x-api-key: ${CORE_API_KEY:-}" \
+              -w '\n%{http_code}' \
+              "${CORE_URL}/v1/health/ready" 2>&1) || body=$'\n000'
+
+            code=$(printf '%s' "$body" | tail -n1)
+            payload=$(printf '%s' "$body" | sed '$d')
+            serving=$(printf '%s' "$payload" \
+              | sed -n 's/.*"release":"\([^"]*\)".*/\1/p')
+
+            if [ "$code" = "200" ]; then
+              if [ -z "${EXPECT_RELEASE}" ] || [ "$serving" = "${EXPECT_RELEASE}" ]; then
+                echo "Readiness OK${serving:+ (release ${serving})}"
+                echo "$payload"
+                exit 0
+              fi
+              # Healthy, but still the previous deploy. Keep waiting.
+              echo "Attempt ${attempt}/${max}: 200 from release '${serving:-unknown}', waiting for '${EXPECT_RELEASE}'"
+            else
+              echo "Attempt ${attempt}/${max}: HTTP ${code}"
+            fi
+
+            [ "$attempt" -lt "$max" ] && sleep 20
+          done
+
+          if [ "$code" = "200" ] && [ -n "${EXPECT_RELEASE}" ]; then
+            echo "::error::Timed out waiting for release ${EXPECT_RELEASE} to serve; last healthy release was '${serving:-unknown}'."
+            exit 1
+          fi
+
+          echo "### Readiness probe FAILED" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "HTTP status: \`${code}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo "${payload:-<no body>}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          if printf '%s' "$payload" | grep -q '"schema":"drift"'; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Schema drift.** Production is missing objects this build requires." >> "$GITHUB_STEP_SUMMARY"
+            echo "Apply the migrations named in \`gaps[].migration\` from \`prisma/migrations/manual/\`, in filename order." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Schema drift detected — a manual migration is unapplied in production."
+          elif printf '%s' "$payload" | grep -q '"database":"unreachable"'; then
+            echo "::error::Core cannot reach the database."
+          else
+            echo "::error::Readiness probe failed with HTTP ${code}."
+          fi
+
+          exit 1

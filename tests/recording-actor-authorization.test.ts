@@ -20,6 +20,8 @@ process.env.API_KEYS = TEST_API_KEY
 const stylistUserId = '90000000-0000-0000-0000-000000000091'
 const ownerUserId = '90000000-0000-0000-0000-000000000092'
 const managerUserId = '90000000-0000-0000-0000-000000000093'
+const otherStylistUserId = '90000000-0000-0000-0000-000000000094'
+const assistantUserId = '90000000-0000-0000-0000-000000000095'
 
 function req(method: string, path: string, userId?: string, body?: unknown) {
   const headers: Record<string, string> = {
@@ -88,6 +90,54 @@ describe('actor-authenticated recording writes', () => {
     expect(elevated.status).toBe(200)
     expect((await elevated.json()).duration_seconds).toBe(40)
     expect(owner.id).not.toBe(stylist.id)
+  })
+
+  it('treats a row stamped with the recorder auth user id as their own session', async () => {
+    // The Karute app writes recording_sessions.staff_id from resolveSelfStaffId,
+    // which returns the AUTH USER id — not the staff row id the answer sheet
+    // carries. Both shapes are live in production, so both must pass here.
+    const stylist = await seedTestStaff({ userId: stylistUserId, role: 'STYLIST' })
+    await seedTestStaff({ userId: ownerUserId, role: 'OWNER' })
+    await seedTestStaff({ name: '別スタッフ', userId: otherStylistUserId, role: 'STYLIST' })
+    const appStamped = await testPrisma.recordingSession.create({
+      data: { businessId: TEST_BUSINESS_ID, staffId: stylistUserId, durationSeconds: 10 },
+    })
+    expect(appStamped.staffId).not.toBe(stylist.id)
+
+    const own = await req('PUT', `/recordings/${appStamped.id}`, stylistUserId, {
+      duration_seconds: 30,
+    })
+    expect(own.status).toBe(200)
+    expect((await own.json()).duration_seconds).toBe(30)
+
+    const denied = await req('PUT', `/recordings/${appStamped.id}`, otherStylistUserId, {
+      duration_seconds: 99,
+      status: 'COMPLETED',
+    })
+    expect(denied.status).toBe(403)
+    expect(
+      await testPrisma.recordingSession.findUnique({ where: { id: appStamped.id } }),
+    ).toMatchObject({ durationSeconds: 30, status: 'RECORDING' })
+
+    const elevated = await req('PUT', `/recordings/${appStamped.id}`, ownerUserId, {
+      duration_seconds: 40,
+    })
+    expect(elevated.status).toBe(200)
+    expect((await elevated.json()).duration_seconds).toBe(40)
+
+    // Owning the row is not enough: the ASSISTANT coarse role maps to the
+    // frontdesk preset, which carries no records.write.
+    await seedTestStaff({ userId: assistantUserId, role: 'ASSISTANT' })
+    const assistantStamped = await testPrisma.recordingSession.create({
+      data: { businessId: TEST_BUSINESS_ID, staffId: assistantUserId, durationSeconds: 15 },
+    })
+    const noWrite = await req('PUT', `/recordings/${assistantStamped.id}`, assistantUserId, {
+      duration_seconds: 30,
+    })
+    expect(noWrite.status).toBe(403)
+    expect(
+      await testPrisma.recordingSession.findUnique({ where: { id: assistantStamped.id } }),
+    ).toMatchObject({ durationSeconds: 15 })
   })
 })
 
