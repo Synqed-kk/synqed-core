@@ -11,6 +11,21 @@ import type { RecordingJobStatus, Prisma } from '@prisma/client'
 
 const STALE_CLAIM_MINUTES = 10
 
+// These failures are produced only after a durable business decision or a
+// deterministic input check. Keeping the classifier in core preserves the
+// invariant for older workers that do not yet send the optional `terminal`
+// flag; newer workers may still mark a failure explicitly.
+const DETERMINISTIC_FAILURES = new Set([
+  'EMPTY_TRANSCRIPT',
+  'DISCARDED_BY_STAFF',
+  'CONSENT_REQUIRED',
+  'revisit_not_eligible',
+])
+
+function isDeterministicFailure(error: string): boolean {
+  return DETERMINISTIC_FAILURES.has(error) || error.includes('録音同意')
+}
+
 export interface RecordingJobPublic {
   id: string
   business_id: string
@@ -19,6 +34,7 @@ export interface RecordingJobPublic {
   attempts: number
   max_attempts: number
   last_error: string | null
+  terminal_reason: string | null
   payload: unknown
   karute_record_id: string | null
   claimed_at: string | null
@@ -34,6 +50,7 @@ function toPublic(r: {
   attempts: number
   maxAttempts: number
   lastError: string | null
+  terminalReason: string | null
   payload: Prisma.JsonValue
   karuteRecordId: string | null
   claimedAt: Date | null
@@ -48,6 +65,7 @@ function toPublic(r: {
     attempts: r.attempts,
     max_attempts: r.maxAttempts,
     last_error: r.lastError,
+    terminal_reason: r.terminalReason,
     payload: r.payload,
     karute_record_id: r.karuteRecordId,
     claimed_at: r.claimedAt ? r.claimedAt.toISOString() : null,
@@ -56,26 +74,28 @@ function toPublic(r: {
   }
 }
 
-/** Idempotent enqueue: one job per recording session, ever. Re-enqueueing an
- *  existing job returns it unchanged — EXCEPT a FAILED job out of attempts,
- *  which is re-armed (fresh attempts) so "retry" in the UI is just enqueue. */
+/** Idempotent enqueue. A failed job is never re-armed implicitly: callers must
+ * explicitly request a human retry, otherwise deterministic failures can
+ * never trigger another provider call by accident. */
 export async function enqueue(
   businessId: string,
   recordingSessionId: string,
   payload: unknown,
+  options: { retry?: boolean } = {},
 ): Promise<RecordingJobPublic> {
   const existing = await prisma.recordingJob.findUnique({
     where: { recordingSessionId },
   })
   if (existing) {
     if (existing.businessId !== businessId) throw new Error('Job not found')
-    if (existing.status === 'FAILED') {
+    if (existing.status === 'FAILED' && options.retry === true) {
       const rearmed = await prisma.recordingJob.update({
         where: { id: existing.id },
         data: {
           status: 'QUEUED',
           attempts: 0,
           lastError: null,
+          terminalReason: null,
           claimedAt: null,
           payload: payload as Prisma.InputJsonValue,
         },
@@ -125,16 +145,23 @@ export async function complete(
   return toPublic(row)
 }
 
-/** Mark a run failed: back to QUEUED while attempts remain (the claimed
- *  attempt already counted), FAILED when they're spent. */
-export async function fail(id: string, error: string): Promise<RecordingJobPublic> {
+/** Mark a run failed. Deterministic failures are terminal immediately; a
+ * non-terminal provider failure may consume the remaining retry budget. */
+export async function fail(
+  id: string,
+  error: string,
+  options: { terminal?: boolean } = {},
+): Promise<RecordingJobPublic> {
   const job = await prisma.recordingJob.findUniqueOrThrow({ where: { id } })
-  const spent = job.attempts >= job.maxAttempts
+  const terminal = options.terminal === true || isDeterministicFailure(error)
+  const spent = terminal || job.attempts >= job.maxAttempts
   const row = await prisma.recordingJob.update({
     where: { id },
     data: {
       status: spent ? 'FAILED' : 'QUEUED',
       lastError: error.slice(0, 2000),
+      terminalReason: terminal ? error.slice(0, 2000) : null,
+      ...(terminal ? { attempts: job.maxAttempts } : {}),
       claimedAt: null,
     },
   })

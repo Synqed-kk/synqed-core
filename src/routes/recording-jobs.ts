@@ -7,6 +7,7 @@ export const recordingJobRoutes = new Hono<AppEnv>()
 
 const enqueueSchema = z.object({
   recording_session_id: z.string().uuid(),
+  retry: z.boolean().optional(),
   // Opaque to core — the karute worker owns the shape (audio path, save
   // inputs, acting staff). Capped so a runaway client can't bloat rows.
   payload: z.record(z.string(), z.unknown()),
@@ -21,7 +22,12 @@ recordingJobRoutes.post('/', async (c) => {
   if (JSON.stringify(parsed.data.payload).length > 16_384) {
     return c.json({ error: 'payload too large' }, 400)
   }
-  const job = await jobs.enqueue(businessId, parsed.data.recording_session_id, parsed.data.payload)
+  const job = await jobs.enqueue(
+    businessId,
+    parsed.data.recording_session_id,
+    parsed.data.payload,
+    { retry: parsed.data.retry },
+  )
   return c.json(job, 201)
 })
 
@@ -50,12 +56,12 @@ recordingJobRoutes.post('/:id/complete', async (c) => {
   return c.json(job)
 })
 
-// POST /v1/recording-jobs/:id/fail — WORKER verb. Requeues while attempts
-// remain; FAILED when spent.
+// POST /v1/recording-jobs/:id/fail — WORKER verb. Deterministic failures are
+// terminal; transient failures requeue while attempts remain.
 recordingJobRoutes.post('/:id/fail', async (c) => {
   const body = await c.req.json().catch(() => ({}))
-  const parsed = z.object({ error: z.string().min(1) }).safeParse(body)
+  const parsed = z.object({ error: z.string().min(1), terminal: z.boolean().optional() }).safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const job = await jobs.fail(c.req.param('id'), parsed.data.error)
+  const job = await jobs.fail(c.req.param('id'), parsed.data.error, { terminal: parsed.data.terminal })
   return c.json(job)
 })

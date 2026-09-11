@@ -51,7 +51,7 @@ describe('recording jobs', () => {
     expect(polled.status).toBe('DONE')
   })
 
-  it('fail requeues while attempts remain, FAILED when spent; enqueue re-arms FAILED', async () => {
+  it('fail requeues transient work, then requires an explicit retry after FAILED', async () => {
     const rsid = randomUUID()
     const job = await (await req('POST', '/recording-jobs', { recording_session_id: rsid, payload: {} })).json()
     for (let i = 1; i <= 3; i++) {
@@ -60,11 +60,40 @@ describe('recording jobs', () => {
       const failed = await (await req('POST', `/recording-jobs/${job.id}/fail`, { error: `boom ${i}` })).json()
       expect(failed.status).toBe(i < 3 ? 'QUEUED' : 'FAILED')
     }
-    // Retry in the UI = enqueue again → re-armed
-    const rearmed = await (await req('POST', '/recording-jobs', { recording_session_id: rsid, payload: { retry: true } })).json()
+    // A repeated enqueue is idempotent and cannot accidentally re-arm a
+    // failed provider job.
+    const unchanged = await (await req('POST', '/recording-jobs', { recording_session_id: rsid, payload: { retry: true } })).json()
+    expect(unchanged.status).toBe('FAILED')
+    expect(unchanged.attempts).toBe(3)
+
+    // Retry in the UI is an explicit top-level request.
+    const rearmed = await (await req('POST', '/recording-jobs', {
+      recording_session_id: rsid,
+      payload: { retry: true },
+      retry: true,
+    })).json()
     expect(rearmed.status).toBe('QUEUED')
     expect(rearmed.attempts).toBe(0)
     expect(rearmed.payload).toEqual({ retry: true })
+  })
+
+  it('terminal failure spends attempts and never re-arms without retry', async () => {
+    const rsid = randomUUID()
+    const job = await (await req('POST', '/recording-jobs', { recording_session_id: rsid, payload: {} })).json()
+    const claimed = await (await req('POST', '/recording-jobs/claim')).json()
+    const failed = await (await req('POST', `/recording-jobs/${job.id}/fail`, {
+      error: 'EMPTY_TRANSCRIPT',
+      terminal: true,
+    })).json()
+    expect(claimed.id).toBe(job.id)
+    expect(failed.status).toBe('FAILED')
+    expect(failed.attempts).toBe(failed.max_attempts)
+    expect(failed.terminal_reason).toBe('EMPTY_TRANSCRIPT')
+
+    const repeated = await (await req('POST', '/recording-jobs', { recording_session_id: rsid, payload: {} })).json()
+    expect(repeated.status).toBe('FAILED')
+    expect(repeated.attempts).toBe(failed.max_attempts)
+    expect(repeated.terminal_reason).toBe('EMPTY_TRANSCRIPT')
   })
 
   it('a stale RUNNING claim is reclaimable (dead-worker recovery)', async () => {

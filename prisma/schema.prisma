@@ -696,6 +696,7 @@ model RecordingJob {
   attempts           Int                @default(0)
   maxAttempts        Int                @default(3) @map("max_attempts")
   lastError          String?            @map("last_error")
+  terminalReason     String?            @map("terminal_reason")
   // Everything the worker needs to run without the client: audio path, the
   // save inputs, the acting staff. Shape owned by the karute worker.
   payload            Json

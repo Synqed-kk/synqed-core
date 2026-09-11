@@ -52,6 +52,7 @@ export const MIGRATION_HINTS: Record<string, string> = {
   idempotency_keys: '2026-07-28-idempotency-keys',
   recording_jobs: '2026-07-20-recording-jobs',
   ai_cache: '2026-06-25-ai-cache',
+  'recording_jobs.terminal_reason': '2026-09-11-recording-job-terminal-failure',
 }
 
 export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [
