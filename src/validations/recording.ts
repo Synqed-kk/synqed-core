@@ -51,6 +51,7 @@ export const listRecordingsSchema = z.object({
   store_id: z.string().uuid().optional(),
   staff_id: z.string().uuid().optional(),
   status: recordingStatusSchema.optional(),
+  without_karute: z.enum(['1', 'true']).transform(() => true).optional(),
   page: z.coerce.number().int().min(1).optional(),
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })

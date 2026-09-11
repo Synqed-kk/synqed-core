@@ -129,6 +129,7 @@ export async function listRecordings(
     store_id?: string
     staff_id?: string
     status?: RecordingStatus
+    without_karute?: boolean
     page?: number
     page_size?: number
   },
@@ -164,6 +165,7 @@ export async function listRecordings(
   if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.status) where.status = options.status
+  if (options.without_karute) where.karuteRecord = null
 
   let fromDate: Date | undefined
   let toDate: Date | undefined

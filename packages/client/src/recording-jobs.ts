@@ -7,7 +7,8 @@ export class RecordingJobClient {
   constructor(private client: SynqedClient) {}
 
   /** Idempotent: one job per recording session; re-enqueue returns the same
-   *  job (a FAILED-out job is re-armed — UI "retry" is just enqueue). */
+   * job (a FAILED-out job is re-armed only when the server receives an
+   * explicit retry request). */
   async enqueue(input: EnqueueRecordingJobInput): Promise<RecordingJob> {
     return this.client.fetch<RecordingJob>('/recording-jobs', {
       method: 'POST',

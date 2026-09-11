@@ -135,6 +135,36 @@ describe('audit_log', () => {
     expect(storeA.total).toBe(2)
   })
 
+  it('merges severity sets and filters by action server-side', async () => {
+    await req('POST', '/audit', { actor_type: 'system', category: 'recording', action: 'recording.karute_missing', severity: 'warn' })
+    await req('POST', '/audit', { actor_type: 'system', category: 'recording', action: 'recording.transcribe_failed', severity: 'critical' })
+    await req('POST', '/audit', { actor_type: 'system', category: 'recording', action: 'other', severity: 'info' })
+    const merged = await (await req('GET', '/audit?severity=warn,critical')).json()
+    expect(merged.total).toBe(2)
+    expect(merged.events.map((e: { severity: string }) => e.severity)).toEqual(['critical', 'warn'])
+    const action = await (await req('GET', '/audit?action=recording.karute_missing')).json()
+    expect(action.total).toBe(1)
+    expect(action.events[0].action).toBe('recording.karute_missing')
+  })
+
+  it('replays an idempotent audit write without creating a second row', async () => {
+    const idempotencyHeaders = { ...headers, 'Idempotency-Key': `audit-test-${Date.now()}` }
+    const first = await app.request('/v1/audit', {
+      method: 'POST', headers: idempotencyHeaders,
+      body: JSON.stringify({ actor_type: 'system', category: 'test', action: 'once' }),
+    })
+    const second = await app.request('/v1/audit', {
+      method: 'POST', headers: idempotencyHeaders,
+      body: JSON.stringify({ actor_type: 'system', category: 'test', action: 'once' }),
+    })
+    const a = await first.json()
+    const b = await second.json()
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(200)
+    expect(b.id).toBe(a.id)
+    expect((await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID, action: 'once' } }))).toBe(1)
+  })
+
   it('caps oversized detail at ~2KB with a truncation marker', async () => {
     const res = await req('POST', '/audit', {
       actor_type: 'system',

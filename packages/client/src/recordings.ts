@@ -21,6 +21,7 @@ export class RecordingClient {
     if (options?.customer_id) params.set('customer_id', options.customer_id)
     if (options?.staff_id) params.set('staff_id', options.staff_id)
     if (options?.status) params.set('status', options.status)
+    if (options?.without_karute) params.set('without_karute', '1')
     if (options?.page) params.set('page', String(options.page))
     if (options?.page_size) params.set('page_size', String(options.page_size))
     const qs = params.toString()

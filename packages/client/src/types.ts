@@ -860,6 +860,7 @@ export interface ListRecordingsOptions {
   store_id?: string
   staff_id?: string
   status?: RecordingStatus
+  without_karute?: boolean
   page?: number
   page_size?: number
 }
@@ -1182,8 +1183,9 @@ export interface ListAuditOptions {
   target_type?: string
   target_id?: string
   break_glass?: boolean
-  /** Exact-match severity (info | warn | critical). */
-  severity?: 'info' | 'warn' | 'critical'
+  /** Exact-match severity, or a comma-equivalent set. */
+  severity?: 'info' | 'warn' | 'critical' | Array<'info' | 'warn' | 'critical'>
+  action?: string
   /** Store lens for the store-scoped manager view. */
   store_id?: string
   /** True → server-side "everything except views" (actions '*.view'/'view'),

@@ -184,7 +184,8 @@ export interface ListAuditOptions {
   target_id?: string
   break_glass?: boolean
   /** Exact-match severity filter (info | warn | critical). */
-  severity?: string
+  severity?: string | string[]
+  action?: string
   /** Store lens for the store-scoped manager view (rows may be null-store). */
   store_id?: string
   /** True → exclude view events ("everything except views" server-side, so
@@ -211,7 +212,12 @@ export async function listAuditLog(
   if (options.target_type) where.targetType = options.target_type
   if (options.target_id) where.targetId = options.target_id
   if (options.break_glass !== undefined) where.breakGlass = options.break_glass
-  if (options.severity) where.severity = options.severity
+  if (options.severity) {
+    where.severity = Array.isArray(options.severity)
+      ? { in: options.severity }
+      : options.severity
+  }
+  if (options.action) where.action = options.action
   if (options.store_id) where.storeId = options.store_id
   if (options.exclude_views) {
     // '_view' widen (karute proposal 7/27): the app's audit-log-open row was
@@ -237,6 +243,14 @@ export async function listAuditLog(
     prisma.auditLog.count({ where }),
   ])
   return { events: rows.map(toPublic), total, page, page_size: pageSize }
+}
+
+export async function getAuditEvent(
+  businessId: string,
+  id: string,
+): Promise<AuditEventPublic | null> {
+  const row = await prisma.auditLog.findFirst({ where: { id, businessId } })
+  return row ? toPublic(row) : null
 }
 
 /** Erasure hook for a hard customer deletion — the ONLY mutation path. */
