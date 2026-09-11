@@ -13,6 +13,7 @@ export { StoreClient } from './stores.js'
 export { MenuClient } from './menus.js'
 export { EntitlementClient } from './entitlements.js'
 export { StaffStoreClient } from './staff-stores.js'
+export { StaffShiftClient } from './staff-shifts.js'
 export { InviteClient } from './invites.js'
 export { CustomerMemoryClient } from './customer-memory.js'
 export { KaruteOutcomeClient } from './karute-outcomes.js'
@@ -43,6 +44,12 @@ export type {
   UpdateStaffInput,
   ListStaffOptions,
   ListStaffResponse,
+  StaffShift,
+  ShiftInterval,
+  CreateStaffShiftInput,
+  UpdateStaffShiftInput,
+  ListStaffShiftsOptions,
+  ListStaffShiftsResponse,
 
   // Appointments
   Appointment,

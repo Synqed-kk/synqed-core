@@ -14,6 +14,7 @@ import { storeRoutes } from './routes/stores.js'
 import { menuRoutes } from './routes/menus.js'
 import { entitlementRoutes } from './routes/entitlements.js'
 import { staffStoreRoutes } from './routes/staff-stores.js'
+import { staffShiftRoutes } from './routes/staff-shifts.js'
 import { businessGrantRoutes } from './routes/business-grants.js'
 import { pricingRuleRoutes } from './routes/pricing-rules.js'
 import { storePolicyRoutes } from './routes/store-policies.js'
@@ -107,6 +108,7 @@ app.route('/stores', storeRoutes)
 app.route('/menus', menuRoutes)
 app.route('/entitlements', entitlementRoutes)
 app.route('/staff-stores', staffStoreRoutes)
+app.route('/staff-shifts', staffShiftRoutes)
 app.route('/business-grants', businessGrantRoutes)
 app.route('/pricing-rules', pricingRuleRoutes)
 app.route('/store-policies', storePolicyRoutes)

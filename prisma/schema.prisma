@@ -198,6 +198,7 @@ model Staff {
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
 
   appointments Appointment[]
+  shifts StaffShift[]
 
   @@index([businessId])
   @@index([businessId, name])
@@ -829,6 +830,29 @@ model StaffStore {
   @@id([staffId, storeId])
   @@index([businessId, storeId])
   @@map("staff_stores")
+}
+
+// One dated working window per staff/store; interval offsets are local-day minutes.
+model StaffShift {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  storeId     String   @map("store_id") @db.Uuid
+  staffId     String   @map("staff_id") @db.Uuid
+  date        DateTime @db.Date
+  startMinute Int      @map("start_minute")
+  endMinute   Int      @map("end_minute")
+  breaks      Json     @default("[]")
+  blocks      Json     @default("[]")
+  createdBy   String   @map("created_by") @db.Uuid
+  updatedBy   String   @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, staffId, storeId, date])
+  @@index([businessId, storeId, date])
+  @@map("staff_shifts")
 }
 
 // =============================================================================
