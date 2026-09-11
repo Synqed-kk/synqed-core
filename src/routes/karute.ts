@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { createMiddleware } from 'hono/factory'
 import type { AppEnv } from '../types/api.js'
 import {
   createKaruteRecordSchema,
@@ -15,7 +16,16 @@ import { actorAuthMiddleware } from '../middleware/actor-auth.js'
 
 export const karuteRoutes = new Hono<AppEnv>()
 
-karuteRoutes.get('/', actorAuthMiddleware, async (c) => {
+// Existing BFF reads remain API-key authenticated. Opting into hidden rows
+// additionally requires a verified person and the owner check below.
+const hiddenReadAuth = createMiddleware<AppEnv>(async (c, next) => {
+  if (new URL(c.req.url).searchParams.getAll('include_hidden').includes('true')) {
+    return actorAuthMiddleware(c, next)
+  }
+  await next()
+})
+
+karuteRoutes.get('/', hiddenReadAuth, async (c) => {
   const businessId = c.get('businessId')
   const raw = Object.fromEntries(new URL(c.req.url).searchParams)
   const parsed = listKaruteRecordsSchema.safeParse(raw)
@@ -53,7 +63,7 @@ karuteRoutes.get('/entry-edits', async (c) => {
   return c.json(result)
 })
 
-karuteRoutes.get('/:id', actorAuthMiddleware, async (c) => {
+karuteRoutes.get('/:id', hiddenReadAuth, async (c) => {
   const businessId = c.get('businessId')
   const includeEntries = c.req.query('include_entries') !== 'false'
   const includeSegments = c.req.query('include_segments') === 'true'
