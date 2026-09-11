@@ -812,6 +812,12 @@ export interface Recording {
   audio_storage_path: string | null
   duration_seconds: number | null
   status: RecordingStatus
+  lifecycle_state: 'RECORDING' | 'UPLOADED' | 'FINALIZED' | 'QUEUED' | 'TRANSCRIBED' | 'SAVED' | 'FAILED' | 'DISCARDED'
+  client_version: string | null
+  platform: string | null
+  audio_mime: string | null
+  sample_rate_hz: number | null
+  audio_route: string | null
   created_at: string
   updated_at: string
 }
@@ -824,6 +830,11 @@ export interface CreateRecordingInput {
   audio_storage_path?: string | null
   duration_seconds?: number | null
   status?: RecordingStatus
+  client_version?: string | null
+  platform?: string | null
+  audio_mime?: string | null
+  sample_rate_hz?: number | null
+  audio_route?: string | null
   created_at?: string
 }
 
@@ -832,6 +843,11 @@ export interface UpdateRecordingInput {
   audio_storage_path?: string | null
   duration_seconds?: number | null
   status?: RecordingStatus
+  client_version?: string | null
+  platform?: string | null
+  audio_mime?: string | null
+  sample_rate_hz?: number | null
+  audio_route?: string | null
 }
 
 export interface ListRecordingsOptions {

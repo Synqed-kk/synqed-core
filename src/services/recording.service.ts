@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { RecordingStatus } from '@prisma/client'
+import type { RecordingLifecycleState, RecordingStatus } from '@prisma/client'
 import type {
   CreateRecordingInput,
   UpdateRecordingInput,
@@ -44,6 +44,12 @@ export interface RecordingPublic {
   audio_storage_path: string | null
   duration_seconds: number | null
   status: RecordingStatus
+  lifecycle_state: RecordingLifecycleState
+  client_version: string | null
+  platform: string | null
+  audio_mime: string | null
+  sample_rate_hz: number | null
+  audio_route: string | null
   created_at: string
   updated_at: string
 }
@@ -58,6 +64,12 @@ function toPublic(row: {
   audioStoragePath: string | null
   durationSeconds: number | null
   status: RecordingStatus
+  lifecycleState: RecordingLifecycleState
+  clientVersion: string | null
+  platform: string | null
+  audioMime: string | null
+  sampleRateHz: number | null
+  audioRoute: string | null
   createdAt: Date
   updatedAt: Date
 }): RecordingPublic {
@@ -71,6 +83,12 @@ function toPublic(row: {
     audio_storage_path: row.audioStoragePath,
     duration_seconds: row.durationSeconds,
     status: row.status,
+    lifecycle_state: row.lifecycleState,
+    client_version: row.clientVersion,
+    platform: row.platform,
+    audio_mime: row.audioMime,
+    sample_rate_hz: row.sampleRateHz,
+    audio_route: row.audioRoute,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   }
@@ -197,6 +215,17 @@ export async function createRecording(
       audioStoragePath: input.audio_storage_path ?? null,
       durationSeconds: input.duration_seconds ?? null,
       status: input.status ?? 'RECORDING',
+      lifecycleState:
+        input.audio_storage_path && input.duration_seconds != null
+          ? 'FINALIZED'
+          : input.audio_storage_path
+            ? 'UPLOADED'
+            : 'RECORDING',
+      clientVersion: input.client_version ?? null,
+      platform: input.platform ?? null,
+      audioMime: input.audio_mime ?? null,
+      sampleRateHz: input.sample_rate_hz ?? null,
+      audioRoute: input.audio_route ?? null,
       ...(input.created_at ? { createdAt: new Date(input.created_at) } : {}),
     },
   })
@@ -230,6 +259,20 @@ export async function updateRecording(
   if (input.audio_storage_path !== undefined) data.audioStoragePath = input.audio_storage_path
   if (input.duration_seconds !== undefined) data.durationSeconds = input.duration_seconds
   if (input.status !== undefined) data.status = input.status
+  if (input.client_version !== undefined) data.clientVersion = input.client_version
+  if (input.platform !== undefined) data.platform = input.platform
+  if (input.audio_mime !== undefined) data.audioMime = input.audio_mime
+  if (input.sample_rate_hz !== undefined) data.sampleRateHz = input.sample_rate_hz
+  if (input.audio_route !== undefined) data.audioRoute = input.audio_route
+  if (input.audio_storage_path !== undefined && input.audio_storage_path !== null) {
+    data.lifecycleState = input.duration_seconds !== undefined && input.duration_seconds !== null
+      ? 'FINALIZED'
+      : existing.lifecycleState === 'RECORDING' ? 'UPLOADED' : existing.lifecycleState
+  }
+  if (input.duration_seconds !== undefined && input.duration_seconds !== null &&
+      (input.audio_storage_path !== undefined ? input.audio_storage_path : existing.audioStoragePath)) {
+    data.lifecycleState = 'FINALIZED'
+  }
 
   const row = await prisma.recordingSession.update({ where: { id }, data })
   return toPublic(row)

@@ -53,6 +53,13 @@ export const MIGRATION_HINTS: Record<string, string> = {
   recording_jobs: '2026-07-20-recording-jobs',
   ai_cache: '2026-06-25-ai-cache',
   'recording_jobs.terminal_reason': '2026-09-11-recording-job-terminal-failure',
+  RecordingLifecycleState: '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.lifecycle_state': '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.client_version': '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.platform': '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.audio_mime': '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.sample_rate_hz': '2026-09-11-recording-session-lifecycle',
+  'recording_sessions.audio_route': '2026-09-11-recording-session-lifecycle',
 }
 
 export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [

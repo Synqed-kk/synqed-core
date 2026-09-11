@@ -112,6 +112,12 @@ export async function recordDiscardEvent(
       reason: input.source === 'STAFF' ? input.reason!.trim() : null,
     },
   })
+  if (input.recording_session_id) {
+    await prisma.recordingSession.updateMany({
+      where: { id: input.recording_session_id, businessId },
+      data: { lifecycleState: 'DISCARDED' },
+    })
+  }
   return toPublic(row)
 }
 

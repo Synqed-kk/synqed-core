@@ -466,6 +466,17 @@ enum RecordingStatus {
   FAILED
 }
 
+enum RecordingLifecycleState {
+  RECORDING
+  UPLOADED
+  FINALIZED
+  QUEUED
+  TRANSCRIBED
+  SAVED
+  FAILED
+  DISCARDED
+}
+
 model RecordingSession {
   id               String          @id @default(uuid()) @db.Uuid
   businessId       String          @map("business_id") @db.Uuid
@@ -476,6 +487,12 @@ model RecordingSession {
   audioStoragePath String?         @map("audio_storage_path")
   durationSeconds  Int?            @map("duration_seconds")
   status           RecordingStatus @default(RECORDING)
+  lifecycleState   RecordingLifecycleState @default(RECORDING) @map("lifecycle_state")
+  clientVersion    String?         @map("client_version")
+  platform         String?
+  audioMime        String?         @map("audio_mime")
+  sampleRateHz     Int?            @map("sample_rate_hz")
+  audioRoute       String?         @map("audio_route")
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz()
 

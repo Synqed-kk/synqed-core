@@ -15,6 +15,11 @@ export const createRecordingSchema = z.object({
   appointment_id: z.string().uuid().nullable().optional(),
   audio_storage_path: z.string().max(500).nullable().optional(),
   duration_seconds: z.number().int().nullable().optional(),
+  client_version: z.string().max(100).nullable().optional(),
+  platform: z.string().max(100).nullable().optional(),
+  audio_mime: z.string().max(100).nullable().optional(),
+  sample_rate_hz: z.number().int().positive().nullable().optional(),
+  audio_route: z.string().max(100).nullable().optional(),
   status: recordingStatusSchema.optional(),
   created_at: z.string().datetime().optional(),
 })
@@ -23,6 +28,11 @@ export const updateRecordingSchema = z.object({
   customer_id: z.string().uuid().nullable().optional(),
   audio_storage_path: z.string().max(500).nullable().optional(),
   duration_seconds: z.number().int().nullable().optional(),
+  client_version: z.string().max(100).nullable().optional(),
+  platform: z.string().max(100).nullable().optional(),
+  audio_mime: z.string().max(100).nullable().optional(),
+  sample_rate_hz: z.number().int().positive().nullable().optional(),
+  audio_route: z.string().max(100).nullable().optional(),
   status: recordingStatusSchema.optional(),
 })
 

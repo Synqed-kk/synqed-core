@@ -100,6 +100,10 @@ export async function enqueue(
           payload: payload as Prisma.InputJsonValue,
         },
       })
+      await prisma.recordingSession.updateMany({
+        where: { id: recordingSessionId, businessId },
+        data: { lifecycleState: 'QUEUED' },
+      })
       return toPublic(rearmed)
     }
     return toPublic(existing)
@@ -110,6 +114,10 @@ export async function enqueue(
       recordingSessionId,
       payload: payload as Prisma.InputJsonValue,
     },
+  })
+  await prisma.recordingSession.updateMany({
+    where: { id: recordingSessionId, businessId },
+    data: { lifecycleState: 'QUEUED' },
   })
   return toPublic(row)
 }
@@ -138,9 +146,14 @@ export async function complete(
   id: string,
   karuteRecordId: string,
 ): Promise<RecordingJobPublic> {
+  const job = await prisma.recordingJob.findUniqueOrThrow({ where: { id } })
   const row = await prisma.recordingJob.update({
     where: { id },
     data: { status: 'DONE', karuteRecordId, lastError: null },
+  })
+  await prisma.recordingSession.updateMany({
+    where: { id: job.recordingSessionId, businessId: job.businessId },
+    data: { lifecycleState: 'SAVED' },
   })
   return toPublic(row)
 }
@@ -164,6 +177,10 @@ export async function fail(
       ...(terminal ? { attempts: job.maxAttempts } : {}),
       claimedAt: null,
     },
+  })
+  await prisma.recordingSession.updateMany({
+    where: { id: job.recordingSessionId, businessId: job.businessId },
+    data: { lifecycleState: spent ? 'FAILED' : 'QUEUED' },
   })
   return toPublic(row)
 }
