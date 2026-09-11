@@ -64,10 +64,23 @@ recordingDiscardRoutes.put('/:id/confirmation', actorAuthMiddleware, async (c) =
   }
 })
 
-// Ledger read: by session, by source, or the business-wide stream (paged).
+const listFiltersSchema = z.object({
+  recording_session_id: z.string().uuid().optional(),
+  recording_session_ids: z.string().transform(value => value.split(',')).pipe(z.array(z.string().uuid()).min(1).max(100)).optional(),
+  created_from: z.string().datetime({ offset: true }).optional(),
+  created_before: z.string().datetime({ offset: true }).optional(),
+}).refine(value => !(value.recording_session_id && value.recording_session_ids), {
+  message: 'Use recording_session_id or recording_session_ids, not both',
+}).refine(value => !value.created_from || !value.created_before || Date.parse(value.created_from) < Date.parse(value.created_before), {
+  message: 'created_from must be before created_before',
+})
+
+// Date bounds apply to the discard event, with an exclusive upper bound.
 recordingDiscardRoutes.get('/', async (c) => {
   const businessId = c.get('businessId')
   const q = c.req.query()
+  const filters = listFiltersSchema.safeParse(q)
+  if (!filters.success) return c.json({ error: filters.error.issues[0].message }, 400)
   if (q.source !== undefined && q.source !== 'STAFF' && q.source !== 'SYSTEM') {
     return c.json({ error: 'source must be STAFF or SYSTEM' }, 400)
   }
@@ -78,7 +91,7 @@ recordingDiscardRoutes.get('/', async (c) => {
     return c.json({ error: 'page and page_size must be positive integers' }, 400)
   }
   const result = await discardService.listDiscardEvents(businessId, {
-    recording_session_id: q.recording_session_id,
+    ...filters.data,
     source: q.source as 'STAFF' | 'SYSTEM' | undefined,
     page,
     page_size: pageSize,
