@@ -23,6 +23,8 @@ export class KaruteOutcomeClient {
    *  updated_before: <now-14d ISO> }). */
   async list(options?: ListKaruteOutcomesOptions): Promise<ListKaruteOutcomesResponse> {
     const params = new URLSearchParams()
+    if (options?.staff_id) params.set('staff_id', options.staff_id)
+    if (options?.karute_record_id) params.set('karute_record_id', options.karute_record_id)
     if (options?.outcome) params.set('outcome', options.outcome)
     if (options?.decision_context) params.set('decision_context', options.decision_context)
     if (options?.updated_before) params.set('updated_before', options.updated_before)

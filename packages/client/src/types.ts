@@ -1345,11 +1345,19 @@ export type RecordDiscardInput = RecordDiscardFields &
 
 export interface ListRecordingDiscardsOptions {
   recording_session_id?: string
+  /** Up to 100 session IDs; mutually exclusive with recording_session_id. */
+  recording_session_ids?: string[]
+  /** Inclusive lower / exclusive upper ISO datetime bounds on discard creation. */
+  created_from?: string
+  created_before?: string
   source?: 'STAFF' | 'SYSTEM'
   page?: number
   page_size?: number
 }
 export interface ListKaruteOutcomesOptions {
+  /** Permanent staff card owning the karute record, not the deciding actor. */
+  staff_id?: string
+  karute_record_id?: string
   outcome?: string
   decision_context?: string
   /** rows last touched strictly BEFORE this ISO instant (cron age filter) */
