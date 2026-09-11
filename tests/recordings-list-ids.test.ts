@@ -15,6 +15,14 @@ function req(path: string, businessId = TEST_BUSINESS_ID) {
 }
 
 describe('recordings list ids filter', () => {
+  it('rejects malformed IDs before they reach the database', async () => {
+    for (const ids of ['not-a-uuid', `${randomUUID()},malformed`]) {
+      const response = await req(`/recordings?ids=${ids}`)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toHaveProperty('error')
+    }
+  })
+
   const recordingIds: string[] = []
 
   afterEach(async () => {
