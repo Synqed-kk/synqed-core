@@ -1,4 +1,5 @@
 import { prisma } from '../db/client.js'
+import { Prisma } from '@prisma/client'
 
 // CLOSING RATE (the one authoritative definition — Liam 8/7): 
 //   closing_rate = success / (success + no_deal)
@@ -91,6 +92,9 @@ export async function upsertOutcome(
 }
 
 export interface ListOutcomesOptions {
+  /** Permanent staff card that owns the karute record, not decided_by. */
+  staff_id?: string
+  karute_record_id?: string
   outcome?: string
   decision_context?: string
   /** Rows last touched strictly BEFORE this instant — the pending-auto-close
@@ -108,18 +112,27 @@ export async function listOutcomes(
 ): Promise<{ outcomes: KaruteOutcomePublic[]; total: number; page: number; page_size: number }> {
   const page = options.page ?? 1
   const pageSize = Math.min(options.page_size ?? 100, 500)
-  const where: Record<string, unknown> = { businessId }
-  if (options.outcome) where.outcome = options.outcome
-  if (options.decision_context) where.decisionContext = options.decision_context
-  if (options.updated_before) where.updatedAt = { lt: new Date(options.updated_before) }
-  const [rows, total] = await Promise.all([
-    prisma.karuteOutcome.findMany({
-      where,
-      orderBy: { updatedAt: 'asc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.karuteOutcome.count({ where }),
+  const conditions = [Prisma.sql`o.business_id = ${businessId}::uuid`]
+  if (options.outcome) conditions.push(Prisma.sql`o.outcome = ${options.outcome}`)
+  if (options.decision_context) conditions.push(Prisma.sql`o.decision_context = ${options.decision_context}`)
+  if (options.updated_before) conditions.push(Prisma.sql`o.updated_at < ${new Date(options.updated_before)}`)
+  if (options.karute_record_id) conditions.push(Prisma.sql`o.karute_record_id = ${options.karute_record_id}::uuid`)
+  // EXISTS avoids loading a staff member's entire record history into an IN
+  // list. Both the record and outcome must belong to the caller's business.
+  if (options.staff_id) conditions.push(Prisma.sql`EXISTS (
+    SELECT 1 FROM karute_records r WHERE r.id = o.karute_record_id
+    AND r.business_id = o.business_id AND r.staff_id = ${options.staff_id}::uuid
+  )`)
+  const where = Prisma.join(conditions, ' AND ')
+  const [rows, counts] = await Promise.all([
+    prisma.$queryRaw<Array<Omit<KaruteOutcomePublic, 'decided_at'> & { decided_at: Date | null }>>(Prisma.sql`
+      SELECT o.karute_record_id, o.customer_id, o.outcome, o.reason,
+        o.decision_context, o.is_first_visit, o.decided_by, o.decided_at, o.auto_decided
+      FROM karute_outcomes o WHERE ${where}
+      ORDER BY o.updated_at ASC, o.karute_record_id ASC
+      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
+    `),
+    prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`SELECT COUNT(*) AS total FROM karute_outcomes o WHERE ${where}`),
   ])
-  return { outcomes: rows.map(toPublic), total, page, page_size: pageSize }
+  return { outcomes: rows.map(row => ({ ...row, decided_at: row.decided_at?.toISOString() ?? null })), total: Number(counts[0].total), page, page_size: pageSize }
 }

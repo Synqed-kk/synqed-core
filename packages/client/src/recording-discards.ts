@@ -30,6 +30,9 @@ export class RecordingDiscardClient {
   }> {
     const params = new URLSearchParams()
     if (options?.recording_session_id) params.set('recording_session_id', options.recording_session_id)
+    if (options?.recording_session_ids !== undefined) params.set('recording_session_ids', options.recording_session_ids.join(','))
+    if (options?.created_from) params.set('created_from', options.created_from)
+    if (options?.created_before) params.set('created_before', options.created_before)
     if (options?.source) params.set('source', options.source)
     if (options?.page) params.set('page', String(options.page))
     if (options?.page_size) params.set('page_size', String(options.page_size))

@@ -159,9 +159,12 @@ export interface ActorContext {
 
 // Hono env bindings — business scope comes from the trusted app header; actor
 // identity is present only after actorAuthMiddleware verifies a Supabase JWT.
+// requestId is set by requestContext for EVERY request, before auth, so an
+// unauthenticated failure still correlates to the caller's log line.
 export type AppEnv = {
   Variables: {
     businessId: string
     actor: ActorContext
+    requestId: string
   }
 }

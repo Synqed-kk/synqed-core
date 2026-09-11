@@ -1,8 +1,13 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv } from '../types/api.js'
 import * as outcomeService from '../services/karute-outcome.service.js'
 
 export const karuteOutcomeRoutes = new Hono<AppEnv>()
+const recordFiltersSchema = z.object({
+  staff_id: z.string().uuid().optional(),
+  karute_record_id: z.string().uuid().optional(),
+})
 
 // Business-scoped list — the auto-close cron's query (?outcome=pending&
 // updated_before=<now-14d>). Registered before '/:karuteRecordId' so the
@@ -10,6 +15,8 @@ export const karuteOutcomeRoutes = new Hono<AppEnv>()
 karuteOutcomeRoutes.get('/', async (c) => {
   const businessId = c.get('businessId')
   const q = c.req.query()
+  const filters = recordFiltersSchema.safeParse(q)
+  if (!filters.success) return c.json({ error: filters.error.issues[0].message }, 400)
   if (q.updated_before !== undefined && Number.isNaN(Date.parse(q.updated_before))) {
     return c.json({ error: 'updated_before must be an ISO datetime' }, 400)
   }
@@ -20,6 +27,7 @@ karuteOutcomeRoutes.get('/', async (c) => {
     return c.json({ error: 'page and page_size must be positive integers' }, 400)
   }
   const result = await outcomeService.listOutcomes(businessId, {
+    ...filters.data,
     outcome: q.outcome,
     decision_context: q.decision_context,
     updated_before: q.updated_before,
