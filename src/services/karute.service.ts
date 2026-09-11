@@ -45,6 +45,9 @@ export interface KaruteRecordPublic {
   session_date: string | null
   created_at: string
   updated_at: string
+  hidden_at: string | null
+  hidden_by: string | null
+  hidden_reason: string | null
   entries?: EntryPublic[]
 }
 
@@ -66,6 +69,9 @@ function toPublic(
     sessionDate: Date | null
     createdAt: Date
     updatedAt: Date
+    hiddenAt: Date | null
+    hiddenBy: string | null
+    hiddenReason: string | null
   },
   entries?: EntryPublic[],
 ): KaruteRecordPublic {
@@ -86,6 +92,9 @@ function toPublic(
     session_date: row.sessionDate ? row.sessionDate.toISOString().slice(0, 10) : null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
+    hidden_at: row.hiddenAt ? row.hiddenAt.toISOString() : null,
+    hidden_by: row.hiddenBy,
+    hidden_reason: row.hiddenReason,
     ...(entries !== undefined ? { entries } : {}),
   }
 }
@@ -136,6 +145,7 @@ export async function listKaruteRecords(
     appointment_id?: string
     status?: KaruteStatus
     include_discarded?: boolean
+    include_hidden?: boolean
     from?: string
     to?: string
     page?: number
@@ -175,17 +185,26 @@ export async function listKaruteRecords(
     AND: [requestedWhere, { status: 'DISCARDED' }],
   }
   const rowsWhere = options.include_discarded ? requestedWhere : nonDiscardedWhere
+  const visibleWhere: Prisma.KaruteRecordWhereInput = options.include_hidden
+    ? rowsWhere
+    : { AND: [rowsWhere, { hiddenAt: null }] }
+  const visibleNonDiscardedWhere: Prisma.KaruteRecordWhereInput = options.include_hidden
+    ? nonDiscardedWhere
+    : { AND: [nonDiscardedWhere, { hiddenAt: null }] }
+  const visibleDiscardedWhere: Prisma.KaruteRecordWhereInput = options.include_hidden
+    ? discardedWhere
+    : { AND: [discardedWhere, { hiddenAt: null }] }
 
   const [rows, total, discardedCount] = await Promise.all([
     prisma.karuteRecord.findMany({
-      where: rowsWhere,
+      where: visibleWhere,
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: pageSize,
       include: { _count: { select: { entries: { where: { deletedAt: null } } } } },
     }),
-    prisma.karuteRecord.count({ where: nonDiscardedWhere }),
-    prisma.karuteRecord.count({ where: discardedWhere }),
+    prisma.karuteRecord.count({ where: visibleNonDiscardedWhere }),
+    prisma.karuteRecord.count({ where: visibleDiscardedWhere }),
   ])
 
   return {
@@ -200,10 +219,11 @@ export async function listKaruteRecords(
 export async function getKaruteRecord(
   businessId: string,
   id: string,
-  opts?: { includeEntries?: boolean; includeSegments?: boolean; includeDiscarded?: boolean },
+  opts?: { includeEntries?: boolean; includeSegments?: boolean; includeDiscarded?: boolean; includeHidden?: boolean },
 ): Promise<KaruteRecordPublic | null> {
   const where: Prisma.KaruteRecordWhereInput = { id, businessId }
   if (!opts?.includeDiscarded) where.status = { not: 'DISCARDED' }
+  if (!opts?.includeHidden) where.hiddenAt = null
 
   const row = await prisma.karuteRecord.findFirst({
     where,
@@ -439,17 +459,19 @@ export async function updateKaruteRecord(
   return toPublic(row, row.entries.map(entryToPublic))
 }
 
-export async function deleteKaruteRecord(businessId: string, id: string): Promise<void> {
+export async function deleteKaruteRecord(
+  businessId: string,
+  id: string,
+  hiddenBy: string,
+  hiddenReason: string,
+): Promise<void> {
   const existing = await prisma.karuteRecord.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Karute record not found')
-  // Liam ruling 2026-07-17: deleting a karute deletes its entry_edits too —
-  // audit_log is the surviving trail (its rows reference entry_edit_id in
-  // detail, which simply stops resolving). Service-level, not an FK, so
-  // entry_edits inserts stay lock-free on karute rows.
-  await prisma.$transaction([
-    prisma.karuteEntryEdit.deleteMany({ where: { karuteRecordId: id, businessId } }),
-    prisma.karuteRecord.delete({ where: { id } }),
-  ])
+  if (!hiddenReason.trim()) throw new Error('A reason is required to hide a karute record')
+  await prisma.karuteRecord.update({
+    where: { id },
+    data: { hiddenAt: new Date(), hiddenBy, hiddenReason: hiddenReason.trim() },
+  })
 }
 
 /** Optimistic-concurrency failure — routes map it to 409. */

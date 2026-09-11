@@ -3,6 +3,7 @@ import type { AppEnv } from '../types/api.js'
 import {
   createKaruteRecordSchema,
   updateKaruteRecordSchema,
+  hideKaruteRecordSchema,
   listKaruteRecordsSchema,
   listEntryEditsSchema,
   entryInputSchema,
@@ -10,14 +11,18 @@ import {
   updateEntrySchema,
 } from '../validations/karute.js'
 import * as karuteService from '../services/karute.service.js'
+import { actorAuthMiddleware } from '../middleware/actor-auth.js'
 
 export const karuteRoutes = new Hono<AppEnv>()
 
-karuteRoutes.get('/', async (c) => {
+karuteRoutes.get('/', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
   const raw = Object.fromEntries(new URL(c.req.url).searchParams)
   const parsed = listKaruteRecordsSchema.safeParse(raw)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  if (parsed.data.include_hidden && !c.get('actor').capabilities.includes('recordings.viewAll')) {
+    return c.json({ error: 'Only the owner may include hidden karute records' }, 403)
+  }
   const result = await karuteService.listKaruteRecords(businessId, parsed.data)
   return c.json(result)
 })
@@ -48,15 +53,20 @@ karuteRoutes.get('/entry-edits', async (c) => {
   return c.json(result)
 })
 
-karuteRoutes.get('/:id', async (c) => {
+karuteRoutes.get('/:id', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
   const includeEntries = c.req.query('include_entries') !== 'false'
   const includeSegments = c.req.query('include_segments') === 'true'
   const includeDiscarded = c.req.query('include_discarded') === 'true'
+  const includeHidden = c.req.query('include_hidden') === 'true'
+  if (includeHidden && !c.get('actor').capabilities.includes('recordings.viewAll')) {
+    return c.json({ error: 'Only the owner may include hidden karute records' }, 403)
+  }
   const rec = await karuteService.getKaruteRecord(businessId, c.req.param('id'), {
     includeEntries,
     includeSegments,
     includeDiscarded,
+    includeHidden,
   })
   if (!rec) return c.json({ error: 'Karute record not found' }, 404)
   return c.json(rec)
@@ -87,10 +97,22 @@ karuteRoutes.put('/:id', async (c) => {
   }
 })
 
-karuteRoutes.delete('/:id', async (c) => {
+karuteRoutes.delete('/:id', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
+  const actor = c.get('actor')
+  if (!actor.capabilities.includes('records.delete')) {
+    return c.json({ error: 'Not permitted to hide karute records' }, 403)
+  }
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = hideKaruteRecordSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: 'hidden_reason is required' }, 400)
   try {
-    await karuteService.deleteKaruteRecord(businessId, c.req.param('id'))
+    await karuteService.deleteKaruteRecord(
+      businessId,
+      c.req.param('id'),
+      actor.staffId,
+      parsed.data.hidden_reason,
+    )
     return c.json({ success: true })
   } catch (err) {
     if (err instanceof Error && err.message === 'Karute record not found') {

@@ -560,6 +560,9 @@ model KaruteRecord {
   // Human overlay on aiSummary (the pencil). Readers use edited ?? ai; NO AI
   // path ever writes it — regen keeps overwriting aiSummary and this survives.
   editedSummary      String?      @map("edited_summary")
+  hiddenAt           DateTime?    @map("hidden_at") @db.Timestamptz()
+  hiddenBy           String?      @map("hidden_by") @db.Uuid
+  hiddenReason       String?      @map("hidden_reason")
   createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -570,6 +573,7 @@ model KaruteRecord {
   @@index([customerId])
   @@index([staffId])
   @@index([businessId, storeId])
+  @@index([businessId, hiddenAt])
   @@map("karute_records")
 }
 

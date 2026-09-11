@@ -17,6 +17,7 @@ export interface GetKaruteRecordOptions {
   include_entries?: boolean
   include_segments?: boolean
   include_discarded?: boolean
+  include_hidden?: boolean
 }
 
 export class KaruteRecordClient {
@@ -32,6 +33,7 @@ export class KaruteRecordClient {
     if (options?.appointment_id) params.set('appointment_id', options.appointment_id)
     if (options?.status) params.set('status', options.status)
     if (options?.include_discarded) params.set('include_discarded', 'true')
+    if (options?.include_hidden) params.set('include_hidden', 'true')
     if (options?.from) params.set('from', options.from)
     if (options?.to) params.set('to', options.to)
     if (options?.page) params.set('page', String(options.page))
@@ -45,6 +47,7 @@ export class KaruteRecordClient {
     if (options?.include_entries === false) params.set('include_entries', 'false')
     if (options?.include_segments) params.set('include_segments', 'true')
     if (options?.include_discarded) params.set('include_discarded', 'true')
+    if (options?.include_hidden) params.set('include_hidden', 'true')
     const qs = params.toString()
     return this.client.fetch<KaruteRecord>(`/karute-records/${id}${qs ? `?${qs}` : ''}`)
   }
@@ -76,8 +79,11 @@ export class KaruteRecordClient {
     })
   }
 
-  async delete(id: string): Promise<void> {
-    await this.client.fetch(`/karute-records/${id}`, { method: 'DELETE' })
+  async delete(id: string, hidden_reason: string): Promise<void> {
+    await this.client.fetch(`/karute-records/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ hidden_reason }),
+    })
   }
 
   /** Returns entry_edit_id — the audit-detail handle for the change row. */

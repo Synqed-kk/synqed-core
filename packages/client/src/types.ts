@@ -1024,6 +1024,9 @@ export interface KaruteRecord {
   session_date: string | null
   created_at: string
   updated_at: string
+  hidden_at: string | null
+  hidden_by: string | null
+  hidden_reason: string | null
   entries?: KaruteEntry[]
   entry_count?: number
   recording_session?: {
@@ -1082,6 +1085,7 @@ export interface ListKaruteRecordsOptions {
   appointment_id?: string
   status?: KaruteStatus
   include_discarded?: boolean
+  include_hidden?: boolean
   from?: string
   to?: string
   page?: number

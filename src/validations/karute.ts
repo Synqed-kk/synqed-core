@@ -64,6 +64,10 @@ export const updateKaruteRecordSchema = z.object({
   model: z.string().nullable().optional(),
 })
 
+export const hideKaruteRecordSchema = z.object({
+  hidden_reason: z.string().trim().min(1).max(2_000),
+})
+
 export const entryEditActionSchema = z.enum([
   'CREATE',
   'EDIT',
@@ -113,6 +117,7 @@ export const listKaruteRecordsSchema = z.object({
   recording_session_id: z.string().uuid().optional(),
   status: karuteStatusSchema.optional(),
   include_discarded: queryBooleanSchema.optional(),
+  include_hidden: queryBooleanSchema.optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   page: z.coerce.number().int().min(1).optional(),
