@@ -1367,7 +1367,10 @@ export type RecordDiscardInput = RecordDiscardFields &
 
 export interface ListRecordingDiscardsOptions {
   recording_session_id?: string
+  recording_session_ids?: string[]
   source?: 'STAFF' | 'SYSTEM'
+  from?: string
+  to?: string
   page?: number
   page_size?: number
 }

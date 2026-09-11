@@ -102,3 +102,27 @@ describe('SDK recordingDiscards.create', () => {
     ])
   })
 })
+
+describe('SDK recordingDiscards.list', () => {
+  it('serializes the bounded session set and date range', async () => {
+    let requested = ''
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      requested = String(url)
+      return new Response(JSON.stringify({ events: [], total: 0, page: 1, page_size: 100 }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    const client = new SynqedClient({ baseUrl: 'http://core.test', apiKey: 'key', businessId: 'business' })
+    await client.recordingDiscards.list({
+      recording_session_ids: [recordingSessionId, karuteRecordId],
+      source: 'STAFF',
+      from: '2026-09-01T00:00:00.000Z',
+      to: '2026-09-11T23:59:59.999Z',
+    })
+    const url = new URL(requested)
+    expect(url.searchParams.get('recording_session_ids')).toBe(`${recordingSessionId},${karuteRecordId}`)
+    expect(url.searchParams.get('source')).toBe('STAFF')
+    expect(url.searchParams.get('from')).toBe('2026-09-01T00:00:00.000Z')
+    expect(url.searchParams.get('to')).toBe('2026-09-11T23:59:59.999Z')
+  })
+})
