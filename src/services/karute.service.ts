@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db/client.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
-import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction, Prisma } from '@prisma/client'
+import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
@@ -260,6 +261,13 @@ export async function getByRecordingSession(
   return getKaruteRecord(businessId, row.id, { ...opts, includeDiscarded: true })
 }
 
+export class InvalidKaruteStaffError extends Error {
+  constructor() {
+    super('Staff identity must resolve to exactly one card in this business')
+    this.name = 'InvalidKaruteStaffError'
+  }
+}
+
 export async function createKaruteRecord(
   businessId: string,
   input: CreateKaruteRecordInput,
@@ -272,9 +280,11 @@ export async function createKaruteRecord(
     // P2002 instead of a duplicate row — return the record already saved rather
     // than surfacing a 500. Match the target column explicitly (not just any
     // P2002) so a future second unique index on this table can't misroute here.
+    // A saved record also survives a later removed/unlinked staff identity;
+    // returning that historical result does not authorize a new write.
     if (
       input.recording_session_id &&
-      isUniqueViolation(e, 'recording_session_id')
+      (isUniqueViolation(e, 'recording_session_id') || e instanceof InvalidKaruteStaffError)
     ) {
       const existing = await getByRecordingSession(
         businessId,
@@ -291,36 +301,54 @@ async function createKaruteRecordInner(
   businessId: string,
   input: CreateKaruteRecordInput,
 ): Promise<KaruteRecordPublic> {
-  const row = await prisma.karuteRecord.create({
-    data: {
-      businessId,
-      customerId: input.customer_id ?? null,
-      storeId: input.store_id ?? null,
-      staffId: input.staff_id,
-      appointmentId: input.appointment_id ?? null,
-      recordingSessionId: input.recording_session_id ?? null,
-      status: input.status ?? 'DRAFT',
-      aiSummary: input.ai_summary ?? null,
-      transcript: input.transcript ?? null,
-      service: input.service ?? null,
-      durationMinutes: input.duration_minutes ?? null,
-      sessionDate: input.session_date ? new Date(input.session_date) : null,
-      entries: input.entries
-        ? {
-            create: input.entries.map((e, i) => ({
-              category: e.category,
-              content: e.content,
-              originalQuote: e.original_quote ?? null,
-              confidence: e.confidence ?? 0,
-              tags: e.tags ?? [],
-              sortOrder: e.sort_order ?? i,
-              isManual: e.is_manual ?? false,
-              author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
-            })),
-          }
-        : undefined,
-    },
-    include: { entries: { orderBy: { sortOrder: 'asc' } } },
+  const row = await prisma.$transaction(async tx => {
+    // A row lock cannot protect against a new alias on a different card.
+    // SHARE stabilizes inserts/reassignments as well; chart writers coexist.
+    await tx.$executeRaw`LOCK TABLE staff IN SHARE MODE`
+    // Interactive callers may send a login UUID; workers send the permanent
+    // card. Resolve both within this business and reject namespace ambiguity.
+    // The namespace lock holds that mapping stable through the chart write.
+    const staff = await tx.$queryRaw<Array<{ id: string; canonical_unambiguous: boolean }>>(Prisma.sql`
+      SELECT s.id, NOT EXISTS (
+        SELECT 1 FROM staff alias WHERE alias.business_id = s.business_id
+          AND alias.user_id = s.id AND alias.id <> s.id
+      ) AS canonical_unambiguous
+      FROM staff s WHERE s.business_id = ${businessId}::uuid
+      AND (s.id = ${input.staff_id}::uuid OR s.user_id = ${input.staff_id}::uuid)
+      ORDER BY s.id
+    `)
+    if (staff.length !== 1 || !staff[0].canonical_unambiguous) throw new InvalidKaruteStaffError()
+    return tx.karuteRecord.create({
+      data: {
+        businessId,
+        customerId: input.customer_id ?? null,
+        storeId: input.store_id ?? null,
+        staffId: staff[0].id,
+        appointmentId: input.appointment_id ?? null,
+        recordingSessionId: input.recording_session_id ?? null,
+        status: input.status ?? 'DRAFT',
+        aiSummary: input.ai_summary ?? null,
+        transcript: input.transcript ?? null,
+        service: input.service ?? null,
+        durationMinutes: input.duration_minutes ?? null,
+        sessionDate: input.session_date ? new Date(input.session_date) : null,
+        entries: input.entries
+          ? {
+              create: input.entries.map((e, i) => ({
+                category: e.category,
+                content: e.content,
+                originalQuote: e.original_quote ?? null,
+                confidence: e.confidence ?? 0,
+                tags: e.tags ?? [],
+                sortOrder: e.sort_order ?? i,
+                isManual: e.is_manual ?? false,
+                author: (e.is_manual ? 'HUMAN_CREATED' : 'AI') as EntryAuthor,
+              })),
+            }
+          : undefined,
+      },
+      include: { entries: { orderBy: { sortOrder: 'asc' } } },
+    })
   })
   return toPublic(row, row.entries.map(entryToPublic))
 }

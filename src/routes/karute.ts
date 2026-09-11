@@ -67,8 +67,13 @@ karuteRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = createKaruteRecordSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const rec = await karuteService.createKaruteRecord(businessId, parsed.data)
-  return c.json(rec, 201)
+  try {
+    const rec = await karuteService.createKaruteRecord(businessId, parsed.data)
+    return c.json(rec, 201)
+  } catch (err) {
+    if (err instanceof karuteService.InvalidKaruteStaffError) return c.json({ error: err.message }, 400)
+    throw err
+  }
 })
 
 karuteRoutes.put('/:id', async (c) => {
