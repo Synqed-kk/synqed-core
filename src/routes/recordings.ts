@@ -4,6 +4,7 @@ import {
   createRecordingSchema,
   updateRecordingSchema,
   listRecordingsSchema,
+  unfinishedRecordingsSchema,
   bulkSegmentsSchema,
 } from '../validations/recording.js'
 import * as recordingService from '../services/recording.service.js'
@@ -29,12 +30,14 @@ recordingRoutes.get('/unfinished', actorAuthMiddleware, async (c) => {
   if (!actor.capabilities.includes('stores.viewAll') && !actor.capabilities.includes('recordings.viewAll')) {
     return c.json({ error: 'Only owners and managers may view unfinished recordings' }, 403)
   }
-  const query = c.req.query()
-  const page = query.page ? Number(query.page) : undefined
-  const pageSize = query.page_size ? Number(query.page_size) : undefined
+  const parsed = unfinishedRecordingsSchema.safeParse(c.req.query())
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  if (parsed.data.store_id && actor.visibleStoreIds !== null && !actor.visibleStoreIds.includes(parsed.data.store_id)) {
+    return c.json({ error: 'Store is outside your assigned scope' }, 403)
+  }
   const result = await recordingService.listUnfinishedRecordings(
     c.get('businessId'),
-    { from: query.from, to: query.to, store_id: query.store_id, page, page_size: pageSize },
+    parsed.data,
     actor.visibleStoreIds,
   )
   return c.json(result)

@@ -56,6 +56,16 @@ export const listRecordingsSchema = z.object({
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })
 
+export const unfinishedRecordingsSchema = listRecordingsSchema.pick({
+  from: true,
+  to: true,
+  store_id: true,
+  page: true,
+  page_size: true,
+}).refine((value) => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), {
+  message: 'from must be before or equal to to',
+})
+
 export const segmentSchema = z.object({
   segment_index: z.number().int().min(0),
   text: z.string(),

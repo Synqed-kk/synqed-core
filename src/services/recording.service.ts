@@ -216,6 +216,9 @@ export async function listUnfinishedRecordings(
     lifecycleState: { notIn: ['SAVED', 'DISCARDED'] },
     karuteRecord: null,
   }
+  if (options.store_id && visibleStoreIds !== null && !visibleStoreIds.includes(options.store_id)) {
+    throw new RecordingForbiddenError()
+  }
   if (options.store_id) where.storeId = options.store_id
   else if (visibleStoreIds) where.storeId = { in: visibleStoreIds }
   if (options.from || options.to) {
@@ -225,7 +228,7 @@ export async function listUnfinishedRecordings(
     }
   }
   const [rows, total] = await Promise.all([
-    prisma.recordingSession.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.recordingSession.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize }),
     prisma.recordingSession.count({ where }),
   ])
   return { recordings: rows.map(toPublic), total, page, page_size: pageSize }
