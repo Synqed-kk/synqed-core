@@ -1,5 +1,7 @@
 # September recording/save incidents
 
+> Historical investigation notes. See the [updated postmortem](2026-09-recording-save-postmortem.md) for the merged/deployed fixes, confirmed Synqed access, production save verification and remaining recovery work.
+
 ## Confirmed causes
 
 1. Core PR #81 deployed code that needed four manual database migrations before those migrations were applied. The new default Karute reads referenced the missing `KaruteStatus.DISCARDED` value; discard reads also referenced missing columns. Liam reported applying the four migrations on September 4 and immediate recovery. This report has not been independently checked against production in this investigation.
