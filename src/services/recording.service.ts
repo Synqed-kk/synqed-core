@@ -214,7 +214,14 @@ export async function updateRecording(
 
   const canWrite = actor.capabilities.includes('records.write')
   const canUpdateOtherStaff = actor.capabilities.includes('recordings.viewAll')
-  if (!canWrite || (existing.staffId !== actor.staffId && !canUpdateOtherStaff)) {
+  // ⚖ ONE ROW, TWO ID SPACES. The Karute app stamps recording_sessions.staff_id
+  // with the recorder's AUTH USER id (karute customer-facade.ts#resolveSelfStaffId
+  // → session-mint.ts), while the answer sheet's staff_id is the staff ROW id
+  // (permission.service.ts#answerSheet). Both name the same person, and "own
+  // session" must hold in either — comparing the row id alone refused every
+  // non-manager finalize in production (2026-09-08, PUT /v1/recordings/:id 403).
+  const ownSession = existing.staffId === actor.staffId || existing.staffId === actor.userId
+  if (!canWrite || (!ownSession && !canUpdateOtherStaff)) {
     throw new RecordingForbiddenError()
   }
 
@@ -257,40 +264,43 @@ export async function upsertSegments(
   segments: SegmentInput[],
   replace: boolean,
 ): Promise<SegmentPublic[]> {
-  const rec = await prisma.recordingSession.findFirst({
-    where: { id: recordingId, businessId },
-    select: { id: true },
-  })
-  if (!rec) throw new Error('Recording not found')
+  try {
+    const rows = await prisma.$transaction(async (tx) => {
+      // Lock the parent even when the transcript is empty. Every segment
+      // writer shares this lock so concurrent replacements cannot interleave.
+      const recordings = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM recording_sessions
+        WHERE id = ${recordingId}::uuid AND business_id = ${businessId}::uuid
+        FOR UPDATE
+      `
+      if (recordings.length === 0) throw new Error('Recording not found')
 
-  if (replace) {
-    await prisma.transcriptionSegment.deleteMany({
-      where: { recordingSessionId: recordingId },
-    })
-  }
-
-  if (segments.length > 0) {
-    try {
-      await prisma.transcriptionSegment.createMany({
-        data: segments.map((s) => ({
-          recordingSessionId: recordingId,
-          segmentIndex: s.segment_index,
-          text: s.text,
-          startTime: s.start_time,
-          endTime: s.end_time,
-          speakerLabel: s.speaker_label ?? null,
-          confidence: s.confidence ?? null,
-        })),
+      if (replace) {
+        await tx.transcriptionSegment.deleteMany({
+          where: { recordingSessionId: recordingId },
+        })
+      }
+      if (segments.length > 0) {
+        await tx.transcriptionSegment.createMany({
+          data: segments.map((s) => ({
+            recordingSessionId: recordingId,
+            segmentIndex: s.segment_index,
+            text: s.text,
+            startTime: s.start_time,
+            endTime: s.end_time,
+            speakerLabel: s.speaker_label ?? null,
+            confidence: s.confidence ?? null,
+          })),
+        })
+      }
+      return tx.transcriptionSegment.findMany({
+        where: { recordingSessionId: recordingId },
+        orderBy: { segmentIndex: 'asc' },
       })
-    } catch (err) {
-      if (isUniqueViolation(err, 'segment_index')) throw new SegmentConflictError()
-      throw err
-    }
+    })
+    return rows.map(segmentToPublic)
+  } catch (err) {
+    if (isUniqueViolation(err, 'segment_index')) throw new SegmentConflictError()
+    throw err
   }
-
-  const rows = await prisma.transcriptionSegment.findMany({
-    where: { recordingSessionId: recordingId },
-    orderBy: { segmentIndex: 'asc' },
-  })
-  return rows.map(segmentToPublic)
 }

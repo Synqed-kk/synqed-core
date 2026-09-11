@@ -33,7 +33,8 @@ export const listRecordingsSchema = z.object({
     .string()
     .max(5_000)
     .optional()
-    .transform((value) => (value ? value.split(',').filter(Boolean) : undefined)),
+    .transform((value) => (value ? value.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.string().uuid()).optional()),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
