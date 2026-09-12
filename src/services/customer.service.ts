@@ -16,6 +16,7 @@ const PHOTO_SIGNED_URL_TTL_SECONDS = 3600
 function toCustomer(row: any): Customer {
   return {
     id: row.id,
+    staff_badges: row.staffBadges,
     business_id: row.businessId,
     name: row.name,
     furigana: row.furigana,
@@ -268,6 +269,7 @@ export async function createCustomer(
     totalSales: input.total_sales ?? 0,
     installmentOutstanding: input.installment_outstanding ?? 0,
     hasTicketPack: input.has_ticket_pack ?? false,
+    staffBadges: input.staff_badges ?? [],
     firstVisitAt: input.first_visit_at ? new Date(input.first_visit_at) : null,
     lastVisitAt: input.last_visit_at ? new Date(input.last_visit_at) : null,
     locale: input.locale ?? 'ja',
@@ -352,6 +354,7 @@ export async function updateCustomer(
   if (input.total_sales !== undefined) data.totalSales = input.total_sales
   if (input.installment_outstanding !== undefined)
     data.installmentOutstanding = input.installment_outstanding
+  if (input.staff_badges !== undefined) data.staffBadges = input.staff_badges
   if (input.has_ticket_pack !== undefined) data.hasTicketPack = input.has_ticket_pack
   if (input.first_visit_at !== undefined)
     data.firstVisitAt = input.first_visit_at ? new Date(input.first_visit_at) : null

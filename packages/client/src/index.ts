@@ -25,6 +25,7 @@ export type {
 
   // Customers
   Customer,
+  StaffBadgeDefinition,
   CreateCustomerInput,
   UpdateCustomerInput,
   ListCustomersOptions,
@@ -173,3 +174,5 @@ export { nameKey, sameName, deniedResult, allowedResult } from './privacy.js'
 export type { DeniedAware } from './privacy.js'
 export { PolicyEventClient } from './policy-events.js'
 export { ResourceClient } from './resources.js'
+
+export { CustomerBadgeClient } from './customer-badges.js'

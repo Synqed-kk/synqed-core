@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const createCustomerSchema = z.object({
+  staff_badges: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
   name: z.string().min(1, 'Name is required').max(100),
   furigana: z.string().max(100).nullish(),
   email: z.string().email('Invalid email').max(255).nullish(),
@@ -35,6 +36,7 @@ export const createCustomerSchema = z.object({
 })
 
 export const updateCustomerSchema = z.object({
+  staff_badges: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
   name: z.string().min(1).max(100).optional(),
   furigana: z.string().max(100).nullish(),
   email: z.string().email('Invalid email').max(255).nullish(),

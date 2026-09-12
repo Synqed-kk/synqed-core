@@ -23,6 +23,7 @@ model Customer {
   // default; restore = null it inside the window; day-30 hard delete runs the
   // audit scrub. Never instant-delete (Liam ruling 2026-07-17).
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz()
+  staffBadges String[] @default([]) @map("staff_badges")
   name            String
   furigana        String?
   email           String?
@@ -298,6 +299,7 @@ model Appointment {
   storeId         String?           @map("store_id") @db.Uuid
   // Nullable ONLY for kind=BLOCK (item 6) — the DB CHECK keeps both NOT NULL
   // on kind=BOOKING, so the original booking contract is intact.
+  requiresPrivateRoom Boolean @default(false) @map("requires_private_room")
   customerId      String?           @map("customer_id") @db.Uuid
   staffId         String?           @map("staff_id") @db.Uuid
   kind            AppointmentKind   @default(BOOKING)
@@ -663,6 +665,7 @@ model KaruteEntryEdit {
 
 model OrgSettings {
   businessId String   @id @map("business_id") @db.Uuid
+  staffBadgeDefinitions Json @default("[{\"name\":\"個室希望\",\"colour\":\"#2563eb\",\"display_order\":0},{\"name\":\"要注意\",\"colour\":\"#dc2626\",\"display_order\":1}]") @map("staff_badge_definitions")
   name       String?
   settings   Json     @default("{}")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
