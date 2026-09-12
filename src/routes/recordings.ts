@@ -8,6 +8,7 @@ import {
 } from '../validations/recording.js'
 import * as recordingService from '../services/recording.service.js'
 import {
+  RecordingAudioConflictError,
   RecordingForbiddenError,
   SegmentConflictError,
 } from '../services/recording.service.js'
@@ -36,8 +37,13 @@ recordingRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = createRecordingSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const rec = await recordingService.createRecording(businessId, parsed.data)
-  return c.json(rec, 201)
+  try {
+    const rec = await recordingService.createRecording(businessId, parsed.data)
+    return c.json(rec, 201)
+  } catch (err) {
+    if (err instanceof RecordingAudioConflictError) return c.json({ error: err.message }, 409)
+    throw err
+  }
 })
 
 recordingRoutes.put('/:id', actorAuthMiddleware, async (c) => {
@@ -58,6 +64,7 @@ recordingRoutes.put('/:id', actorAuthMiddleware, async (c) => {
       return c.json({ error: 'Recording not found' }, 404)
     }
     if (err instanceof RecordingForbiddenError) return c.json({ error: err.message }, 403)
+    if (err instanceof RecordingAudioConflictError) return c.json({ error: err.message }, 409)
     throw err
   }
 })
@@ -68,6 +75,7 @@ recordingRoutes.delete('/:id', async (c) => {
     await recordingService.deleteRecording(businessId, c.req.param('id'))
     return c.json({ success: true })
   } catch (err) {
+    if (err instanceof RecordingAudioConflictError) return c.json({ error: err.message }, 409)
     if (err instanceof Error && err.message === 'Recording not found') {
       return c.json({ error: 'Recording not found' }, 404)
     }

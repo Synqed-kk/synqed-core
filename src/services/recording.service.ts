@@ -6,7 +6,14 @@ import type {
   SegmentInput,
 } from '../validations/recording.js'
 import type { ActorContext } from '../types/api.js'
-import { isUniqueViolation } from '../db/prisma-errors.js'
+import { isRecordNotFound, isUniqueViolation } from '../db/prisma-errors.js'
+
+export class RecordingAudioConflictError extends Error {
+  constructor() {
+    super('Recording audio is already reserved and cannot be replaced or deleted.')
+    this.name = 'RecordingAudioConflictError'
+  }
+}
 
 export class RecordingForbiddenError extends Error {
   constructor() {
@@ -42,6 +49,8 @@ export interface RecordingPublic {
   staff_id: string
   appointment_id: string | null
   audio_storage_path: string | null
+  shared_at: string | null
+  shared_by_staff_id: string | null
   duration_seconds: number | null
   status: RecordingStatus
   created_at: string
@@ -56,6 +65,8 @@ function toPublic(row: {
   staffId: string
   appointmentId: string | null
   audioStoragePath: string | null
+  sharedAt: Date | null
+  sharedByStaffId: string | null
   durationSeconds: number | null
   status: RecordingStatus
   createdAt: Date
@@ -69,6 +80,8 @@ function toPublic(row: {
     staff_id: row.staffId,
     appointment_id: row.appointmentId,
     audio_storage_path: row.audioStoragePath,
+    shared_at: row.sharedAt?.toISOString() ?? null,
+    shared_by_staff_id: row.sharedByStaffId,
     duration_seconds: row.durationSeconds,
     status: row.status,
     created_at: row.createdAt.toISOString(),
@@ -103,6 +116,7 @@ function segmentToPublic(row: {
 export async function listRecordings(
   businessId: string,
   options: {
+    audio_storage_path?: string
     ids?: string[]
     from?: string
     to?: string
@@ -125,6 +139,7 @@ export async function listRecordings(
   const offset = (page - 1) * pageSize
 
   const where: Record<string, unknown> = { businessId }
+  if (options.audio_storage_path !== undefined) where.audioStoragePath = options.audio_storage_path
 
   // Match customers.list batch lookup semantics: a non-empty id set stays
   // tenant-scoped and returns the complete requested set without pagination.
@@ -199,6 +214,9 @@ export async function createRecording(
       status: input.status ?? 'RECORDING',
       ...(input.created_at ? { createdAt: new Date(input.created_at) } : {}),
     },
+  }).catch((err: unknown) => {
+    if (isUniqueViolation(err, 'audio_storage_path')) throw new RecordingAudioConflictError()
+    throw err
   })
   return toPublic(row)
 }
@@ -226,19 +244,47 @@ export async function updateRecording(
   }
 
   const data: Record<string, unknown> = {}
+  if (input.shared_at !== undefined) data.sharedAt = input.shared_at === null ? null : new Date(input.shared_at)
+  if (input.shared_by_staff_id !== undefined) data.sharedByStaffId = input.shared_by_staff_id
   if (input.customer_id !== undefined) data.customerId = input.customer_id
   if (input.audio_storage_path !== undefined) data.audioStoragePath = input.audio_storage_path
   if (input.duration_seconds !== undefined) data.durationSeconds = input.duration_seconds
   if (input.status !== undefined) data.status = input.status
 
-  const row = await prisma.recordingSession.update({ where: { id }, data })
-  return toPublic(row)
+  try {
+    const row = await prisma.recordingSession.update({
+      where: {
+        id,
+        businessId,
+        // Test the current value in the write, so competing reservations
+        // cannot both succeed after reading the same empty session.
+        ...(input.audio_storage_path !== undefined ? {
+          OR: [{ audioStoragePath: null }, { audioStoragePath: input.audio_storage_path }],
+        } : {}),
+      },
+      data,
+    })
+    return toPublic(row)
+  } catch (err) {
+    if (isUniqueViolation(err, 'audio_storage_path')) throw new RecordingAudioConflictError()
+    if (isRecordNotFound(err)) {
+      const current = await prisma.recordingSession.findFirst({ where: { id, businessId } })
+      if (!current) throw new Error('Recording not found')
+      throw new RecordingAudioConflictError()
+    }
+    throw err
+  }
 }
 
 export async function deleteRecording(businessId: string, id: string): Promise<void> {
+  // A reservation that wins the race must prevent this delete too.
+  const result = await prisma.recordingSession.deleteMany({
+    where: { id, businessId, audioStoragePath: null },
+  })
+  if (result.count > 0) return
   const existing = await prisma.recordingSession.findFirst({ where: { id, businessId } })
   if (!existing) throw new Error('Recording not found')
-  await prisma.recordingSession.delete({ where: { id } })
+  throw new RecordingAudioConflictError()
 }
 
 export async function listSegments(

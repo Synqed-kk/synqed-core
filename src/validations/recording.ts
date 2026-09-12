@@ -20,6 +20,8 @@ export const createRecordingSchema = z.object({
 })
 
 export const updateRecordingSchema = z.object({
+  shared_at: z.string().datetime().nullable().optional(),
+  shared_by_staff_id: z.string().uuid().nullable().optional(),
   customer_id: z.string().uuid().nullable().optional(),
   audio_storage_path: z.string().max(500).nullable().optional(),
   duration_seconds: z.number().int().nullable().optional(),
@@ -27,6 +29,7 @@ export const updateRecordingSchema = z.object({
 })
 
 export const listRecordingsSchema = z.object({
+  audio_storage_path: z.string().max(500).optional(),
   // Batch-by-id mode matches customers.list: comma-separated ids, with an
   // empty value treated as the ordinary paginated list.
   ids: z

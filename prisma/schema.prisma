@@ -473,7 +473,9 @@ model RecordingSession {
   customerId       String?         @map("customer_id") @db.Uuid
   staffId          String          @map("staff_id") @db.Uuid
   appointmentId    String?         @map("appointment_id") @db.Uuid
-  audioStoragePath String?         @map("audio_storage_path")
+  audioStoragePath String?         @unique @map("audio_storage_path")
+  sharedAt         DateTime?       @map("shared_at") @db.Timestamptz()
+  sharedByStaffId  String?         @map("shared_by_staff_id") @db.Uuid
   durationSeconds  Int?            @map("duration_seconds")
   status           RecordingStatus @default(RECORDING)
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz()

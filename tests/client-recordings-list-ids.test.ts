@@ -9,6 +9,15 @@ afterEach(() => {
 })
 
 describe('SDK recordings.list ids filter', () => {
+  it('encodes exact audio-path lookups without losing reserved characters', async () => {
+    const fetch = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ recordings: [], total: 0 })))
+    vi.stubGlobal('fetch', fetch)
+    const client = new SynqedClient({ baseUrl: 'http://core.test', apiKey: 'test-key', businessId: 'test-business' })
+    await client.recordings.list({ audio_storage_path: 'audio/with spaces+日本語.webm' })
+    const url = new URL(String(fetch.mock.calls[0][0]))
+    expect(url.searchParams.get('audio_storage_path')).toBe('audio/with spaces+日本語.webm')
+  })
+
   it('serializes non-empty ids and omits an empty list like customers.list', async () => {
     const urls: string[] = []
     vi.stubGlobal(
