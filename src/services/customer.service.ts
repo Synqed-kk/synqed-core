@@ -86,7 +86,7 @@ export async function listCustomers(
 
   // Batch-by-id mode: returns only the requested customers in a single shot.
   // Bypasses search/pagination because the caller already knows the exact set.
-  if (options.ids && options.ids.length > 0) {
+  if (options.ids !== undefined) {
     where.id = { in: options.ids }
     const rows = await prisma.customer.findMany({
       where,

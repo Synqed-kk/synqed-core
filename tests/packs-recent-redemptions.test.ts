@@ -72,6 +72,8 @@ describe('GET /packs/redemptions/recent — priced rows', () => {
       redeemed_on: '2026-07-05',
       pack_id: pack.id,
       unit_price: 8500,
+      source: 'manual', reason: null, created_by: null, counts_as_visit: true,
+      removed_at: null, removed_by: null, removal_source: null, removal_reason: null,
     })
   })
 
