@@ -263,6 +263,7 @@ export interface ListStaffResponse {
 // ===========================================================================
 
 export interface Store {
+  photo_url: string | null
   id: string
   business_id: string
   name: string
@@ -275,6 +276,7 @@ export interface Store {
 }
 
 export interface CreateStoreInput {
+  photo_url?: string | null
   name: string
   address?: string | null
   phone?: string | null
@@ -283,6 +285,7 @@ export interface CreateStoreInput {
 }
 
 export interface UpdateStoreInput {
+  photo_url?: string | null
   name?: string
   address?: string | null
   phone?: string | null
@@ -1274,7 +1277,29 @@ export type WeeklyHours = Partial<
   Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', { open: string; close: string } | null>
 >
 
+export type NewClientSessionMinutes = 30 | 45 | 60 | 75 | 90 | 105 | 120 | 135 | 150 | 165 | 180 | 195 | 210 | 225 | 240
+
+export type SpecialOpenDay = { date: string; open: string; close: string }
+
 export interface StoreBookingPolicy {
+  override_roles: string[]
+  override_locked_out: string[]
+  override_hold_to_confirm: boolean
+  override_strict_wall: boolean
+  min_sellable_min: number
+  gap_fill_min_min: number | null
+  held_rank_access: 'closed' | 'silver' | 'gold' | 'platinum'
+  release_held_roles: string[]
+  booking_step_min: number
+  block_step_min: number
+  gap_fill_discount_pct: number | null
+  lead_time_min: number | null
+  reserve_start_grid_min: 15 | 30 | 60 | null
+  standard_session_min: number | null
+  price_lock_during_recalc: boolean | null
+  breaks_paid: boolean
+  special_open_days: SpecialOpenDay[]
+
   store_id: string
   booking_open_days: number
   cutoff_minutes: number
@@ -1292,13 +1317,31 @@ export interface StoreBookingPolicy {
 }
 
 export interface SetStoreBookingPolicyInput {
+  override_roles?: string[]
+  override_locked_out?: string[]
+  override_hold_to_confirm?: boolean
+  override_strict_wall?: boolean
+  min_sellable_min?: number
+  gap_fill_min_min?: number | null
+  held_rank_access?: 'closed' | 'silver' | 'gold' | 'platinum'
+  release_held_roles?: string[]
+  booking_step_min?: number
+  block_step_min?: number
+  gap_fill_discount_pct?: number | null
+  lead_time_min?: number | null
+  reserve_start_grid_min?: 15 | 30 | 60 | null
+  standard_session_min?: number | null
+  price_lock_during_recalc?: boolean | null
+  breaks_paid?: boolean
+  special_open_days?: SpecialOpenDay[]
+
   booking_open_days?: number
   cutoff_minutes?: number
   cancel_free_until_hours?: number
   cancel_late_pct?: number
   no_show_pct?: number
   gap_guard_mode?: 'OFF' | 'STANDARD' | 'STRICT'
-  new_client_session_minutes?: 60 | 75 | 90
+  new_client_session_minutes?: NewClientSessionMinutes
   /** undefined = keep; null = clear back to unconfigured; object = set. */
   weekly_hours?: WeeklyHours | null
   acting_staff_id: string

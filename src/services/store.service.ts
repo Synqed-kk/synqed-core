@@ -6,6 +6,7 @@ export interface StorePublic {
   business_id: string
   name: string
   address: string | null
+  photo_url: string | null
   phone: string | null
   is_primary: boolean
   active: boolean
@@ -18,6 +19,7 @@ function toPublic(row: {
   businessId: string
   name: string
   address: string | null
+  photoUrl: string | null
   phone: string | null
   isPrimary: boolean
   active: boolean
@@ -30,6 +32,7 @@ function toPublic(row: {
     name: row.name,
     address: row.address,
     phone: row.phone,
+    photo_url: row.photoUrl,
     is_primary: row.isPrimary,
     active: row.active,
     created_at: row.createdAt.toISOString(),
@@ -60,6 +63,7 @@ export async function createStore(
       name: input.name,
       address: input.address ?? null,
       phone: input.phone ?? null,
+      photoUrl: input.photo_url ?? null,
       isPrimary: input.is_primary ?? false,
       active: input.active ?? true,
     },
@@ -79,6 +83,7 @@ export async function updateStore(
   if (input.name !== undefined) data.name = input.name
   if (input.address !== undefined) data.address = input.address
   if (input.phone !== undefined) data.phone = input.phone
+  if (input.photo_url !== undefined) data.photoUrl = input.photo_url
   if (input.active !== undefined) data.active = input.active
 
   const row = await prisma.store.update({ where: { id }, data })

@@ -789,6 +789,7 @@ model Store {
   name       String
   address    String?
   phone      String?
+  photoUrl String? @map("photo_url")
   isPrimary  Boolean  @default(false) @map("is_primary")
   active     Boolean  @default(true)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
@@ -1160,6 +1161,23 @@ model StoreBookingPolicy {
   // absent weekday = 定休日 (regular weekly closed day). Ad-hoc closures
   // (臨時休業) live in store_closed_days, not here.
   weeklyHours          Json?    @map("weekly_hours")
+  overrideRoles String[] @default(["オーナー", "店舗管理者", "スタッフ"]) @map("override_roles")
+  overrideLockedOut String[] @default([]) @map("override_locked_out")
+  overrideHoldToConfirm Boolean @default(true) @map("override_hold_to_confirm")
+  overrideStrictWall Boolean @default(false) @map("override_strict_wall")
+  minSellableMin Int @default(30) @map("min_sellable_min")
+  gapFillMinMin Int?  @map("gap_fill_min_min")
+  heldRankAccess String @default("closed") @map("held_rank_access")
+  releaseHeldRoles String[] @default(["オーナー", "店舗管理者"]) @map("release_held_roles")
+  bookingStepMin Int @default(30) @map("booking_step_min")
+  blockStepMin Int @default(15) @map("block_step_min")
+  gapFillDiscountPct Int?  @map("gap_fill_discount_pct")
+  leadTimeMin Int?  @map("lead_time_min")
+  reserveStartGridMin Int?  @map("reserve_start_grid_min")
+  standardSessionMin Int?  @map("standard_session_min")
+  priceLockDuringRecalc Boolean?  @map("price_lock_during_recalc")
+  breaksPaid Boolean @default(false) @map("breaks_paid")
+  specialOpenDays Json @default("[]") @map("special_open_days")
   updatedBy            String?  @map("updated_by") @db.Uuid
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz()
