@@ -1,3 +1,4 @@
+import { mergedCustomerTarget, resolveMergedCustomer } from './customer-merge.service.js'
 import { prisma } from '../db/client.js'
 import { getStorage } from './storage.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
@@ -285,7 +286,7 @@ export async function createCustomer(
     const existing = await prisma.customer.findFirst({
       where: { businessId, email: input.email },
     })
-    if (existing) return toCustomer(existing)
+    if (existing) return toCustomer(await resolveMergedCustomer(businessId, existing.id))
   }
   for (let attempt = 0; ; attempt++) {
     try {
@@ -298,7 +299,7 @@ export async function createCustomer(
         const existing = await prisma.customer.findFirst({
           where: { businessId, email: input.email },
         })
-        if (existing) return toCustomer(existing)
+        if (existing) return toCustomer(await resolveMergedCustomer(businessId, existing.id))
       }
       // karuteNumber (max+1) races under concurrent creates: retry a few
       // times, then surface the exhaustion clearly (reachable, not dead code).
@@ -322,6 +323,7 @@ export async function updateCustomer(
   })
 
   if (!existing) throw new Error('Customer not found')
+  if (mergedCustomerTarget(existing.externalRefs)) throw new Error('Customer was merged; use the retained record')
   if (input.guardian_customer_id) await assertGuardian(businessId, input.guardian_customer_id, id)
 
   // Map API field names to Prisma field names
@@ -382,6 +384,11 @@ export async function deleteCustomer(
   })
 
   if (!existing) throw new Error('Customer not found')
+  const mergeTarget = mergedCustomerTarget(existing.externalRefs)
+  if (mergeTarget && await prisma.customer.findFirst({ where: { id: mergeTarget, businessId } })) {
+    throw new Error('Customer was merged; use the retained record')
+  }
+  // Once KEEP is erased, the normal erasure job may scrub its orphaned alias.
 
   // CORE OWNS THE CASCADE (decided 2026-07-17; the app used to pre-delete
   // appointments one by one). Hard delete = the day-30 path: child rows that
