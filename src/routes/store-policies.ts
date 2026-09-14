@@ -10,8 +10,9 @@ export const storePolicyRoutes = new Hono<AppEnv>()
 // "HH:MM" 24h. String compare is chronological for this shape, so open<close
 // is a plain refine.
 const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/
+const closeTimeRe = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/
 const dayWindowSchema = z
-  .object({ open: z.string().regex(timeRe), close: z.string().regex(timeRe) })
+  .object({ open: z.string().regex(timeRe), close: z.string().regex(closeTimeRe) })
   .strict()
   .refine((w) => w.open < w.close, { message: 'open must be before close' })
   .nullable()
@@ -30,19 +31,6 @@ const weeklyHoursSchema = z
   .strict()
   .nullable()
 
-const setSchema = z.object({
-  booking_open_days: z.number().int().min(1).max(365).optional(),
-  cutoff_minutes: z.number().int().min(0).max(10080).optional(),
-  cancel_free_until_hours: z.number().int().min(0).max(720).optional(),
-  cancel_late_pct: z.number().int().min(0).max(100).optional(),
-  no_show_pct: z.number().int().min(0).max(100).optional(),
-  gap_guard_mode: z.enum(['OFF', 'STANDARD', 'STRICT']).optional(),
-  new_client_session_minutes: z.union([z.literal(60), z.literal(75), z.literal(90)]).optional(),
-  weekly_hours: weeklyHoursSchema.optional(),
-  acting_staff_id: z.string().uuid(),
-  audit: auditEventSchema.optional(),
-})
-
 // Shape AND calendar validity: the regex alone accepts 2026-02-30, which
 // new Date() silently normalizes to another day — the round-trip check
 // rejects it instead.
@@ -50,9 +38,45 @@ const dateRe = /^\d{4}-\d{2}-\d{2}$/
 const calendarDate = z
   .string()
   .regex(dateRe, 'date must be YYYY-MM-DD')
-  .refine((s) => new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s, {
+  .refine((s) => { const d = new Date(`${s}T00:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s }, {
     message: 'date is not a real calendar date',
   })
+const specialOpenDaysSchema = z.array(z.object({
+  date: calendarDate, open: z.string().regex(timeRe), close: z.string().regex(closeTimeRe),
+}).strict().refine(w => w.open < w.close, 'open must be before close')).max(366)
+  .refine(days => new Set(days.map(d => d.date)).size === days.length, 'Special open dates must be unique')
+
+const setSchema = z.object({
+  override_roles: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+  override_locked_out: z.array(z.string().uuid()).max(1000).optional(),
+  override_hold_to_confirm: z.boolean().optional(),
+  override_strict_wall: z.boolean().optional(),
+  min_sellable_min: z.number().int().min(0).max(1440).optional(),
+  gap_fill_min_min: z.number().int().min(0).max(1440).nullable().optional(),
+  held_rank_access: z.enum(['closed', 'silver', 'gold', 'platinum']).optional(),
+  release_held_roles: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+  booking_step_min: z.number().int().min(1).max(1440).optional(),
+  block_step_min: z.number().int().min(1).max(1440).optional(),
+  gap_fill_discount_pct: z.number().int().min(0).max(30).nullable().optional(),
+  lead_time_min: z.number().int().min(0).max(10080).nullable().optional(),
+  reserve_start_grid_min: z.union([z.literal(15), z.literal(30), z.literal(60)]).nullable().optional(),
+  standard_session_min: z.number().int().min(1).max(1440).nullable().optional(),
+  price_lock_during_recalc: z.boolean().nullable().optional(),
+  breaks_paid: z.boolean().optional(),
+  special_open_days: specialOpenDaysSchema.optional(),
+
+  booking_open_days: z.number().int().min(1).max(365).optional(),
+  cutoff_minutes: z.number().int().min(0).max(10080).optional(),
+  cancel_free_until_hours: z.number().int().min(0).max(720).optional(),
+  cancel_late_pct: z.number().int().min(0).max(100).optional(),
+  no_show_pct: z.number().int().min(0).max(100).optional(),
+  gap_guard_mode: z.enum(['OFF', 'STANDARD', 'STRICT']).optional(),
+  new_client_session_minutes: z.number().int().min(30).max(240).multipleOf(15).optional(),
+  weekly_hours: weeklyHoursSchema.optional(),
+  acting_staff_id: z.string().uuid(),
+  audit: auditEventSchema.optional(),
+})
+
 const addClosedDaySchema = z.object({
   date: calendarDate,
   reason: z.string().max(500).nullable().optional(),

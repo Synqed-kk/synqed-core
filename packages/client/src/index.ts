@@ -160,6 +160,8 @@ export type {
 
   // Bed plane phase 2a
   WeeklyHours,
+  SpecialOpenDay,
+  NewClientSessionMinutes,
   StoreClosedDay,
   AddClosedDayInput,
   Qualification,
