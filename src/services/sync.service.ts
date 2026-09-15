@@ -1,3 +1,5 @@
+import { requirePrivateResource, InvalidResourceError } from './resource.service.js'
+import { initialPrivateRoomRequirement } from './customer-badge.service.js'
 import { prisma } from '../db/client.js'
 import { Prisma } from '@prisma/client'
 import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
@@ -497,6 +499,7 @@ async function runQuickReserveSync(
         try {
           const row = await prisma.appointment.create({
             data: {
+              requiresPrivateRoom: await initialPrivateRoomRequirement(businessId, customerId),
               businessId,
               ...qrData,
               externalRefs: qrExternalRefs,
@@ -802,6 +805,7 @@ async function reconcileExisting(
 }
 
 interface LockedRow {
+  requires_private_room: boolean
   resource_id: string | null
   status: AppointmentStatus
   status_source: StatusSource
@@ -828,9 +832,9 @@ async function syncUpdateWithBed(
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<Array<LockedRow>>`
-      SELECT resource_id, status, status_source, ends_at, occupied_until FROM appointments
+      SELECT resource_id, status, status_source, ends_at, occupied_until, requires_private_room FROM appointments
       WHERE id = ${appointmentId}::uuid AND business_id = ${businessId}::uuid
-      FOR UPDATE`
+      FOR NO KEY UPDATE`
     if (rows.length === 0) {
       // Vanished under us — mimic Prisma's P2025 so callers' adopt-race
       // handling stays uniform.
@@ -856,7 +860,19 @@ async function syncUpdateWithBed(
           }
         : {}
     const bedPatch: Record<string, unknown> = {}
-    if (locked.resource_id) {
+    if (locked.resource_id && locked.requires_private_room &&
+        !['CANCELLED', 'NO_SHOW'].includes(nextStatus ?? locked.status)) {
+      try {
+        await requirePrivateResource(tx, businessId, locked.resource_id)
+      } catch (error) {
+        if (!(error instanceof InvalidResourceError)) throw error
+        // QR times/status still win, just as for an overlapping bed. Preserve
+        // the private requirement and release the now-incompatible claim.
+        bedPatch.resourceId = null
+        bedPatch.occupiedUntil = null
+      }
+    }
+    if (locked.resource_id && bedPatch.resourceId !== null) {
       const cleanupMs = locked.occupied_until
         ? Math.max(0, locked.occupied_until.getTime() - locked.ends_at.getTime())
         : 0

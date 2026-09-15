@@ -1,4 +1,5 @@
 import type { SynqedClientConfig } from './types.js'
+import { CustomerBadgeClient } from './customer-badges.js'
 import { CustomerClient } from './customers.js'
 import { StaffClient } from './staff.js'
 import { AppointmentClient } from './appointments.js'
@@ -34,6 +35,7 @@ export class SynqedClient {
   private businessId: string
   private accessToken?: string
 
+  public customerBadges: CustomerBadgeClient
   public customers: CustomerClient
   public staff: StaffClient
   public appointments: AppointmentClient
@@ -69,6 +71,7 @@ export class SynqedClient {
     this.businessId = config.businessId
     this.accessToken = config.accessToken
     this.customers = new CustomerClient(this)
+    this.customerBadges = new CustomerBadgeClient(this)
     this.staff = new StaffClient(this)
     this.appointments = new AppointmentClient(this)
     this.sync = new SyncClient(this)

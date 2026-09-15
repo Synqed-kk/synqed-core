@@ -1,7 +1,8 @@
+import { initialPrivateRoomRequirement } from './customer-badge.service.js'
 import { prisma } from '../db/client.js'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { computeBookedPrice } from './pricing.service.js'
-import { occupancyFor, InvalidResourceError } from './resource.service.js'
+import { occupancyFor, requirePrivateResource, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, AppointmentKind, StatusSource } from '@prisma/client'
 import { isUniqueViolation, isResourceOverlap, isForeignKeyViolation } from '../db/prisma-errors.js'
@@ -75,6 +76,7 @@ export class BlockCustomerInvalidError extends Error {
 }
 
 export interface AppointmentPublic {
+  requires_private_room: boolean
   id: string
   business_id: string
   /** Null only on kind=BLOCK rows (item 6). */
@@ -106,6 +108,7 @@ export interface AppointmentPublic {
 }
 
 function toPublic(row: {
+  requiresPrivateRoom: boolean
   id: string
   businessId: string
   customerId: string | null
@@ -136,6 +139,7 @@ function toPublic(row: {
 }): AppointmentPublic {
   return {
     id: row.id,
+    requires_private_room: row.requiresPrivateRoom,
     business_id: row.businessId,
     customer_id: row.customerId,
     staff_id: row.staffId,
@@ -273,12 +277,10 @@ export async function createAppointment(
   // of record or undercut the band. The lookup also validates the menu
   // belongs to this business (closes #55's unvalidated-menu gap). Menu-less
   // bookings (legacy/free-text) keep the caller's values untouched.
-  // Bed claim: validate + snapshot occupancy BEFORE the slot lock (occupied
-  // window = ends_at + the resource's cleanup_minutes at write time).
-  let occupiedUntil: Date | null = null
-  if (input.resource_id) {
-    occupiedUntil = await occupancyFor(businessId, input.resource_id, input.store_id ?? null, endsAt)
-  }
+  // Stamp room need once. Bed configuration is validated under its row lock
+  // inside the write transaction below.
+  const requiresPrivateRoom = !!input.requires_private_room ||
+    ((input.kind ?? 'BOOKING') === 'BOOKING' && await initialPrivateRoomRequirement(businessId, input.customer_id, input.menu_id))
 
   // Rebook provenance: the FK guarantees existence but not tenancy — check
   // business-scoped so a caller can neither link across businesses nor probe
@@ -318,6 +320,9 @@ export async function createAppointment(
 
   try {
     const row = await withStaffSlotLock(businessId, lockKey, async (tx) => {
+      const occupiedUntil = input.resource_id
+        ? await occupancyFor(tx, businessId, input.resource_id, input.store_id ?? null, endsAt, requiresPrivateRoom)
+        : null
       // Staff overlap only applies when the row occupies staff time — a
       // staffless bedded block's conflicts are the bed EXCLUDE's job.
       if (input.staff_id) {
@@ -361,6 +366,7 @@ export async function createAppointment(
           menuId: input.menu_id ?? null,
           resourceId: input.resource_id ?? null,
           occupiedUntil,
+          requiresPrivateRoom,
           // Menu bookings: server truth (computed above). Menu-less: caller's.
           bookedPriceAmount: bookedPrice ? bookedPrice.amount : (input.booked_price_amount ?? null),
           bookedPriceCurrency: bookedPrice ? bookedPrice.currency : (input.booked_price_currency ?? null),
@@ -403,6 +409,7 @@ export async function updateAppointment(
   // (see below) — a pre-lock snapshot must never decide slot semantics.
   const buildData = (row: { cancelledAt: Date | null }): Record<string, unknown> => {
     const data: Record<string, unknown> = {}
+    if (input.requires_private_room !== undefined) data.requiresPrivateRoom = input.requires_private_room
     if (input.customer_id !== undefined) data.customerId = input.customer_id
     if (input.staff_id !== undefined) data.staffId = input.staff_id
     if (input.starts_at !== undefined) data.startsAt = new Date(input.starts_at)
@@ -443,7 +450,7 @@ export async function updateAppointment(
     input.status !== undefined ||
     // A bed change is slot semantics for the BED — route through the slot
     // path so occupied_until recomputes against fresh times.
-    input.resource_id !== undefined
+    input.resource_id !== undefined || input.requires_private_room !== undefined
 
   try {
     if (!touchesSlot) {
@@ -481,7 +488,7 @@ export async function updateAppointment(
       })
       if (!guess) throw new Error('Appointment not found')
       // Staffless BLOCK: no staff slot to serialize — key on the row itself
-      // (the bed EXCLUDE is the real conflict guard; the FOR UPDATE below is
+      // (the bed EXCLUDE is the real conflict guard; the FOR NO KEY UPDATE below is
       // what serializes same-row writers).
       lockKey = guess.staffId ?? `row:${id}`
     }
@@ -491,10 +498,12 @@ export async function updateAppointment(
         businessId,
         lockKey,
         async (tx) => {
-        // FOR UPDATE, not a plain SELECT: two writers to the SAME row under
+        // FOR NO KEY UPDATE, not a plain SELECT: two writers to the SAME row under
         // DIFFERENT advisory keys (reassign racing a time-change) never meet
         // on an advisory lock — the row lock is what serializes them. The
-        // second writer blocks here until the first commits, reads the
+        // NO KEY UPDATE also permits the KEY SHARE taken by a rebook FK;
+        // FOR UPDATE would deadlock with a rebook holding this booking’s bed.
+        // The second writer blocks here until the first commits, reads the
         // committed row, and the key-mismatch retry below handles the rest.
         // Advisory lock is always taken before the row lock, so wait chains
         // stay linear (no deadlock cycle).
@@ -508,12 +517,13 @@ export async function updateAppointment(
             ends_at: Date
             cancelled_at: Date | null
             resource_id: string | null
+            requires_private_room: boolean
             occupied_until: Date | null
           }>
-        >`SELECT staff_id, kind, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until
+        >`SELECT staff_id, kind, store_id, status, starts_at, ends_at, cancelled_at, resource_id, occupied_until, requires_private_room
           FROM appointments
           WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
-          FOR UPDATE`
+          FOR NO KEY UPDATE`
         const fresh = freshRows[0]
           ? {
               staffId: freshRows[0].staff_id,
@@ -525,6 +535,7 @@ export async function updateAppointment(
               cancelledAt: freshRows[0].cancelled_at,
               resourceId: freshRows[0].resource_id,
               occupiedUntil: freshRows[0].occupied_until,
+              requiresPrivateRoom: freshRows[0].requires_private_room,
             }
           : null
         if (!fresh) throw new Error('Appointment not found')
@@ -587,6 +598,9 @@ export async function updateAppointment(
         // occupied_until always = eff ends + that resource's cleanup snapshot.
         const effResourceId =
           input.resource_id !== undefined ? input.resource_id : fresh.resourceId
+        if ((input.requires_private_room ?? fresh.requiresPrivateRoom) && effResourceId && staysActive) {
+          await requirePrivateResource(tx, businessId, effResourceId)
+        }
         const resourcePatch: Record<string, unknown> = {}
         if (input.resource_id !== undefined) resourcePatch.resourceId = input.resource_id
         if (input.resource_id && input.resource_id !== fresh.resourceId) {
@@ -595,10 +609,12 @@ export async function updateAppointment(
           // claim — it falls through to recompute, so a retired bed never
           // blocks lifecycle updates that merely restate it (Greptile r2).
           resourcePatch.occupiedUntil = await occupancyFor(
+            tx,
             businessId,
             input.resource_id,
             fresh.storeId,
             effEndsAt,
+            input.requires_private_room ?? fresh.requiresPrivateRoom,
           )
         } else if (effResourceId) {
           // Unchanged existing claim: carry the row's ORIGINAL cleanup delta
@@ -606,7 +622,7 @@ export async function updateAppointment(
           // resource's CURRENT cleanup config (Greptile r5: a config change
           // must not silently move when a booked bed frees, nor make an
           // unrelated lifecycle update conflict). Also never blocks on a
-          // retired bed (r1) — no resource lookup happens at all.
+          // retired bed (r1); only a private-room requirement checks its class.
           const cleanupMs = fresh.occupiedUntil
             ? Math.max(0, fresh.occupiedUntil.getTime() - fresh.endsAt.getTime())
             : 0

@@ -1,5 +1,5 @@
 import { prisma } from '../db/client.js'
-import type { RoomClass } from '@prisma/client'
+import type { Prisma, RoomClass } from '@prisma/client'
 
 // The bed plane's CRUD. Resources are never hard-deleted (active flag, same
 // posture as menus) — bookings reference them forever.
@@ -120,20 +120,43 @@ export async function updateResource(
   id: string,
   input: UpdateResourceInput,
 ): Promise<ResourcePublic | null> {
-  const existing = await prisma.resource.findFirst({ where: { id, businessId } })
-  if (!existing) return null
-  const row = await prisma.resource.update({
-    where: { id },
-    data: {
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.note !== undefined ? { note: input.note } : {}),
-      ...(input.room_class !== undefined ? { roomClass: classIn(input.room_class) } : {}),
-      ...(input.cleanup_minutes !== undefined ? { cleanupMinutes: input.cleanup_minutes } : {}),
-      ...(input.display_order !== undefined ? { displayOrder: input.display_order } : {}),
-      ...(input.active !== undefined ? { active: input.active } : {}),
-    },
+  return prisma.$transaction(async tx => {
+    const existing = await lockedResource(tx, businessId, id)
+    if (!existing) return null
+    if (input.room_class === 'standard' && existing.roomClass === 'private_room') {
+      const claim = await tx.appointment.findFirst({ where: {
+        businessId, resourceId: id, requiresPrivateRoom: true,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      }, select: { id: true } })
+      if (claim) throw new InvalidResourceError('Move or release private-room bookings before changing this bed to standard.')
+    }
+    const row = await tx.resource.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.room_class !== undefined ? { roomClass: classIn(input.room_class) } : {}),
+        ...(input.cleanup_minutes !== undefined ? { cleanupMinutes: input.cleanup_minutes } : {}),
+        ...(input.display_order !== undefined ? { displayOrder: input.display_order } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+      },
+    })
+    return toPublic(row)
   })
-  return toPublic(row)
+}
+
+/** Serialize room reclassification with booking claims. No appointment row locks
+ * are taken by resource updates, so booking -> resource lock order cannot cycle. */
+async function lockedResource(tx: Prisma.TransactionClient, businessId: string, id: string) {
+  await tx.$queryRaw`SELECT id FROM resources WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`
+  return tx.resource.findFirst({ where: { id, businessId } })
+}
+
+export async function requirePrivateResource(tx: Prisma.TransactionClient, businessId: string, resourceId: string) {
+  const resource = await lockedResource(tx, businessId, resourceId)
+  if (resource?.roomClass !== 'private_room') {
+    throw new InvalidResourceError('This booking requires a private room; move or release its current bed.')
+  }
 }
 
 /** A NEW resource claim: validate business + active + store, return the
@@ -141,20 +164,20 @@ export async function updateResource(
  *  store_id — a same-business bed on a storeless booking would occupy a
  *  store's resource while being invisible on that store's filtered calendar. */
 export async function occupancyFor(
+  tx: Prisma.TransactionClient,
   businessId: string,
   resourceId: string,
   storeId: string | null,
   endsAt: Date,
+  requiresPrivateRoom = false,
 ): Promise<Date> {
   if (!storeId) {
     throw new InvalidResourceError('A resource claim requires the appointment to carry store_id.')
   }
-  const r = await prisma.resource.findFirst({
-    where: { id: resourceId, businessId },
-    select: { storeId: true, cleanupMinutes: true, active: true },
-  })
+  const r = await lockedResource(tx, businessId, resourceId)
   if (!r) throw new InvalidResourceError('Resource not found in this business.')
   if (!r.active) throw new InvalidResourceError('Resource is not active.')
+  if (requiresPrivateRoom && r.roomClass !== 'private_room') throw new InvalidResourceError('This booking requires a private room.')
   if (r.storeId !== storeId) {
     throw new InvalidResourceError('Resource belongs to a different store.')
   }
@@ -175,4 +198,41 @@ export async function occupancyRecompute(
     select: { cleanupMinutes: true },
   })
   return new Date(endsAt.getTime() + (r?.cleanupMinutes ?? 0) * 60_000)
+}
+
+/** Existing-booking room options. Each bed is an independent option, not a
+ * promise that every advertised alternative can be booked simultaneously.
+ * Only the persisted flag determines room need; private beds sort last. */
+export async function availableResourcesForAppointment(
+  businessId: string, appointmentId: string, window: { starts_at?: string; ends_at?: string } = {},
+) {
+  return prisma.$transaction(async tx => {
+    const appointment = await tx.appointment.findFirst({ where: { id: appointmentId, businessId } })
+    if (!appointment) return null
+    if (!appointment.storeId) return { resources: [] }
+    const start = window.starts_at ? new Date(window.starts_at) : appointment.startsAt
+    const end = window.ends_at ? new Date(window.ends_at) : appointment.endsAt
+    if (end <= start) throw new InvalidResourceError('ends_at must be after starts_at.')
+    const resources = await tx.resource.findMany({ where: { businessId, storeId: appointment.storeId, active: true,
+      ...(appointment.requiresPrivateRoom ? { roomClass: 'private_room' } : {}),
+    }, orderBy: [{ roomClass: 'asc' }, { displayOrder: 'asc' }, { id: 'asc' }] })
+    if (!resources.length) return { resources: [] }
+    const cleanupFor = (resource: typeof resources[number]) => resource.id === appointment.resourceId
+      ? Math.max(0, (appointment.occupiedUntil ?? appointment.endsAt).getTime() - appointment.endsAt.getTime())
+      : resource.cleanupMinutes * 60_000
+    const latestEnd = new Date(end.getTime() + Math.max(...resources.map(cleanupFor)))
+    const busy = await tx.appointment.findMany({ where: {
+      startsAt: { lt: latestEnd },
+      businessId, id: { not: appointmentId }, resourceId: { in: resources.map(r => r.id) },
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      OR: [{ occupiedUntil: { gt: start } }, { occupiedUntil: null, endsAt: { gt: start } }],
+    }, select: { resourceId: true, startsAt: true, endsAt: true, occupiedUntil: true } })
+    return { resources: resources.filter(resource => {
+      // Reusing a booking's held bed preserves its original cleanup snapshot,
+      // exactly like appointment.update; a different bed uses today's config.
+      const cleanup = cleanupFor(resource)
+      const occupiedUntil = new Date(end.getTime() + cleanup)
+      return !busy.some(b => b.resourceId === resource.id && b.startsAt < occupiedUntil && (b.occupiedUntil ?? b.endsAt) > start)
+    }).map(toPublic) }
+  }, { isolationLevel: 'RepeatableRead' })
 }

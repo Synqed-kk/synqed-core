@@ -13,6 +13,7 @@ export const appointmentSourceSchema = z.enum([
 export const appointmentKindSchema = z.enum(['BOOKING', 'BLOCK'])
 
 const createAppointmentBase = z.object({
+  requires_private_room: z.boolean().optional(),
   // Required for BOOKING (the default), enforced by the superRefine below +
   // the DB CHECK; a BLOCK is customerless and may be staffless.
   customer_id: z.string().uuid().optional(),
@@ -56,6 +57,7 @@ export const createAppointmentSchema = createAppointmentBase.superRefine((v, ctx
 
 export const updateAppointmentSchema = z
   .object({
+    requires_private_room: z.boolean().optional(),
     customer_id: z.string().uuid().optional(),
     staff_id: z.string().uuid().optional(),
     starts_at: z.string().datetime().optional(),
