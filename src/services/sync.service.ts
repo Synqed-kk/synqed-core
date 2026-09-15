@@ -1,3 +1,4 @@
+import { resolveMergedCustomer } from './customer-merge.service.js'
 import { prisma } from '../db/client.js'
 import { Prisma } from '@prisma/client'
 import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
@@ -669,7 +670,7 @@ async function findOrCreateCustomer(
     },
     select,
   })
-  if (byQrId) return reconcileExisting(byQrId, r)
+  if (byQrId) return reconcileExisting(businessId, byQrId, r)
 
   // 2. Phone — the real personal identifier (携帯). It is NOT a DB-unique key,
   //    so only trust it when it points to EXACTLY ONE customer; 0 or >1 (e.g.
@@ -696,7 +697,7 @@ async function findOrCreateCustomer(
           )
         }
       }
-      return reconcileExisting(byPhone[0], r)
+      return reconcileExisting(businessId, byPhone[0], r)
     }
   }
 
@@ -707,7 +708,7 @@ async function findOrCreateCustomer(
       where: { businessId, email: r.customerEmail },
       select,
     })
-    if (byEmail) return reconcileExisting(byEmail, r)
+    if (byEmail) return reconcileExisting(businessId, byEmail, r)
   }
 
   // 4. Name — last resort (names drift / collide), but still beats creating a
@@ -716,7 +717,7 @@ async function findOrCreateCustomer(
     where: { businessId, name: r.customerName },
     select,
   })
-  if (byName) return reconcileExisting(byName, r)
+  if (byName) return reconcileExisting(businessId, byName, r)
 
   // 5. Create new — guarded against the (businessId, email) unique race: a
   // concurrent sync, or the same email twice in one batch, can insert between
@@ -756,7 +757,7 @@ async function findOrCreateCustomer(
           where: { businessId, email: r.customerEmail },
           select,
         })
-        if (raced) return reconcileExisting(raced, r)
+        if (raced) return reconcileExisting(businessId, raced, r)
       }
       throw e
     }
@@ -767,6 +768,7 @@ async function findOrCreateCustomer(
 // record onto an already-matched customer. Never overwrites an existing
 // value, and never touches name, notes, karute, or payment data.
 async function reconcileExisting(
+  businessId: string,
   existing: {
     id: string
     phone: string | null
@@ -776,6 +778,7 @@ async function reconcileExisting(
   },
   r: MappedQRReservation,
 ): Promise<string> {
+  existing = await resolveMergedCustomer(businessId, existing.id)
   const refs = (existing.externalRefs as Record<string, unknown> | null) ?? {}
   const safe = {
     externalRefs: { ...refs, quickreserve: { customerId: r.qrCustomerId } },
