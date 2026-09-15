@@ -1,6 +1,6 @@
 # CORE-6 — family pack sharing
 
-This branch builds on CORE-12 (PR #86). Apply its pack-correction migration, then `2026-09-07-linked-pack-sharing.sql`, before deploying. Publish the Core SDK after merge; deploy the paired Karute consumer change to enable family badges. No production family records have been linked; confirm exact customer IDs for the five named families before seeding them.
+CORE-12 (PR #86) is on main. This restored PR replaces auto-closed #89 and replays only its two CORE-6 commits. Its migration is byte-for-byte unchanged from the production-applied September 12 file. Verify that schema before renewing the exact-head migration attestation; no reapply is required. Publish client 1.35.0 after merge, then deploy the approved Karute consumer PR #855. Family linking is a separate data step on Liam's instruction; this release does not link production customers.
 
 A family is a tenant-scoped `pack_sharing_group_id` on customers. GET/PUT `/v1/customer-links/:anchor` and SDK `customers.getPackSharing/setPackSharing` read or replace the complete member set. PUT requires HQ authorization, 1–20 unique live customer IDs including the anchor; one member unlinks the family. It refuses accidental merges with another existing family. Customer data is never merged.
 
@@ -12,4 +12,4 @@ Redemptions snapshot `pack_holder_customer_id`; shared redeem/undo always write 
 
 Karute’s individual picker uses the Core usage snapshot when available and falls back for older responses. List/appointment badges and burn targets include each eligible family member. Monetary rollups and holder counts attribute ownership once, preventing a three-person family from tripling the pack liability.
 
-Rollback: roll back apps before Core and preserve additive columns. Do not restore the old audit scrub while any family audit events remain. Migration, SDK publication, production family seeding and deployed human validation remain release steps.
+Rollback: roll back apps before Core and preserve additive columns. Do not restore the old audit scrub while any family audit events remain. SDK publication, paired app deployment and deployed validation remain release steps. The `Publish client` workflow publishes or verifies the version committed on main; family seeding stays separate.

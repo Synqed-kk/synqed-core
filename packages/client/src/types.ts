@@ -594,7 +594,7 @@ export interface Appointment {
   cancelled_at: string | null
   // Status audit trail (live in prod since the 7/5 status-audit migration —
   // the app was casting around these until now).
-  status_source: 'CRAWL' | 'STAFF' | string
+  status_source: 'SYSTEM' | 'QR' | 'STAFF'
   status_set_by: string | null
   status_reason: string | null
   status_set_at: string | null
@@ -615,7 +615,7 @@ export interface AppointmentStatusEvent {
   status: AppointmentStatus
   /** SYSTEM = API default writes, STAFF = a human decision, QR = the crawl
    *  (feed status or the orphan-cancel sweep, reason 'qr-orphan-sweep'). */
-  status_source: 'SYSTEM' | 'STAFF' | 'QR' | string
+  status_source: 'SYSTEM' | 'QR' | 'STAFF'
   set_by: string | null
   reason: string | null
   created_at: string

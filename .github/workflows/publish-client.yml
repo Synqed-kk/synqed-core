@@ -1,0 +1,41 @@
+name: Publish client
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-client
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/client
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: '@synqed-kk'
+          cache: npm
+          cache-dependency-path: packages/client/package-lock.json
+      - run: npm ci
+      - name: Publish the merged client version or verify an existing release
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@synqed-kk/client@$version" version >/dev/null 2>&1; then
+            echo "@synqed-kk/client@$version is already published"
+          else
+            npm publish
+          fi
+          npm view "@synqed-kk/client@$version" dist --json
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
