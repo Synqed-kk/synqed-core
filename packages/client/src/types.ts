@@ -414,6 +414,9 @@ export interface UpsertKaruteOutcomeInput {
 // ===========================================================================
 
 export interface Pack {
+  /** Full held-pack usage including every linked visitor; supplied on list reads. */
+  usage_count?: number
+  usage_last_redeemed_on?: string | null
   id: string
   customer_id: string
   kind: string
@@ -431,6 +434,8 @@ export interface Pack {
 }
 
 export interface ActivePack {
+  /** Shared balance belongs to customer_id; show it for every eligible member. */
+  eligible_customer_ids?: string[]
   id: string
   customer_id: string
   kind: string
@@ -475,6 +480,8 @@ export interface PackRedemption {
 }
 
 export interface RecentRedemption {
+  /** Holder snapshot; customer_id remains the actual visitor. Legacy orphan rows are null. */
+  pack_holder_customer_id: string | null
   id: string
   source: RedemptionSource
   reason: string | null
@@ -587,7 +594,7 @@ export interface Appointment {
   cancelled_at: string | null
   // Status audit trail (live in prod since the 7/5 status-audit migration —
   // the app was casting around these until now).
-  status_source: 'CRAWL' | 'STAFF' | string
+  status_source: 'SYSTEM' | 'QR' | 'STAFF'
   status_set_by: string | null
   status_reason: string | null
   status_set_at: string | null
@@ -608,7 +615,7 @@ export interface AppointmentStatusEvent {
   status: AppointmentStatus
   /** SYSTEM = API default writes, STAFF = a human decision, QR = the crawl
    *  (feed status or the orphan-cancel sweep, reason 'qr-orphan-sweep'). */
-  status_source: 'SYSTEM' | 'STAFF' | 'QR' | string
+  status_source: 'SYSTEM' | 'QR' | 'STAFF'
   set_by: string | null
   reason: string | null
   created_at: string

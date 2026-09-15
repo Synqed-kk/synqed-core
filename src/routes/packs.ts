@@ -53,7 +53,7 @@ packRoutes.get('/redemptions/recent', async (c) => {
 packRoutes.get('/redemptions', async (c) => {
   const customerId = c.req.query('customer_id')
   if (!customerId) return c.json({ error: 'customer_id required' }, 400)
-  return c.json({ redemptions: await packs.listRedemptionsByCustomer(c.get('businessId'), customerId) })
+  return c.json({ redemptions: await packs.listRedemptionsByCustomer(c.get('businessId'), customerId, c.req.query('include_shared') === 'true') })
 })
 
 packRoutes.post('/redemptions', async (c) => {

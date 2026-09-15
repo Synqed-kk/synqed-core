@@ -15,6 +15,15 @@ import type {
 } from './types.js'
 
 export class CustomerClient {
+  async getPackSharing(customerId: string): Promise<{ customer_ids: string[] }> {
+    return this.client.fetch(`/customer-links/${encodeURIComponent(customerId)}`)
+  }
+  async setPackSharing(customerId: string, customerIds: string[], actingStaffId: string): Promise<{ customer_ids: string[] }> {
+    return this.client.fetch(`/customer-links/${encodeURIComponent(customerId)}`, {
+      method: 'PUT', body: JSON.stringify({ customer_ids: customerIds, acting_staff_id: actingStaffId }),
+    })
+  }
+
   constructor(private client: SynqedClient) {}
 
   /** Per-customer list badges (last visit, visit counts, next booking, 担当)
