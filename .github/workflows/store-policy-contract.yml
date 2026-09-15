@@ -1,0 +1,46 @@
+name: Store policy contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  store-policy-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: store_policy_contract
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/store_policy_contract
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm ci --prefix packages/client
+      - run: npm run build --prefix packages/client
+      - name: Create disposable policy schema and domain constraints
+        run: |
+          npx prisma db push
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/manual/2026-09-07-store-policy-settings.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/manual/2026-09-15-store-policy-flexible-durations.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/manual/2026-09-15-store-policy-flexible-durations.sql
+      - run: npx vitest run tests/store-policy-settings.test.ts

@@ -4,6 +4,7 @@ import type { AppEnv } from '../types/api.js'
 import * as policyService from '../services/store-policy.service.js'
 import { requireHqAdmin, NotHqAdminError } from '../services/business-grant.service.js'
 import { auditEventSchema } from '../validations/audit.js'
+import { PERMISSION_ROLES } from '../services/permission-rulebook.js'
 
 export const storePolicyRoutes = new Hono<AppEnv>()
 
@@ -46,21 +47,32 @@ const specialOpenDaysSchema = z.array(z.object({
 }).strict().refine(w => w.open < w.close, 'open must be before close')).max(366)
   .refine(days => new Set(days.map(d => d.date)).size === days.length, 'Special open dates must be unique')
 
+const positiveMinutes = z.number().finite().int().positive()
+const nonnegativeMinutes = z.number().finite().int().nonnegative()
+const autoReleaseBeforeSchema = z.union([
+  z.literal('linked'), z.literal('never'),
+  z.string().regex(/^[1-9][0-9]*$/).refine(value => Number.isFinite(Number(value)), 'minutes must be finite')
+    .transform(value => value as `${number}`),
+])
+
 const setSchema = z.object({
-  override_roles: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+  override_roles: z.array(z.enum(PERMISSION_ROLES)).max(100).optional(),
   override_locked_out: z.array(z.string().uuid()).max(1000).optional(),
   override_hold_to_confirm: z.boolean().optional(),
   override_strict_wall: z.boolean().optional(),
-  min_sellable_min: z.number().int().min(0).max(1440).optional(),
-  gap_fill_min_min: z.number().int().min(0).max(1440).nullable().optional(),
+  min_sellable_min: nonnegativeMinutes.optional(),
+  gap_fill_min_min: nonnegativeMinutes.nullable().optional(),
   held_rank_access: z.enum(['closed', 'silver', 'gold', 'platinum']).optional(),
-  release_held_roles: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
-  booking_step_min: z.number().int().min(1).max(1440).optional(),
-  block_step_min: z.number().int().min(1).max(1440).optional(),
+  release_held_roles: z.array(z.enum(PERMISSION_ROLES)).max(100).optional(),
+  booking_step_min: positiveMinutes.optional(),
+  block_step_min: positiveMinutes.optional(),
   gap_fill_discount_pct: z.number().int().min(0).max(30).nullable().optional(),
-  lead_time_min: z.number().int().min(0).max(10080).nullable().optional(),
-  reserve_start_grid_min: z.union([z.literal(15), z.literal(30), z.literal(60)]).nullable().optional(),
-  standard_session_min: z.number().int().min(1).max(1440).nullable().optional(),
+  lead_time_min: nonnegativeMinutes.nullable().optional(),
+  reserve_start_grid_min: positiveMinutes.nullable().optional(),
+  standard_session_min: positiveMinutes.nullable().optional(),
+  sell_slot_min: positiveMinutes.optional(),
+  auto_release_before: autoReleaseBeforeSchema.optional(),
+  calendar_tight_max: z.number().finite().int().min(0).max(5).optional(),
   price_lock_during_recalc: z.boolean().nullable().optional(),
   breaks_paid: z.boolean().optional(),
   special_open_days: specialOpenDaysSchema.optional(),
@@ -71,7 +83,7 @@ const setSchema = z.object({
   cancel_late_pct: z.number().int().min(0).max(100).optional(),
   no_show_pct: z.number().int().min(0).max(100).optional(),
   gap_guard_mode: z.enum(['OFF', 'STANDARD', 'STRICT']).optional(),
-  new_client_session_minutes: z.number().int().min(30).max(240).multipleOf(15).optional(),
+  new_client_session_minutes: positiveMinutes.optional(),
   weekly_hours: weeklyHoursSchema.optional(),
   acting_staff_id: z.string().uuid(),
   audit: auditEventSchema.optional(),
