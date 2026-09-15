@@ -47,8 +47,13 @@ const specialOpenDaysSchema = z.array(z.object({
 }).strict().refine(w => w.open < w.close, 'open must be before close')).max(366)
   .refine(days => new Set(days.map(d => d.date)).size === days.length, 'Special open dates must be unique')
 
-const positiveMinutes = z.number().finite().int().positive()
-const nonnegativeMinutes = z.number().finite().int().nonnegative()
+// These columns use PostgreSQL integer storage. Check representability so an
+// overflow returns a validation error instead of reaching the writer as a 500.
+const integerMinutes = z.number().finite().int().refine(value =>
+  Number.isInteger(value) && BigInt.asIntN(32, BigInt(value)) === BigInt(value),
+  'minutes exceed PostgreSQL integer storage')
+const positiveMinutes = integerMinutes.refine(value => value > 0, 'minutes must be positive')
+const nonnegativeMinutes = integerMinutes.refine(value => value >= 0, 'minutes must be nonnegative')
 const autoReleaseBeforeSchema = z.union([
   z.literal('linked'), z.literal('never'),
   z.string().regex(/^[1-9][0-9]*$/).refine(value => Number.isFinite(Number(value)), 'minutes must be finite')

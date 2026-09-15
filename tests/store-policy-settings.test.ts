@@ -153,7 +153,7 @@ describe('CORE-10 policy settings', () => {
   it('rejects meaningless durations, release strings, invalid thresholds and display labels without saving or auditing', async () => {
     const { owner, store } = await fixture()
     for (const field of ['new_client_session_minutes', 'reserve_start_grid_min', 'sell_slot_min', 'booking_step_min', 'block_step_min', 'standard_session_min']) {
-      for (const value of [0, -5, 1.5, '45', 'Infinity', 'NaN']) {
+      for (const value of [0, -5, 1.5, 2147483648, '45', 'Infinity', 'NaN']) {
         expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, [field]: value })).status,
           `${field}: ${String(value)}`).toBe(400)
       }
@@ -165,6 +165,21 @@ describe('CORE-10 policy settings', () => {
     ]) expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, ...bad })).status).toBe(400)
     expect(await testPrisma.storeBookingPolicy.findUnique({ where: { storeId: store.id } })).toBeNull()
     expect(await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
+  })
+
+  it('accepts the PostgreSQL integer boundary without turning storage limits into a server error', async () => {
+    const { owner, store } = await fixture()
+    expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id,
+      new_client_session_minutes: 2147483647, reserve_start_grid_min: 2147483647,
+      sell_slot_min: 2147483647, booking_step_min: 2147483647, block_step_min: 2147483647,
+      standard_session_min: 2147483647, min_sellable_min: 2147483647,
+      gap_fill_min_min: 2147483647, lead_time_min: 2147483647,
+    })).status).toBe(200)
+    for (const field of ['min_sellable_min', 'gap_fill_min_min', 'lead_time_min']) {
+      const response = await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, [field]: 2147483648 })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: 'minutes exceed PostgreSQL integer storage' })
+    }
   })
 
   it('enforces new domains for direct writers and proves obsolete duration constraints are gone', async () => {
