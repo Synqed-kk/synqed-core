@@ -28,7 +28,7 @@ afterEach(async () => {
 })
 
 const settings = {
-  override_roles: ['店舗管理者'], override_locked_out: [randomUUID()], override_hold_to_confirm: false,
+  override_roles: ['manager'], override_locked_out: [randomUUID()], override_hold_to_confirm: false,
   override_strict_wall: true, min_sellable_min: 0, gap_fill_min_min: 15, held_rank_access: 'gold',
   release_held_roles: [], booking_step_min: 45, block_step_min: 5, gap_fill_discount_pct: 30,
   lead_time_min: 60, reserve_start_grid_min: 15, standard_session_min: 120,
@@ -40,11 +40,12 @@ describe('CORE-10 policy settings', () => {
   it('returns named defaults and leaves unspecified scalar defaults unconfigured', async () => {
     const { store } = await fixture()
     const p = await (await req('GET', `/store-policies/${store.id}`)).json()
-    expect(p).toMatchObject({ override_roles: ['オーナー','店舗管理者','スタッフ'], override_locked_out: [],
+    expect(p).toMatchObject({ override_roles: ['owner','manager','practitioner'], override_locked_out: [],
       override_hold_to_confirm: true, override_strict_wall: false, min_sellable_min: 30, gap_fill_min_min: null,
-      held_rank_access: 'closed', release_held_roles: ['オーナー','店舗管理者'], booking_step_min: 30, block_step_min: 15,
+      held_rank_access: 'closed', release_held_roles: ['owner','manager'], booking_step_min: 30, block_step_min: 15,
       gap_fill_discount_pct: null, lead_time_min: null, reserve_start_grid_min: null, standard_session_min: null,
       price_lock_during_recalc: null, breaks_paid: false, special_open_days: [],
+      calendar_tight_max: 2, sell_slot_min: 60, auto_release_before: 'linked',
     })
     expect(p).not.toHaveProperty('room_policy_vip_stays_private')
     expect(p).not.toHaveProperty('room_policy_private_is_last_resort')
@@ -93,8 +94,8 @@ describe('CORE-10 policy settings', () => {
     const { owner, store } = await fixture()
     for (const bad of [{ booking_step_min: 0 }, { block_step_min: -1 }, { booking_step_min: null },
       { block_step_min: 'Infinity' }, { lead_time_min: 1.5 }, { min_sellable_min: -1 }, { gap_fill_discount_pct: 31 },
-      { reserve_start_grid_min: 45 }, { new_client_session_minutes: 45.5 }, { new_client_session_minutes: 255 },
-      { new_client_session_minutes: 31 }, { held_rank_access: 'vip' },
+      { reserve_start_grid_min: 0 }, { new_client_session_minutes: 45.5 }, { new_client_session_minutes: 0 },
+      { new_client_session_minutes: -5 }, { held_rank_access: 'vip' },
       { special_open_days: [{ date: '2026-02-30', open: '10:00', close: '20:00' }] },
       { special_open_days: [{ date: '2026-09-10', open: '24:00', close: '24:00' }] },
       { special_open_days: [...settings.special_open_days, ...settings.special_open_days] },
@@ -110,7 +111,7 @@ describe('CORE-10 policy settings', () => {
     const { owner, store } = await fixture()
     await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, booking_step_min: 45 })
     for (const invalid of [{ bookingStepMin: 0 }, { blockStepMin: -1 }, { heldRankAccess: 'vip' },
-      { gapFillDiscountPct: 31 }, { reserveStartGridMin: 45 }, { newClientSessionMinutes: 31 },
+      { gapFillDiscountPct: 31 }, { reserveStartGridMin: 0 }, { newClientSessionMinutes: 0 },
       { specialOpenDays: {} }, { specialOpenDays: [{ date: '2026-02-30', open: '10:00', close: '20:00' }] },
       { specialOpenDays: [...settings.special_open_days, ...settings.special_open_days] },
       { specialOpenDays: [{ date: '2026-09-10', open: '20:00', close: '10:00' }] },
@@ -118,6 +119,73 @@ describe('CORE-10 policy settings', () => {
     await expect(testPrisma.storeBookingPolicy.update({ where: { storeId: store.id }, data: {
       newClientSessionMinutes: 240, specialOpenDays: [{ date: '2028-02-29', open: '00:00', close: '24:00' }],
     } })).resolves.toMatchObject({ newClientSessionMinutes: 240 })
+  })
+
+  it('accepts store-defined durations through SDK, preserves partial saves, and audits new controls', async () => {
+    const { owner, store } = await fixture()
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => app.request(url, init))
+    const client = new SynqedClient({ baseUrl: 'http://core.test', apiKey: TEST_API_KEY, businessId: TEST_BUSINESS_ID })
+    expect(await client.storePolicies.get(store.id)).toMatchObject({ calendar_tight_max: 2, sell_slot_min: 60, auto_release_before: 'linked' })
+    expect(await client.storePolicies.set(store.id, {
+      acting_staff_id: owner.id, new_client_session_minutes: 75, reserve_start_grid_min: 20,
+      sell_slot_min: 45, calendar_tight_max: 0, auto_release_before: '45',
+      min_sellable_min: 1501, gap_fill_min_min: 1502, booking_step_min: 1503,
+      block_step_min: 1504, lead_time_min: 10081, standard_session_min: 1505,
+      override_roles: ['senior', 'frontdesk'], release_held_roles: ['area_manager'],
+    })).toMatchObject({ new_client_session_minutes: 75, reserve_start_grid_min: 20, sell_slot_min: 45,
+      calendar_tight_max: 0, auto_release_before: '45', lead_time_min: 10081 })
+    const audit = await testPrisma.auditLog.findFirstOrThrow({ where: { businessId: TEST_BUSINESS_ID, action: 'store_policy.edit' } })
+    expect(audit).toMatchObject({ actorId: owner.id, storeId: store.id })
+    expect(audit.detail).toMatchObject({ changes: expect.arrayContaining([
+      { field: 'calendar_tight_max', before: 2, after: 0 },
+      { field: 'sell_slot_min', before: 60, after: 45 },
+      { field: 'auto_release_before', before: 'linked', after: '45' },
+    ]) })
+    for (const auto_release_before of ['linked', 'never'] as const) {
+      expect(await client.storePolicies.set(store.id, { acting_staff_id: owner.id, new_client_session_minutes: 100, auto_release_before }))
+        .toMatchObject({ new_client_session_minutes: 100, auto_release_before, sell_slot_min: 45, calendar_tight_max: 0 })
+    }
+    expect(await client.storePolicies.set(store.id, { acting_staff_id: owner.id, reserve_start_grid_min: null,
+      standard_session_min: null, gap_fill_min_min: null, lead_time_min: 0, min_sellable_min: 0 }))
+      .toMatchObject({ reserve_start_grid_min: null, standard_session_min: null, gap_fill_min_min: null, lead_time_min: 0, min_sellable_min: 0 })
+  })
+
+  it('rejects meaningless durations, release strings, invalid thresholds and display labels without saving or auditing', async () => {
+    const { owner, store } = await fixture()
+    for (const field of ['new_client_session_minutes', 'reserve_start_grid_min', 'sell_slot_min', 'booking_step_min', 'block_step_min', 'standard_session_min']) {
+      for (const value of [0, -5, 1.5, '45', 'Infinity', 'NaN']) {
+        expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, [field]: value })).status,
+          `${field}: ${String(value)}`).toBe(400)
+      }
+    }
+    for (const bad of [{ calendar_tight_max: 9 }, { calendar_tight_max: -1 }, { calendar_tight_max: 1.5 },
+      { calendar_tight_max: null }, { sell_slot_min: null }, { auto_release_before: null },
+      ...['0', 'abc', '-5', '1.5', '045', '1e3', 'Infinity'].map(auto_release_before => ({ auto_release_before })),
+      { auto_release_before: 45 }, { override_roles: ['オーナー'] }, { release_held_roles: ['unknown'] },
+    ]) expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, ...bad })).status).toBe(400)
+    expect(await testPrisma.storeBookingPolicy.findUnique({ where: { storeId: store.id } })).toBeNull()
+    expect(await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
+  })
+
+  it('enforces new domains for direct writers and proves obsolete duration constraints are gone', async () => {
+    const { owner, store } = await fixture()
+    expect((await req('PUT', `/store-policies/${store.id}`, { acting_staff_id: owner.id, sell_slot_min: 45 })).status).toBe(200)
+    for (const data of [{ sellSlotMin: 0 }, { calendarTightMax: 9 }, { calendarTightMax: -1 },
+      { autoReleaseBefore: '0' }, { autoReleaseBefore: 'abc' }, { overrideRoles: ['オーナー'] }, { releaseHeldRoles: ['unknown'] }]) {
+      await expect(testPrisma.storeBookingPolicy.update({ where: { storeId: store.id }, data })).rejects.toThrow()
+    }
+    await expect(testPrisma.storeBookingPolicy.update({ where: { storeId: store.id }, data: {
+      newClientSessionMinutes: 100, reserveStartGridMin: 20, minSellableMin: 1501,
+      gapFillMinMin: 1502, bookingStepMin: 1503, blockStepMin: 1504, leadTimeMin: 10081, standardSessionMin: 1505,
+      sellSlotMin: 45, calendarTightMax: 0, autoReleaseBefore: 'never',
+    } })).resolves.toMatchObject({ newClientSessionMinutes: 100, reserveStartGridMin: 20 })
+    const checks = await testPrisma.$queryRaw<{ name: string; body: string }[]>`
+      SELECT conname AS name, pg_get_constraintdef(oid) AS body FROM pg_constraint
+      WHERE conrelid = 'store_booking_policies'::regclass
+        AND conname IN ('sbp_new_client_session_range', 'sbp_settings_domains')
+    `
+    expect(checks).toHaveLength(2)
+    for (const { body } of checks) expect(body).not.toMatch(/240|%|1440|10080|ARRAY\[15, 30, 60\]/)
   })
 
   it('serializes concurrent partial first saves and records accurate before/after for overlapping changes', async () => {
