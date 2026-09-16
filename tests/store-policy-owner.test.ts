@@ -83,6 +83,17 @@ describe.each<Write>(['policy', 'add', 'remove'])('CORE-27 %s owner boundary', k
     expect(await testPrisma.storeClosedDay.count({ where: { storeId: store.id } })).toBe(1)
   })
 
+  it('refuses an inactive OWNER without writing', async () => {
+    const { store, day } = await fixture()
+    const inactiveOwner = await seedTestStaff({ role: 'OWNER', isActive: false })
+    const response = await write(kind, store.id, day.id, inactiveOwner.id)
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { code: 'acting_staff_role_forbidden' } })
+    expect(await testPrisma.storeBookingPolicy.count({ where: { storeId: store.id } })).toBe(0)
+    expect(await testPrisma.storeClosedDay.count({ where: { storeId: store.id } })).toBe(1)
+    expect(await testPrisma.auditLog.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
+  })
+
   it('refuses a real foreign store before considering its owner', async () => {
     const foreignOwner = await seedTestStaff({ businessId: foreignBusiness, role: 'OWNER' })
     const store = await testPrisma.store.create({ data: { businessId: foreignBusiness, name: 'Foreign store' } })
