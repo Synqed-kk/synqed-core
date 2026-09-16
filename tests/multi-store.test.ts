@@ -24,8 +24,18 @@ function req(method: string, path: string, body?: unknown) {
 const A = '11111111-1111-1111-1111-111111111111'
 const B = '22222222-2222-2222-2222-222222222222'
 
+async function seedAppointmentStores() {
+  await testPrisma.store.createMany({
+    data: [
+      { id: A, businessId: TEST_BUSINESS_ID, name: '店A' },
+      { id: B, businessId: TEST_BUSINESS_ID, name: '店B' },
+    ],
+  })
+}
+
 afterEach(async () => {
   await cleanupTestData()
+  await testPrisma.store.deleteMany({ where: { id: { in: [A, B] } } })
 })
 
 describe('multi-store store_id', () => {
@@ -40,6 +50,7 @@ describe('multi-store store_id', () => {
   })
 
   it('accepts + returns store_id on an appointment', async () => {
+    await seedAppointmentStores()
     const c = await seedTestCustomer()
     const s = await seedTestStaff()
     const res = await req('POST', '/appointments', {
@@ -51,6 +62,7 @@ describe('multi-store store_id', () => {
   })
 
   it('overlap guard is per-store: same staff+time in a different store does not conflict', async () => {
+    await seedAppointmentStores()
     // Distinct customers per store: UNIQUE(business_id, customer_id, starts_at)
     // (the QR twin-dedup rail) forbids one CUSTOMER holding two same-time
     // bookings anywhere — this test is about the per-store STAFF guard.

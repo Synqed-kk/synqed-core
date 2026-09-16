@@ -3,6 +3,7 @@ import { prisma } from '../db/client.js'
 import { Prisma, type StoreBookingPolicy } from '@prisma/client'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
+import { lockStoreScheduleForWrite } from '../db/store-schedule-lock.js'
 
 /** One open/close window per weekday ("10:00"–"20:00"); null/absent weekday =
  *  定休日. The whole value is null when the store never configured hours —
@@ -223,10 +224,7 @@ export async function setPolicy(
 
   const row = await prisma.$transaction(async (tx) => {
     // Also serializes first saves, when no policy row exists yet.
-    const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM stores WHERE id = ${storeId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE
-    `
-    if (!locked.length) return null
+    if (!await lockStoreScheduleForWrite(tx, businessId, storeId)) return null
     const before = toPublic(storeId, await tx.storeBookingPolicy.findFirst({ where: { storeId, businessId } }))
     const settingsData = {
       overrideRoles: input.override_roles,
@@ -367,10 +365,9 @@ export async function addClosedDay(
   input: { date: string; reason?: string | null; created_by?: string | null },
   audit?: AuditEventInput,
 ): Promise<ClosedDayPublic | null> {
-  const store = await prisma.store.findFirst({ where: { id: storeId, businessId }, select: { id: true } })
-  if (!store) return null
   try {
     const row = await prisma.$transaction(async (tx) => {
+      if (!await lockStoreScheduleForWrite(tx, businessId, storeId)) return null
       const created = await tx.storeClosedDay.create({
         data: {
           businessId,
@@ -383,7 +380,7 @@ export async function addClosedDay(
       if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? storeId })
       return created
     })
-    return closedDayToPublic(row)
+    return row ? closedDayToPublic(row) : null
   } catch (e) {
     // UNIQUE(store_id, date) — the constraint name carries both columns.
     if (isUniqueViolation(e, 'date')) throw new ClosedDayExistsError()
@@ -398,14 +395,15 @@ export async function removeClosedDay(
   id: string,
   audit?: AuditEventInput,
 ): Promise<boolean> {
-  const row = await prisma.storeClosedDay.findFirst({
-    where: { id, businessId, storeId },
-    select: { id: true },
-  })
-  if (!row) return false
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    if (!await lockStoreScheduleForWrite(tx, businessId, storeId)) return false
+    const row = await tx.storeClosedDay.findFirst({
+      where: { id, businessId, storeId },
+      select: { id: true },
+    })
+    if (!row) return false
     await tx.storeClosedDay.delete({ where: { id } })
     if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? storeId })
+    return true
   })
-  return true
 }
