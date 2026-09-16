@@ -9,12 +9,17 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   const parsed = new Date(value)
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }, 'Invalid calendar date')
+// These public inputs previously accepted ISO timestamps. Preserve their
+// timezone/instant for the service while still rejecting impossible dates.
+const dateOrTimestamp = z.union([date, z.string().datetime({ offset: true }).refine(
+  value => date.safeParse(value.slice(0, 10)).success, 'Invalid calendar date',
+)])
 
 export const createPackSchema = z.object({
   customer_id: z.string().uuid(), kind: z.string().min(1),
   pack_size: z.number().int(), unit_price: z.number().int(),
   total_price: z.number().int().nullish(), purchase_round: z.number().int().optional(),
-  purchased_at: date.nullish(), source: z.string().optional(),
+  purchased_at: dateOrTimestamp.nullish(), source: z.string().optional(),
   notes: z.string().nullish(), created_by: z.string().uuid().nullish(),
 })
 
@@ -30,6 +35,6 @@ export const removeRedemptionSchema = z.object({
 })
 
 export const recentRedemptionsSchema = z.object({
-  since: date,
+  since: dateOrTimestamp,
   include_removed: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
 })

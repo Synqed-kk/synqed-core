@@ -80,6 +80,7 @@ model Customer {
   @@index([businessId])
   @@index([businessId, name])
   @@index([businessId, email])
+  @@index([businessId, packSharingGroupId], map: "customers_business_pack_sharing_idx")
   @@map("customers")
 }
 
