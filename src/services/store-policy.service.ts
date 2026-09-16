@@ -25,6 +25,47 @@ export class ClosedDayExistsError extends Error {
   }
 }
 
+export type StorePolicyWriteErrorCode =
+  | 'acting_staff_not_in_business'
+  | 'acting_staff_role_forbidden'
+  | 'store_not_found'
+
+export class StorePolicyWriteError extends Error {
+  constructor(public code: StorePolicyWriteErrorCode, public status: 400 | 403 | 404, message: string) {
+    super(message)
+    this.name = 'StorePolicyWriteError'
+  }
+}
+
+/** Policy writers accept a core staff card id only; login/profile ids never
+ * become the persisted updater or audit actor. Both rows stay locked through
+ * the mutation, so a concurrent store move or OWNER demotion cannot race the
+ * authorization decision. Unknown/foreign stores stay 404. */
+async function lockStorePolicyOwner(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  storeId: string,
+  staffId: string,
+): Promise<void> {
+  const store = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM stores
+    WHERE id = ${storeId}::uuid AND business_id = ${businessId}::uuid
+    FOR UPDATE
+  `
+  if (!store.length) throw new StorePolicyWriteError('store_not_found', 404, 'Store not found')
+  const staff = await tx.$queryRaw<{ role: string; is_active: boolean }[]>`
+    SELECT role::text, is_active FROM staff
+    WHERE id = ${staffId}::uuid AND business_id = ${businessId}::uuid
+    FOR SHARE
+  `
+  if (!staff.length) {
+    throw new StorePolicyWriteError('acting_staff_not_in_business', 400, 'Acting staff not found in this business.')
+  }
+  if (staff[0].role !== 'OWNER' || !staff[0].is_active) {
+    throw new StorePolicyWriteError('acting_staff_role_forbidden', 403, 'This action requires an active OWNER staff member.')
+  }
+}
+
 // Booking-acceptance policy per store (Liam item 3). One row per store;
 // absent row = these platform defaults — the numbers reserve shipped with
 // hardcoded, so a store with no saved policy behaves exactly as before.
@@ -187,7 +228,6 @@ export interface SetPolicyInput {
   new_client_session_minutes?: number
   /** undefined = keep; null = clear back to unconfigured; object = set. */
   weekly_hours?: WeeklyHours | null
-  updated_by?: string | null
 }
 
 type PolicyChange = { field: keyof PolicyPublic; before: unknown; after: unknown }
@@ -226,21 +266,13 @@ function auditParts(changes: PolicyChange[]) {
 export async function setPolicy(
   businessId: string,
   storeId: string,
+  actingStaffId: string,
   input: SetPolicyInput,
   audit?: AuditEventInput,
-): Promise<PolicyPublic | null> {
-  const store = await prisma.store.findFirst({
-    where: { id: storeId, businessId },
-    select: { id: true },
-  })
-  if (!store) return null
-
+): Promise<PolicyPublic> {
   const row = await prisma.$transaction(async (tx) => {
-    // Also serializes first saves, when no policy row exists yet.
-    const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM stores WHERE id = ${storeId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE
-    `
-    if (!locked.length) return null
+    // The store lock also serializes first saves, when no policy row exists.
+    await lockStorePolicyOwner(tx, businessId, storeId, actingStaffId)
     const before = toPublic(storeId, await tx.storeBookingPolicy.findFirst({ where: { storeId, businessId } }))
     const settingsData = {
       overrideRoles: input.override_roles,
@@ -278,7 +310,7 @@ export async function setPolicy(
         gapGuardMode: input.gap_guard_mode ?? POLICY_DEFAULTS.gap_guard_mode,
         newClientSessionMinutes: input.new_client_session_minutes ?? POLICY_DEFAULTS.new_client_session_minutes,
         ...(input.weekly_hours != null ? { weeklyHours: input.weekly_hours as Prisma.InputJsonValue } : {}),
-        updatedBy: input.updated_by ?? null,
+        updatedBy: actingStaffId,
       },
       update: {
         ...settingsData,
@@ -298,24 +330,24 @@ export async function setPolicy(
         ...(input.weekly_hours !== undefined
           ? { weeklyHours: input.weekly_hours === null ? Prisma.DbNull : (input.weekly_hours as Prisma.InputJsonValue) }
           : {}),
-        updatedBy: input.updated_by ?? null,
+        updatedBy: actingStaffId,
       },
     })
     const after = toPublic(storeId, updated)
-    const changes = Object.keys(input).filter(key => key !== 'updated_by').flatMap(key => {
+    const changes = Object.keys(input).flatMap(key => {
       const field = key as keyof PolicyPublic
       return JSON.stringify(before[field]) === JSON.stringify(after[field]) ? [] : [{ field, before: before[field], after: after[field] }]
     })
     const requestId = audit?.request_id ?? randomUUID()
     for (const detail of auditParts(changes)) {
-      await logEventIn(tx, businessId, { ...audit, actor_id: input.updated_by, actor_type: 'staff',
+      await logEventIn(tx, businessId, { ...audit, actor_id: actingStaffId, actor_type: 'staff',
         actor_staff_ref: undefined, actor_label: undefined, actor_role: undefined,
         store_id: storeId, category: 'settings', action: 'store_policy.edit',
         target_type: 'store_booking_policy', target_id: storeId, request_id: requestId, detail })
     }
     return updated
   })
-  return row ? toPublic(storeId, row) : null
+  return toPublic(storeId, row)
 }
 
 // =============================================================================
@@ -377,24 +409,24 @@ export async function listClosedDays(
   return rows.map(closedDayToPublic)
 }
 
-/** Add one closed date. Null = store unknown; duplicate date = 409. */
+/** Add one closed date. Unknown stores throw `store_not_found`; duplicate dates throw `ClosedDayExistsError`. */
 export async function addClosedDay(
   businessId: string,
   storeId: string,
-  input: { date: string; reason?: string | null; created_by?: string | null },
+  actingStaffId: string,
+  input: { date: string; reason?: string | null },
   audit?: AuditEventInput,
-): Promise<ClosedDayPublic | null> {
-  const store = await prisma.store.findFirst({ where: { id: storeId, businessId }, select: { id: true } })
-  if (!store) return null
+): Promise<ClosedDayPublic> {
   try {
     const row = await prisma.$transaction(async (tx) => {
+      await lockStorePolicyOwner(tx, businessId, storeId, actingStaffId)
       const created = await tx.storeClosedDay.create({
         data: {
           businessId,
           storeId,
           date: new Date(input.date),
           reason: input.reason ?? null,
-          createdBy: input.created_by ?? null,
+          createdBy: actingStaffId,
         },
       })
       if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? storeId })
@@ -412,17 +444,15 @@ export async function addClosedDay(
 export async function removeClosedDay(
   businessId: string,
   storeId: string,
+  actingStaffId: string,
   id: string,
   audit?: AuditEventInput,
 ): Promise<boolean> {
-  const row = await prisma.storeClosedDay.findFirst({
-    where: { id, businessId, storeId },
-    select: { id: true },
-  })
-  if (!row) return false
-  await prisma.$transaction(async (tx) => {
-    await tx.storeClosedDay.delete({ where: { id } })
+  return prisma.$transaction(async (tx) => {
+    await lockStorePolicyOwner(tx, businessId, storeId, actingStaffId)
+    const removed = await tx.storeClosedDay.deleteMany({ where: { id, businessId, storeId } })
+    if (!removed.count) return false
     if (audit) await logEventIn(tx, businessId, { ...audit, target_id: audit.target_id ?? storeId })
+    return true
   })
-  return true
 }
