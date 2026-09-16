@@ -3,6 +3,7 @@ import { prisma } from '../db/client.js'
 import { Prisma, type StoreBookingPolicy } from '@prisma/client'
 import { logEventIn, type AuditEventInput } from './audit.service.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
+import type { PermissionRole } from './permission-rulebook.js'
 
 /** One open/close window per weekday ("10:00"–"20:00"); null/absent weekday =
  *  定休日. The whole value is null when the store never configured hours —
@@ -15,6 +16,7 @@ export type WeeklyHours = Partial<
 >
 
 export type SpecialOpenDay = { date: string; open: string; close: string }
+export type AutoReleaseBefore = 'linked' | 'never' | `${number}`
 
 export class ClosedDayExistsError extends Error {
   constructor(message = 'This date is already a closed day for the store.') {
@@ -35,40 +37,46 @@ export const POLICY_DEFAULTS = {
   // スキマガード Phase 1: default OFF everywhere; 90-minute protected window.
   gap_guard_mode: 'OFF' as 'OFF' | 'STANDARD' | 'STRICT',
   new_client_session_minutes: 90,
-  override_roles: ['オーナー', '店舗管理者', 'スタッフ'] as string[],
+  override_roles: ['owner', 'manager', 'practitioner'] as PermissionRole[],
   override_locked_out: [] as string[],
   override_hold_to_confirm: true,
   override_strict_wall: false,
   min_sellable_min: 30,
   gap_fill_min_min: null,
   held_rank_access: 'closed' as 'closed' | 'silver' | 'gold' | 'platinum',
-  release_held_roles: ['オーナー', '店舗管理者'] as string[],
+  release_held_roles: ['owner', 'manager'] as PermissionRole[],
   booking_step_min: 30,
   block_step_min: 15,
   gap_fill_discount_pct: null,
   lead_time_min: null,
   reserve_start_grid_min: null,
   standard_session_min: null,
+  sell_slot_min: 60,
+  auto_release_before: 'linked' as AutoReleaseBefore,
+  calendar_tight_max: 2,
   price_lock_during_recalc: null,
   breaks_paid: false,
   special_open_days: [] as SpecialOpenDay[],
 } as const
 
 export interface PolicyPublic {
-  override_roles: string[]
+  override_roles: PermissionRole[]
   override_locked_out: string[]
   override_hold_to_confirm: boolean
   override_strict_wall: boolean
   min_sellable_min: number
   gap_fill_min_min: number | null
   held_rank_access: 'closed' | 'silver' | 'gold' | 'platinum'
-  release_held_roles: string[]
+  release_held_roles: PermissionRole[]
   booking_step_min: number
   block_step_min: number
   gap_fill_discount_pct: number | null
   lead_time_min: number | null
-  reserve_start_grid_min: 15 | 30 | 60 | null
+  reserve_start_grid_min: number | null
   standard_session_min: number | null
+  sell_slot_min: number
+  auto_release_before: AutoReleaseBefore
+  calendar_tight_max: number
   price_lock_during_recalc: boolean | null
   breaks_paid: boolean
   special_open_days: SpecialOpenDay[]
@@ -94,20 +102,23 @@ function toPublic(storeId: string, r: StoreBookingPolicy | null): PolicyPublic {
   }
   return {
     store_id: storeId,
-    override_roles: r.overrideRoles,
+    override_roles: r.overrideRoles as PermissionRole[],
     override_locked_out: r.overrideLockedOut,
     override_hold_to_confirm: r.overrideHoldToConfirm,
     override_strict_wall: r.overrideStrictWall,
     min_sellable_min: r.minSellableMin,
     gap_fill_min_min: r.gapFillMinMin,
     held_rank_access: r.heldRankAccess as PolicyPublic['held_rank_access'],
-    release_held_roles: r.releaseHeldRoles,
+    release_held_roles: r.releaseHeldRoles as PermissionRole[],
     booking_step_min: r.bookingStepMin,
     block_step_min: r.blockStepMin,
     gap_fill_discount_pct: r.gapFillDiscountPct,
     lead_time_min: r.leadTimeMin,
-    reserve_start_grid_min: r.reserveStartGridMin as PolicyPublic['reserve_start_grid_min'],
+    reserve_start_grid_min: r.reserveStartGridMin,
     standard_session_min: r.standardSessionMin,
+    sell_slot_min: r.sellSlotMin,
+    auto_release_before: r.autoReleaseBefore as AutoReleaseBefore,
+    calendar_tight_max: r.calendarTightMax,
     price_lock_during_recalc: r.priceLockDuringRecalc,
     breaks_paid: r.breaksPaid,
     special_open_days: r.specialOpenDays as SpecialOpenDay[],
@@ -147,20 +158,23 @@ export async function listPolicies(businessId: string): Promise<PolicyPublic[]> 
 }
 
 export interface SetPolicyInput {
-  override_roles?: string[]
+  override_roles?: PermissionRole[]
   override_locked_out?: string[]
   override_hold_to_confirm?: boolean
   override_strict_wall?: boolean
   min_sellable_min?: number
   gap_fill_min_min?: number | null
   held_rank_access?: 'closed' | 'silver' | 'gold' | 'platinum'
-  release_held_roles?: string[]
+  release_held_roles?: PermissionRole[]
   booking_step_min?: number
   block_step_min?: number
   gap_fill_discount_pct?: number | null
   lead_time_min?: number | null
-  reserve_start_grid_min?: 15 | 30 | 60 | null
+  reserve_start_grid_min?: number | null
   standard_session_min?: number | null
+  sell_slot_min?: number
+  auto_release_before?: AutoReleaseBefore
+  calendar_tight_max?: number
   price_lock_during_recalc?: boolean | null
   breaks_paid?: boolean
   special_open_days?: SpecialOpenDay[]
@@ -243,6 +257,9 @@ export async function setPolicy(
       leadTimeMin: input.lead_time_min,
       reserveStartGridMin: input.reserve_start_grid_min,
       standardSessionMin: input.standard_session_min,
+      sellSlotMin: input.sell_slot_min,
+      autoReleaseBefore: input.auto_release_before,
+      calendarTightMax: input.calendar_tight_max,
       priceLockDuringRecalc: input.price_lock_during_recalc,
       breaksPaid: input.breaks_paid,
       specialOpenDays: input.special_open_days as Prisma.InputJsonValue | undefined,
