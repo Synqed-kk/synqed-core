@@ -95,6 +95,7 @@ afterEach(async () => {
   await cleanupTestData()
   await testPrisma.storeClosedDay.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
   await testPrisma.storeBookingPolicy.deleteMany({ where: { businessId: TEST_BUSINESS_ID } })
+  await testPrisma.resource.deleteMany({ where: { businessId: { in: [TEST_BUSINESS_ID, foreignBusiness] } } })
   await testPrisma.store.deleteMany({ where: { businessId: { in: [TEST_BUSINESS_ID, foreignBusiness] } } })
 })
 
@@ -166,6 +167,23 @@ describe('CORE-22 store-closed appointment writes', () => {
       .toBe('2026-09-21T02:00:00.000Z')
   })
 
+  it('refuses a status-only restore when the saved date is now closed', async () => {
+    const ids = await fixture()
+    const created = await (await createRequest(ids, { status: 'CANCELLED' })).json()
+    await policyService.addClosedDay(TEST_BUSINESS_ID, ids.store.id, { date: '2026-09-22' })
+
+    const response = await app.request(`/v1/appointments/${created.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: 'SCHEDULED' }),
+    })
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).code).toBe('STORE_CLOSED')
+    expect((await testPrisma.appointment.findUniqueOrThrow({ where: { id: created.id } })).status)
+      .toBe('CANCELLED')
+  })
+
   it('uses the JST weekday when the UTC calendar date differs', async () => {
     const ids = await fixture()
     await setPolicy(ids.store.id, { mon: { open: '00:00', close: '20:00' }, sun: null })
@@ -187,6 +205,23 @@ describe('CORE-22 store-closed appointment writes', () => {
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'Store not found.' })
     expect(await testPrisma.appointment.count({ where: { businessId: TEST_BUSINESS_ID } })).toBe(0)
+  })
+
+  it('refuses a foreign store before reporting reference store mismatches', async () => {
+    const ids = await fixture()
+    const [foreignStore, resource] = await Promise.all([
+      testPrisma.store.create({ data: { businessId: foreignBusiness, name: 'Foreign store' } }),
+      testPrisma.resource.create({
+        data: { businessId: TEST_BUSINESS_ID, storeId: ids.store.id, name: 'Local resource' },
+      }),
+    ])
+
+    const response = await createRequest(ids, {
+      store_id: foreignStore.id,
+      resource_id: resource.id,
+    })
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Store not found.' })
   })
 
   it('serializes a booking behind a concurrent closed-day write', async () => {

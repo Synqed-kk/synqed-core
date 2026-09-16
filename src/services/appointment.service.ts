@@ -232,6 +232,18 @@ async function requireStoreOpen(
   }
 }
 
+async function requireAppointmentStoreExists(
+  businessId: string,
+  storeId: string | null,
+): Promise<void> {
+  if (!storeId) return
+  const store = await prisma.store.findFirst({
+    where: { id: storeId, businessId },
+    select: { id: true },
+  })
+  if (!store) throw new AppointmentStoreNotFoundError()
+}
+
 export async function listAppointments(
   businessId: string,
   options: {
@@ -331,6 +343,12 @@ export async function createAppointment(
   if (endsAt.getTime() <= startsAt.getTime()) {
     throw new InvalidTimeRangeError()
   }
+
+  // Establish store tenancy before validating references that may expose a
+  // store mismatch. requireStoreOpen repeats this under the transaction's
+  // shared schedule lock, so a delete or schedule mutation cannot race the
+  // eventual appointment write.
+  await requireAppointmentStoreExists(businessId, input.store_id ?? null)
 
   // Price of record is decided HERE (Liam item 2): when a menu rides the
   // booking, core recomputes the slot price from the ACTIVE pricing rules.
@@ -622,12 +640,12 @@ export async function updateAppointment(
         ) {
           throw new InvalidTimeRangeError()
         }
-        if (input.starts_at !== undefined) {
-          await requireStoreOpen(tx, businessId, fresh.storeId, effStartsAt)
-        }
         const effStatus = input.status ?? fresh.status
         const wasTerminal = fresh.status === 'CANCELLED' || fresh.status === 'NO_SHOW'
         const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'
+        if (input.starts_at !== undefined || (wasTerminal && staysActive)) {
+          await requireStoreOpen(tx, businessId, fresh.storeId, effStartsAt)
+        }
         const slotChanged =
           effStaffId !== fresh.staffId ||
           effStartsAt.getTime() !== fresh.startsAt.getTime() ||
