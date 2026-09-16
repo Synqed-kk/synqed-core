@@ -28,6 +28,25 @@ afterEach(async () => {
 })
 
 describe('pack corrections', () => {
+  it('preserves timestamp inputs for purchases and recent reads while refusing impossible calendar dates', async () => {
+    const { input, burn } = await fixture()
+    for (const purchased_at of ['2026-09-01', '2026-09-01T00:00:00Z', '2026-09-01T09:00:00+09:00']) {
+      const response = await req('POST', '/packs', { ...input, purchased_at })
+      expect(response.status).toBe(201)
+      expect((await response.json()).purchased_at).toBe(new Date(purchased_at).toISOString().slice(0, 10))
+    }
+    await req('POST', '/packs/redemptions', burn)
+    for (const since of ['2026-09-01', '2026-09-01T00:00:00Z', '2026-09-01T09:00:00+09:00']) {
+      const response = await req('GET', `/packs/redemptions/recent?since=${encodeURIComponent(since)}`)
+      expect(response.status).toBe(200)
+      expect((await response.json()).redemptions).toHaveLength(1)
+    }
+    for (const value of ['2026-02-30', '2026-02-30T00:00:00Z', 'not-a-date']) {
+      expect((await req('POST', '/packs', { ...input, purchased_at: value })).status).toBe(400)
+      expect((await req('GET', `/packs/redemptions/recent?since=${encodeURIComponent(value)}`)).status).toBe(400)
+    }
+  })
+
   it('preserves all legacy burn sources and requires a reason and same-business active actor for correction/recovery', async () => {
     const { burn, staff } = await fixture()
     for (const source of ['manual', 'auto', 'import', 'qr', 'pos', 'backfill']) {
