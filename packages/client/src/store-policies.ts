@@ -6,6 +6,19 @@ import type {
   AddClosedDayInput,
 } from './types.js'
 
+/** Structured refusal codes exposed on SynqedError.code by policy writes. */
+export const STORE_POLICY_WRITE_ERROR_CODES = [
+  'acting_staff_not_in_business',
+  'acting_staff_role_forbidden',
+  'store_not_found',
+] as const
+export type StorePolicyWriteErrorCode = (typeof STORE_POLICY_WRITE_ERROR_CODES)[number]
+
+/** Narrow SynqedError.code after catching a store-policy write refusal. */
+export function isStorePolicyWriteErrorCode(value: unknown): value is StorePolicyWriteErrorCode {
+  return typeof value === 'string' && STORE_POLICY_WRITE_ERROR_CODES.includes(value as StorePolicyWriteErrorCode)
+}
+
 /** Per-store booking-acceptance policy: horizon, cutoff, cancellation terms.
  *  Absent row = platform defaults (source: 'default'). */
 export class StorePolicyClient {
@@ -20,7 +33,8 @@ export class StorePolicyClient {
     return this.client.fetch<StoreBookingPolicy>(`/store-policies/${encodeURIComponent(storeId)}`)
   }
 
-  /** HQ-gated partial upsert; optional audit commits with the change. */
+  /** OWNER-only partial upsert; acting_staff_id must be a core staff.id.
+   * @throws SynqedError with a StorePolicyWriteErrorCode on actor/store refusal. */
   async set(storeId: string, input: SetStoreBookingPolicyInput): Promise<StoreBookingPolicy> {
     return this.client.fetch<StoreBookingPolicy>(`/store-policies/${encodeURIComponent(storeId)}`, {
       method: 'PUT',
@@ -42,7 +56,8 @@ export class StorePolicyClient {
     )
   }
 
-  /** HQ-gated; 409 when the date is already closed. */
+  /** OWNER-only; 409 when the date is already closed.
+   * @throws SynqedError with a StorePolicyWriteErrorCode on actor/store refusal. */
   async addClosedDay(storeId: string, input: AddClosedDayInput): Promise<StoreClosedDay> {
     return this.client.fetch<StoreClosedDay>(
       `/store-policies/${encodeURIComponent(storeId)}/closed-days`,
@@ -50,7 +65,8 @@ export class StorePolicyClient {
     )
   }
 
-  /** HQ-gated remove. */
+  /** OWNER-only remove; actingStaffId must be a core staff.id.
+   * @throws SynqedError with a StorePolicyWriteErrorCode on actor/store refusal. */
   async removeClosedDay(storeId: string, id: string, actingStaffId: string): Promise<void> {
     await this.client.fetch(
       `/store-policies/${encodeURIComponent(storeId)}/closed-days/${encodeURIComponent(id)}?acting_staff_id=${encodeURIComponent(actingStaffId)}`,
