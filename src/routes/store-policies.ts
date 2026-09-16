@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types/api.js'
 import * as policyService from '../services/store-policy.service.js'
-import { requireHqAdmin, NotHqAdminError } from '../services/business-grant.service.js'
 import { auditEventSchema } from '../validations/audit.js'
 import { PERMISSION_ROLES } from '../services/permission-rulebook.js'
 
@@ -121,7 +120,7 @@ storePolicyRoutes.get('/:storeId/closed-days', async (c) => {
   return c.json({ closed_days: days })
 })
 
-// HQ-gated add; UNIQUE(store, date) → 409.
+// OWNER-gated add; UNIQUE(store, date) → 409.
 storePolicyRoutes.post('/:storeId/closed-days', async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
@@ -129,23 +128,22 @@ storePolicyRoutes.post('/:storeId/closed-days', async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   const { acting_staff_id, audit, ...fields } = parsed.data
   try {
-    await requireHqAdmin(businessId, acting_staff_id)
     const day = await policyService.addClosedDay(
       businessId,
       c.req.param('storeId'),
-      { ...fields, created_by: acting_staff_id },
+      acting_staff_id,
+      fields,
       audit,
     )
-    if (!day) return c.json({ error: 'Store not found' }, 404)
     return c.json(day, 201)
   } catch (err) {
-    if (err instanceof NotHqAdminError) return c.json({ error: err.message }, 403)
+    if (err instanceof policyService.StorePolicyWriteError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
     if (err instanceof policyService.ClosedDayExistsError) return c.json({ error: err.message }, 409)
     throw err
   }
 })
 
-// HQ-gated remove. acting_staff_id rides the query string (DELETE body is
+// OWNER-gated remove. acting_staff_id rides the query string (DELETE body is
 // unreliable across clients).
 storePolicyRoutes.delete('/:storeId/closed-days/:id', async (c) => {
   const businessId = c.get('businessId')
@@ -154,16 +152,16 @@ storePolicyRoutes.delete('/:storeId/closed-days/:id', async (c) => {
     return c.json({ error: 'acting_staff_id (uuid) query param is required' }, 400)
   }
   try {
-    await requireHqAdmin(businessId, actingStaffId)
     const removed = await policyService.removeClosedDay(
       businessId,
       c.req.param('storeId'),
+      actingStaffId,
       c.req.param('id'),
     )
     if (!removed) return c.json({ error: 'Closed day not found' }, 404)
     return c.json({ success: true })
   } catch (err) {
-    if (err instanceof NotHqAdminError) return c.json({ error: err.message }, 403)
+    if (err instanceof policyService.StorePolicyWriteError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
     throw err
   }
 })
@@ -176,7 +174,7 @@ storePolicyRoutes.get('/:storeId', async (c) => {
   return c.json(policy)
 })
 
-// HQ-gated upsert; partial — omitted fields keep current values.
+// OWNER-gated upsert; partial — omitted fields keep current values.
 storePolicyRoutes.put('/:storeId', async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
@@ -184,17 +182,16 @@ storePolicyRoutes.put('/:storeId', async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   const { acting_staff_id, audit, ...fields } = parsed.data
   try {
-    await requireHqAdmin(businessId, acting_staff_id)
     const policy = await policyService.setPolicy(
       businessId,
       c.req.param('storeId'),
-      { ...fields, updated_by: acting_staff_id },
+      acting_staff_id,
+      fields,
       audit,
     )
-    if (!policy) return c.json({ error: 'Store not found' }, 404)
     return c.json(policy)
   } catch (err) {
-    if (err instanceof NotHqAdminError) return c.json({ error: err.message }, 403)
+    if (err instanceof policyService.StorePolicyWriteError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
     throw err
   }
 })
