@@ -409,7 +409,7 @@ export async function listClosedDays(
   return rows.map(closedDayToPublic)
 }
 
-/** Add one closed date. Null = store unknown; duplicate date = 409. */
+/** Add one closed date. Unknown stores throw `store_not_found`; duplicate dates throw `ClosedDayExistsError`. */
 export async function addClosedDay(
   businessId: string,
   storeId: string,
