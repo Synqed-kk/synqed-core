@@ -111,8 +111,7 @@ export class SynqedClient {
     const res = await fetch(url, { ...init, headers })
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }))
-      throw new SynqedError(res.status, body.error ?? 'Request failed')
+      throw await this.responseError(res)
     }
 
     return res.json() as Promise<T>
@@ -131,8 +130,7 @@ export class SynqedClient {
     }
     const res = await fetch(url, { ...init, headers })
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }))
-      throw new SynqedError(res.status, (body as { error?: string }).error ?? 'Request failed')
+      throw await this.responseError(res)
     }
     return res
   }
@@ -155,10 +153,19 @@ export class SynqedClient {
       body: formData,
     })
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }))
-      throw new SynqedError(res.status, body.error ?? 'Request failed')
+      throw await this.responseError(res)
     }
     return res.json() as Promise<T>
+  }
+
+  private async responseError(res: Response): Promise<SynqedError> {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    const error = typeof body?.error === 'object' && body.error !== null ? body.error : undefined
+    const message = typeof body?.error === 'string' ? body.error
+      : typeof error?.message === 'string' ? error.message : 'Request failed'
+    const code = typeof error?.code === 'string' ? error.code
+      : typeof body?.code === 'string' ? body.code : undefined
+    return new SynqedError(res.status, message, code)
   }
 }
 
@@ -166,6 +173,7 @@ export class SynqedError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message)
     this.name = 'SynqedError'

@@ -9,6 +9,20 @@ import type {
   ListAppointmentsResponse,
 } from './types.js'
 
+/** Structured refusal codes exposed on SynqedError.code by appointment writes. */
+export const APPOINTMENT_WRITE_ERROR_CODES = [
+  'STORE_CLOSED',
+  'RESOURCE_TAKEN',
+  'SLOT_CONTENTION',
+  'IDEMPOTENT_REPLAY_GONE',
+  'IDEMPOTENT_IN_FLIGHT',
+] as const
+export type AppointmentWriteErrorCode = (typeof APPOINTMENT_WRITE_ERROR_CODES)[number]
+
+export function isAppointmentWriteErrorCode(value: unknown): value is AppointmentWriteErrorCode {
+  return typeof value === 'string' && APPOINTMENT_WRITE_ERROR_CODES.includes(value as AppointmentWriteErrorCode)
+}
+
 export class AppointmentClient {
   constructor(private client: SynqedClient) {}
 
@@ -40,6 +54,7 @@ export class AppointmentClient {
     )
   }
 
+  /** @throws SynqedError with code STORE_CLOSED when starts_at is closed. */
   async create(
     input: CreateAppointmentInput,
     options?: { idempotencyKey?: string },
@@ -56,7 +71,8 @@ export class AppointmentClient {
   }
 
   /** options.audit (A1): the audit row commits in the SAME core transaction
-   *  as the booking change — replaces the separate audit.log() call. */
+   *  as the booking change — replaces the separate audit.log() call.
+   *  @throws SynqedError with code STORE_CLOSED when starts_at is closed. */
   async update(
     id: string,
     input: UpdateAppointmentInput,

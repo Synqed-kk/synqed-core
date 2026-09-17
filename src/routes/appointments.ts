@@ -14,6 +14,8 @@ import {
   InvalidTimeRangeError,
   SlotContentionError,
   ResourceTakenError,
+  StoreClosedError,
+  AppointmentStoreNotFoundError,
   InvalidResourceError,
   RebookSourceNotFoundError,
   BlockCustomerInvalidError,
@@ -108,6 +110,12 @@ appointmentRoutes.post('/', async (c) => {
       // can say WHICH thing blocked the time.
       return c.json({ error: err.message, code: 'RESOURCE_TAKEN' }, 409)
     }
+    if (err instanceof StoreClosedError) {
+      return c.json({ error: err.message, code: 'STORE_CLOSED' }, 409)
+    }
+    if (err instanceof AppointmentStoreNotFoundError) {
+      return c.json({ error: err.message }, 404)
+    }
     if (err instanceof InvalidResourceError) {
       return c.json({ error: err.message }, 400)
     }
@@ -151,6 +159,12 @@ appointmentRoutes.put('/:id', async (c) => {
     }
     if (err instanceof ResourceTakenError) {
       return c.json({ error: err.message, code: 'RESOURCE_TAKEN' }, 409)
+    }
+    if (err instanceof StoreClosedError) {
+      return c.json({ error: err.message, code: 'STORE_CLOSED' }, 409)
+    }
+    if (err instanceof AppointmentStoreNotFoundError) {
+      return c.json({ error: err.message }, 404)
     }
     if (err instanceof InvalidResourceError) {
       return c.json({ error: err.message }, 400)

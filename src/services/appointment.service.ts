@@ -5,6 +5,7 @@ import { occupancyFor, InvalidResourceError } from './resource.service.js'
 import { Prisma } from '@prisma/client'
 import type { Appointment, AppointmentStatus, AppointmentSource, AppointmentKind, StatusSource } from '@prisma/client'
 import { isUniqueViolation, isResourceOverlap, isForeignKeyViolation } from '../db/prisma-errors.js'
+import { lockStoreScheduleForRead } from '../db/store-schedule-lock.js'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -36,6 +37,22 @@ export class ResourceTakenError extends Error {
   constructor(message = 'This resource is occupied for the requested time.') {
     super(message)
     this.name = 'ResourceTakenError'
+  }
+}
+
+/** The requested store is closed on the appointment's JST calendar date. */
+export class StoreClosedError extends Error {
+  constructor(message = 'The store is closed on the requested date.') {
+    super(message)
+    this.name = 'StoreClosedError'
+  }
+}
+
+/** Unknown and foreign store ids intentionally share the same response. */
+export class AppointmentStoreNotFoundError extends Error {
+  constructor(message = 'Store not found.') {
+    super(message)
+    this.name = 'AppointmentStoreNotFoundError'
   }
 }
 
@@ -165,6 +182,68 @@ function toPublic(row: {
   }
 }
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+
+function jstCalendarDay(at: Date) {
+  const shifted = new Date(at.getTime() + JST_OFFSET_MS)
+  return {
+    date: shifted.toISOString().slice(0, 10),
+    weekday: WEEKDAYS[shifted.getUTCDay()],
+  }
+}
+
+function hasSpecialOpening(value: Prisma.JsonValue, date: string): boolean {
+  return Array.isArray(value) && value.some((entry) =>
+    typeof entry === 'object' && entry !== null && !Array.isArray(entry) && entry.date === date,
+  )
+}
+
+function weeklyHoursCloseDay(value: Prisma.JsonValue | null, weekday: (typeof WEEKDAYS)[number]): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return !(weekday in value) || value[weekday] === null
+}
+
+/** Service-door rule only: direct provider crawls intentionally bypass this. */
+async function requireStoreOpen(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  storeId: string | null,
+  startsAt: Date,
+): Promise<void> {
+  if (!storeId) return
+  if (!await lockStoreScheduleForRead(tx, businessId, storeId)) {
+    throw new AppointmentStoreNotFoundError()
+  }
+  const { date, weekday } = jstCalendarDay(startsAt)
+  const [policy, closedDay] = await Promise.all([
+    tx.storeBookingPolicy.findFirst({
+      where: { businessId, storeId },
+      select: { weeklyHours: true, specialOpenDays: true },
+    }),
+    tx.storeClosedDay.findFirst({
+      where: { businessId, storeId, date: new Date(`${date}T00:00:00.000Z`) },
+      select: { id: true },
+    }),
+  ])
+  if (policy && hasSpecialOpening(policy.specialOpenDays, date)) return
+  if (closedDay || (policy && weeklyHoursCloseDay(policy.weeklyHours, weekday))) {
+    throw new StoreClosedError()
+  }
+}
+
+async function requireAppointmentStoreExists(
+  businessId: string,
+  storeId: string | null,
+): Promise<void> {
+  if (!storeId) return
+  const store = await prisma.store.findFirst({
+    where: { id: storeId, businessId },
+    select: { id: true },
+  })
+  if (!store) throw new AppointmentStoreNotFoundError()
+}
+
 export async function listAppointments(
   businessId: string,
   options: {
@@ -265,6 +344,12 @@ export async function createAppointment(
     throw new InvalidTimeRangeError()
   }
 
+  // Establish store tenancy before validating references that may expose a
+  // store mismatch. requireStoreOpen repeats this under the transaction's
+  // shared schedule lock, so a delete or schedule mutation cannot race the
+  // eventual appointment write.
+  await requireAppointmentStoreExists(businessId, input.store_id ?? null)
+
   // Price of record is decided HERE (Liam item 2): when a menu rides the
   // booking, core recomputes the slot price from the ACTIVE pricing rules.
   // The computed price is the CEILING of what the caller may book — a staff
@@ -318,6 +403,7 @@ export async function createAppointment(
 
   try {
     const row = await withStaffSlotLock(businessId, lockKey, async (tx) => {
+      await requireStoreOpen(tx, businessId, input.store_id ?? null, startsAt)
       // Staff overlap only applies when the row occupies staff time — a
       // staffless bedded block's conflicts are the bed EXCLUDE's job.
       if (input.staff_id) {
@@ -557,6 +643,9 @@ export async function updateAppointment(
         const effStatus = input.status ?? fresh.status
         const wasTerminal = fresh.status === 'CANCELLED' || fresh.status === 'NO_SHOW'
         const staysActive = effStatus !== 'CANCELLED' && effStatus !== 'NO_SHOW'
+        if (input.starts_at !== undefined || (wasTerminal && staysActive)) {
+          await requireStoreOpen(tx, businessId, fresh.storeId, effStartsAt)
+        }
         const slotChanged =
           effStaffId !== fresh.staffId ||
           effStartsAt.getTime() !== fresh.startsAt.getTime() ||
