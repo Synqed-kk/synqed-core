@@ -31,6 +31,7 @@ import { packRoutes } from './routes/packs.js'
 import { auditRoutes } from './routes/audit.js'
 import { recordingJobRoutes } from './routes/recording-jobs.js'
 import { aiCacheRoutes } from './routes/ai-cache.js'
+import { coachingConsentRoutes } from './routes/coaching-consent.js'
 import { authMiddleware } from './middleware/auth.js'
 import { requestContext } from './middleware/request-context.js'
 import { healthRoutes, evaluateReadiness } from './routes/health.js'
@@ -95,6 +96,7 @@ app.onError((err, c) => {
   )
 })
 
+app.route('/coaching-consent', coachingConsentRoutes)
 app.route('/customers', customerRoutes)
 app.route('/customer-links', customerLinkRoutes)
 app.route('/staff', staffRoutes)
