@@ -1,4 +1,6 @@
 export { SynqedClient, SynqedError } from './client.js'
+export type { StorePolicyWriteErrorCode } from './store-policies.js'
+export { STORE_POLICY_WRITE_ERROR_CODES, isStorePolicyWriteErrorCode } from './store-policies.js'
 export { CustomerClient } from './customers.js'
 export { StaffClient } from './staff.js'
 export { AppointmentClient } from './appointments.js'
