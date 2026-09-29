@@ -42,6 +42,8 @@ import { normalizeError } from './lib/errors.js'
 import { initSentry, captureError } from './lib/sentry.js'
 import type { AppEnv } from './types/api.js'
 
+import { memberRoutes, memberPointAdminRoutes } from './routes/members.js'
+
 initSentry()
 
 const app = new Hono<AppEnv>().basePath('/v1')
@@ -99,6 +101,8 @@ app.onError((err, c) => {
 })
 
 app.route('/coaching-consent', coachingConsentRoutes)
+app.route('/members', memberRoutes)
+app.route('/member-points', memberPointAdminRoutes)
 app.route('/customers', customerRoutes)
 app.route('/customer-links', customerLinkRoutes)
 app.route('/customer-badges', customerBadgeRoutes)
