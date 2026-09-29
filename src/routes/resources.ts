@@ -35,6 +35,20 @@ resourceRoutes.get('/', async (c) => {
   return c.json(await resourceService.listResources(businessId, { store_id: q.store_id, active }))
 })
 
+resourceRoutes.get('/available-for-appointment/:appointmentId', async c => {
+  const id = z.string().uuid().safeParse(c.req.param('appointmentId'))
+  const window = z.object({ starts_at: z.string().datetime().optional(), ends_at: z.string().datetime().optional() }).safeParse(c.req.query())
+  if (!id.success || !window.success) return c.json({ error: 'Valid appointment id and timestamps required' }, 400)
+  try {
+    const result = await resourceService.availableResourcesForAppointment(c.get('businessId'), id.data, window.data)
+    if (!result) return c.json({ error: 'Appointment not found' }, 404)
+    return c.json(result)
+  } catch (error) {
+    if (error instanceof InvalidResourceError) return c.json({ error: error.message }, 400)
+    throw error
+  }
+})
+
 resourceRoutes.post('/', async (c) => {
   const businessId = c.get('businessId')
   const body = await c.req.json().catch(() => ({}))
@@ -54,7 +68,12 @@ resourceRoutes.patch('/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const row = await resourceService.updateResource(businessId, c.req.param('id'), parsed.data)
-  if (!row) return c.json({ error: 'Resource not found' }, 404)
-  return c.json(row)
+  try {
+    const row = await resourceService.updateResource(businessId, c.req.param('id'), parsed.data)
+    if (!row) return c.json({ error: 'Resource not found' }, 404)
+    return c.json(row)
+  } catch (error) {
+    if (error instanceof InvalidResourceError) return c.json({ error: error.message }, 400)
+    throw error
+  }
 })

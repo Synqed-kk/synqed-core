@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { customerLinkRoutes } from './routes/customer-links.js'
+import { customerBadgeRoutes } from './routes/customer-badges.js'
 import { customerRoutes } from './routes/customers.js'
 import { staffRoutes } from './routes/staff.js'
 import { appointmentRoutes } from './routes/appointments.js'
@@ -100,6 +101,7 @@ app.onError((err, c) => {
 app.route('/coaching-consent', coachingConsentRoutes)
 app.route('/customers', customerRoutes)
 app.route('/customer-links', customerLinkRoutes)
+app.route('/customer-badges', customerBadgeRoutes)
 app.route('/staff', staffRoutes)
 app.route('/appointments', appointmentRoutes)
 app.route('/sync', syncRoutes)

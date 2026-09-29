@@ -15,6 +15,8 @@ export interface SynqedClientConfig {
 // ===========================================================================
 
 export interface Customer {
+  /** Staff-only annotations; never include in member/public DTOs. */
+  staff_badges: string[]
   id: string
   business_id: string
   name: string
@@ -52,6 +54,7 @@ export interface Customer {
 }
 
 export interface CreateCustomerInput {
+  staff_badges?: string[]
   name: string
   furigana?: string | null
   email?: string | null
@@ -83,6 +86,7 @@ export interface CreateCustomerInput {
 }
 
 export interface UpdateCustomerInput {
+  staff_badges?: string[]
   name?: string
   furigana?: string | null
   email?: string | null
@@ -571,6 +575,7 @@ export type AppointmentSource =
   | 'OTHER'
 
 export interface Appointment {
+  requires_private_room: boolean
   id: string
   business_id: string
   /** Null only on kind=BLOCK rows. */
@@ -626,6 +631,7 @@ export interface AppointmentStatusHistoryResponse {
 }
 
 export interface CreateAppointmentInput {
+  requires_private_room?: boolean
   /** Required for kind=BOOKING (default); forbidden for kind=BLOCK. */
   customer_id?: string
   /** Required for kind=BOOKING; a BLOCK needs staff_id OR resource_id. */
@@ -726,6 +732,7 @@ export interface ListMenusResponse {
 }
 
 export interface UpdateAppointmentInput {
+  requires_private_room?: boolean
   customer_id?: string
   staff_id?: string
   starts_at?: string
@@ -1638,3 +1645,6 @@ export interface UpdateResourceInput {
   display_order?: number
   active?: boolean
 }
+
+/** Staff-only business badge vocabulary, separate from member ranks. */
+export interface StaffBadgeDefinition { name: string; colour: string; display_order: number }
