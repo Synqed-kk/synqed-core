@@ -43,22 +43,28 @@ export async function setStaffStores(
     if (valid.length !== wanted.length) throw new Error('Store not found')
   }
 
-  await prisma.$transaction([
+  await prisma.$transaction(async tx => {
+    const staff = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM staff WHERE id = ${resolved}::uuid AND business_id = ${businessId}::uuid FOR UPDATE
+    `
+    if (!staff.length) throw new Error('Staff not found')
+    await Promise.all([
     ...wanted.map((storeId) =>
-      prisma.staffStore.upsert({
+      tx.staffStore.upsert({
         where: { staffId_storeId: { staffId: resolved, storeId } },
         create: { staffId: resolved, storeId, businessId },
         update: {},
       }),
     ),
-    prisma.staffStore.deleteMany({
+    tx.staffStore.deleteMany({
       where: {
         businessId,
         staffId: resolved,
         ...(wanted.length > 0 ? { storeId: { notIn: wanted } } : {}),
       },
     }),
-  ])
+    ])
+  })
   return { ok: true }
 }
 

@@ -11,6 +11,7 @@ import {
 import * as staffService from '../services/staff.service.js'
 import {
   StaffLastMemberError,
+  StaffLinkedScheduleError,
   StaffAttributedRecordsError,
   StaffForbiddenError,
 } from '../services/staff.service.js'
@@ -68,7 +69,7 @@ staffRoutes.delete('/:id', async (c) => {
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
     }
-    if (err instanceof StaffLastMemberError || err instanceof StaffAttributedRecordsError) {
+    if (err instanceof StaffLastMemberError || err instanceof StaffAttributedRecordsError || err instanceof StaffLinkedScheduleError) {
       return c.json({ error: err.message }, 400)
     }
     throw err
