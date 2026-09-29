@@ -49,12 +49,13 @@ async function waitForBlockedClosedDayWrite() {
 }
 
 async function fixture() {
-  const [customer, staff, store] = await Promise.all([
+  const [customer, staff, owner, store] = await Promise.all([
     seedTestCustomer(),
     seedTestStaff(),
+    seedTestStaff({ role: 'OWNER' }),
     testPrisma.store.create({ data: { businessId: TEST_BUSINESS_ID, name: 'Closed-day test' } }),
   ])
-  return { customer, staff, store }
+  return { customer, staff, owner, store }
 }
 
 function createRequest(
@@ -170,7 +171,7 @@ describe('CORE-22 store-closed appointment writes', () => {
   it('refuses a status-only restore when the saved date is now closed', async () => {
     const ids = await fixture()
     const created = await (await createRequest(ids, { status: 'CANCELLED' })).json()
-    await policyService.addClosedDay(TEST_BUSINESS_ID, ids.store.id, { date: '2026-09-22' })
+    await policyService.addClosedDay(TEST_BUSINESS_ID, ids.store.id, ids.owner.id, { date: '2026-09-22' })
 
     const response = await app.request(`/v1/appointments/${created.id}`, {
       method: 'PUT',
@@ -251,7 +252,7 @@ describe('CORE-22 store-closed appointment writes', () => {
     }, { timeout: 5000 })
     await ready
 
-    const closure = policyService.addClosedDay(TEST_BUSINESS_ID, ids.store.id, { date: '2026-09-22' })
+    const closure = policyService.addClosedDay(TEST_BUSINESS_ID, ids.store.id, ids.owner.id, { date: '2026-09-22' })
     await waitForBlockedClosedDayWrite()
     let bookingSettled = false
     const booking = createRequest(ids).finally(() => { bookingSettled = true })
