@@ -3,10 +3,16 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 
+// storageGate.hold pauses an upload between its session check and its insert.
+const storageGate = vi.hoisted(() => ({ hold: null as Promise<void> | null, reached: () => {}, removed: [] as string[] }))
 vi.mock('../src/services/storage.js', () => ({
   getStorage: vi.fn(() => ({
     from: vi.fn(() => ({
-      upload: vi.fn().mockResolvedValue({ error: null }),
+      upload: vi.fn(async () => {
+        if (storageGate.hold) { storageGate.reached(); await storageGate.hold }
+        return { error: null }
+      }),
+      remove: vi.fn(async (paths: string[]) => { storageGate.removed.push(...paths); return { error: null } }),
       createSignedUrl: vi.fn(() => ({ data: { signedUrl: 'https://fake/signed' } })),
     })),
   })),
@@ -43,6 +49,8 @@ const listPhotos = async (customerId: string) =>
   (await (await app.request(`/v1/customers/${customerId}/photos`, { headers })).json()).photos as { id: string }[]
 
 afterEach(async () => {
+  storageGate.hold = null
+  storageGate.removed.length = 0
   await testPrisma.$executeRawUnsafe(
     `DO $$ BEGIN
        PERFORM set_config('app.audit_scrub', 'on', true);
@@ -103,6 +111,49 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect((await testPrisma.recordingSession.findUnique({ where: { id: s.session.id } }))!.customerId).toBe(s.to.id)
     expect((await upload(s.to.id, s.session.id)).status).toBe(200)
     expect((await upload(s.from.id, s.session.id)).status).toBe(409)
+  })
+
+  it('an old-customer upload that passed the session check before a repoint cannot land on the old customer', async () => {
+    const s = await seed()
+    let release!: () => void
+    const reached = new Promise<void>(r => { storageGate.reached = r })
+    storageGate.hold = new Promise<void>(r => { release = r })
+    const pending = upload(s.from.id, s.session.id) // passes the first check, then waits in storage
+    await reached
+    expect((await repoint(s.karute.id, { customer_id: s.to.id })).status).toBe(200)
+    storageGate.hold = null
+    release()
+    const res = await pending
+    expect(res.status).toBe(409)
+    expect(await testPrisma.customerPhoto.count({ where: { recordingSessionId: s.session.id, customerId: s.from.id } })).toBe(0)
+    expect(storageGate.removed).toHaveLength(1) // the orphan file is cleaned up
+    expect(storageGate.removed[0]).toContain(s.from.id)
+  })
+
+  it('a session photo committed while the repoint waits on the session lock is moved too', async () => {
+    const s = await seed()
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const photoId = randomUUID()
+    // Stand-in for an upload inside its insert transaction: it holds FOR SHARE.
+    const uploadTx = testPrisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT 1 FROM recording_sessions WHERE id = ${s.session.id}::uuid FOR SHARE`
+      await tx.customerPhoto.create({ data: { id: photoId, businessId: TEST_BUSINESS_ID, customerId: s.from.id, storagePath: 'p/late.jpg', recordingSessionId: s.session.id } })
+      await gate
+    }, { timeout: 20000 })
+    await new Promise(r => setTimeout(r, 50))
+    const pending = repoint(s.karute.id, { customer_id: s.to.id })
+    // Wait until the repoint blocks on the session row lock.
+    for (let i = 0; i < 200; i++) {
+      const [{ n }] = await testPrisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`
+      if (n > 0n) break
+      await new Promise(r => setTimeout(r, 25))
+    }
+    release()
+    await uploadTx
+    expect((await (await pending).json()).moved_count).toBe(4)
+    expect((await testPrisma.customerPhoto.findUnique({ where: { id: photoId } }))!.customerId).toBe(s.to.id)
   })
 
   it('writes one audit row naming the karute, both customers and the actor', async () => {

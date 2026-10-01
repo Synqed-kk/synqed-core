@@ -843,11 +843,13 @@ export async function repointKarutePhotos(
     if (karute.customer_id !== input.customer_id) throw new Error('Target customer is not the karute customer')
     if (!karute.recording_session_id) return { moved_count: 0, photo_ids: [] }
 
-    const session = await tx.recordingSession.findFirst({
-      where: { id: karute.recording_session_id, businessId },
-      select: { customerId: true },
-    })
-    const sessionMoved = !!session && session.customerId !== input.customer_id
+    // Lock the session BEFORE reading photos: an upload holding FOR SHARE
+    // commits first (and its photo is moved below); later uploads see the
+    // new customer and are refused for the old one.
+    const [session] = await tx.$queryRaw<{ customer_id: string | null }[]>`
+      SELECT customer_id FROM recording_sessions
+      WHERE id = ${karute.recording_session_id}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`
+    const sessionMoved = !!session && session.customer_id !== input.customer_id
     if (sessionMoved) {
       await tx.recordingSession.updateMany({
         where: { id: karute.recording_session_id, businessId },
@@ -868,7 +870,7 @@ export async function repointKarutePhotos(
     }
     if (!sessionMoved && photoIds.length === 0) return { moved_count: 0, photo_ids: [] }
     const fromIds = photos.map((p) => p.customerId)
-    if (sessionMoved && session.customerId) fromIds.push(session.customerId)
+    if (sessionMoved && session.customer_id) fromIds.push(session.customer_id)
     await logEventIn(tx, businessId, {
       actor_id: actorStaffId,
       actor_staff_ref: actorStaffId,
