@@ -234,6 +234,9 @@ export function createWithKaruteNumber<T>(
         // bound the wait in Postgres (55P03 below).
         await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`karute-number:${businessId}`}, 0))`
+        // Bound only the queue: the insert may still wait on a same-email row
+        // and then take the email-idempotent path.
+        await tx.$executeRaw`RESET lock_timeout`
         const agg = await tx.customer.aggregate({
           where: { businessId },
           _max: { karuteNumber: true },
