@@ -9,6 +9,7 @@ import {
 import * as customerService from '../services/customer.service.js'
 import * as idempotencyService from '../services/idempotency.service.js'
 import { customerEnrichment } from '../services/customer-enrichment.service.js'
+import { SlotContentionError } from '../services/appointment.service.js'
 
 export const customerRoutes = new Hono<AppEnv>()
 
@@ -81,6 +82,10 @@ customerRoutes.post('/', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Guardian')) {
       return c.json({ error: err.message }, 400)
+    }
+    if (err instanceof SlotContentionError) {
+      // Retryable: the karute-number lock queue timed out.
+      return c.json({ error: err.message, code: 'SLOT_CONTENTION' }, 503, { 'Retry-After': '1' })
     }
     throw err
   }
