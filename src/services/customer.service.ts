@@ -230,6 +230,9 @@ export function createWithKaruteNumber<T>(
   return prisma
     .$transaction(
       async (tx) => {
+        // Prisma's tx timeout does not cancel a query blocked on the lock, so
+        // bound the wait in Postgres (55P03 below).
+        await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`karute-number:${businessId}`}, 0))`
         const agg = await tx.customer.aggregate({
           where: { businessId },
@@ -237,12 +240,15 @@ export function createWithKaruteNumber<T>(
         })
         return create(tx, (agg._max.karuteNumber ?? 0) + 1)
       },
-      // Same queue room and P2028 translation as withStaffSlotLock: a wait
-      // timeout is retryable contention (503), not a server error.
+      // Same queue room as withStaffSlotLock: a wait timeout (P2028, or the
+      // lock_timeout above) is retryable contention (503), not a server error.
       { maxWait: 5_000, timeout: 15_000 },
     )
     .catch((e: unknown) => {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2028') {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        (e.code === 'P2028' || (e.code === 'P2010' && e.meta?.code === '55P03'))
+      ) {
         throw new SlotContentionError('Could not allocate a karute number due to concurrent creates. Retry the request.')
       }
       throw e
