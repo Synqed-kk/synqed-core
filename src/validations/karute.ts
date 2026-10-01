@@ -129,7 +129,5 @@ export type EntryInput = z.infer<typeof entryInputSchema>
 // CORE-16: move a re-pointed karute's session photos to its new customer.
 export const repointPhotosSchema = z.object({
   customer_id: z.string().uuid(),
-  // Partial move; default = every photo in the karute's recording session.
-  photo_ids: z.array(z.string().uuid()).min(1).max(200).optional(),
 }).strict() // strict: the actor comes from the bearer token, never the body
 export type RepointPhotosInput = z.infer<typeof repointPhotosSchema>

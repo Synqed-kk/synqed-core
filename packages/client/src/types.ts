@@ -1196,8 +1196,6 @@ export interface UpdateKaruteRecordInput {
 export interface RepointKarutePhotosInput {
   /** Must equal the karute's current customer_id (re-point the karute first). */
   customer_id: string
-  /** Partial move; default = every photo in the karute's recording session. */
-  photo_ids?: string[]
 }
 
 export interface RepointKarutePhotosResponse {

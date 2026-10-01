@@ -121,15 +121,15 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect(detail.photo_ids.sort()).toEqual([...s.live, s.deleted].map(p => p.id).sort())
   })
 
-  it('keeps the customer ids in the audit detail with the largest allowed photo list', async () => {
+  it('keeps the customer ids in the audit detail for a large session', async () => {
     const s = await seed()
     const ids = Array.from({ length: 200 }, () => randomUUID())
     await testPrisma.customerPhoto.createMany({
       data: ids.map(id => ({ id, businessId: TEST_BUSINESS_ID, customerId: s.from.id, storagePath: `p/${id}.jpg`, recordingSessionId: s.session.id })),
     })
-    expect((await (await repoint(s.karute.id, { customer_id: s.to.id, photo_ids: ids })).json()).moved_count).toBe(200)
+    expect((await (await repoint(s.karute.id, { customer_id: s.to.id })).json()).moved_count).toBe(203)
     const [row] = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID, action: 'karute.photos_repoint' } })
-    expect(row.detail).toMatchObject({ from_customer_ids: [s.from.id], to_customer_id: s.to.id, photo_count: 200 })
+    expect(row.detail).toMatchObject({ from_customer_ids: [s.from.id], to_customer_id: s.to.id, photo_count: 203 })
   })
 
   it('is idempotent: a retry moves nothing, still succeeds, and writes no second audit row', async () => {
@@ -141,11 +141,10 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect(await repointAudits()).toBe(1)
   })
 
-  it('moves only the listed photos when photo_ids is given', async () => {
+  it('refuses a partial photo list: the whole session always moves together', async () => {
     const s = await seed()
-    const res = await repoint(s.karute.id, { customer_id: s.to.id, photo_ids: [s.live[0].id, s.unrelated.id] })
-    expect((await res.json()).moved_count).toBe(1) // the unrelated photo is not this karute's
-    expect((await listPhotos(s.to.id)).map(p => p.id)).toEqual([s.live[0].id])
+    expect((await repoint(s.karute.id, { customer_id: s.to.id, photo_ids: [s.live[0].id] })).status).toBe(400)
+    expect(await testPrisma.customerPhoto.count({ where: { customerId: s.to.id } })).toBe(0)
   })
 
   it('refuses a target customer in another business with 404 and changes nothing', async () => {

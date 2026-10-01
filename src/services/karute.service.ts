@@ -859,7 +859,6 @@ export async function repointKarutePhotos(
         businessId,
         recordingSessionId: karute.recording_session_id,
         customerId: { not: input.customer_id },
-        ...(input.photo_ids ? { id: { in: input.photo_ids } } : {}),
       },
       select: { id: true, customerId: true },
     })
