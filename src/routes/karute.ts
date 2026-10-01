@@ -11,6 +11,7 @@ import {
   repointPhotosSchema,
 } from '../validations/karute.js'
 import * as karuteService from '../services/karute.service.js'
+import { actorAuthMiddleware } from '../middleware/actor-auth.js'
 
 export const karuteRoutes = new Hono<AppEnv>()
 
@@ -110,15 +111,18 @@ karuteRoutes.delete('/:id', async (c) => {
 })
 
 // CORE-16: call after re-pointing the karute (PUT customer_id) so its session
-// photos follow it. customer_id must equal the karute's current customer.
-karuteRoutes.post('/:id/photos/repoint', async (c) => {
+// photos and recording session follow it. customer_id must equal the karute's
+// current customer. Actor = the verified bearer token (actor-auth contract).
+karuteRoutes.post('/:id/photos/repoint', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
+  const actor = c.get('actor')
+  if (!actor.capabilities.includes('records.write')) return c.json({ error: 'records.write required' }, 403)
   const body = await c.req.json().catch(() => ({}))
   const parsed = repointPhotosSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   try {
     return c.json(
-      await karuteService.repointKarutePhotos(businessId, c.req.param('id'), parsed.data, c.get('requestId') ?? null),
+      await karuteService.repointKarutePhotos(businessId, c.req.param('id'), parsed.data, actor.staffId, c.get('requestId') ?? null),
     )
   } catch (err) {
     if (err instanceof Error) {
@@ -126,7 +130,6 @@ karuteRoutes.post('/:id/photos/repoint', async (c) => {
         return c.json({ error: err.message }, 404)
       }
       if (err.message === 'Target customer is not the karute customer') return c.json({ error: err.message }, 409)
-      if (err.message === 'Staff not found') return c.json({ error: err.message }, 400)
     }
     throw err
   }

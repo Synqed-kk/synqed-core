@@ -822,13 +822,14 @@ export async function listEntryEdits(
 
 /** CORE-16: after a karute is re-pointed to another customer, move the photos
  *  taken in its recording session (soft-deleted ones too, so a restore lands
- *  on the right customer) onto that customer. The session link is kept: the
- *  session still belongs to this karute. Idempotent: a retry moves 0 and
- *  writes no audit row. */
+ *  on the right customer) and the session itself onto that customer. The
+ *  photo's session link is kept: the session still belongs to this karute.
+ *  Idempotent: a retry moves 0 and writes no audit row. */
 export async function repointKarutePhotos(
   businessId: string,
   karuteRecordId: string,
   input: RepointPhotosInput,
+  actorStaffId: string,
   requestId: string | null,
 ): Promise<{ moved_count: number; photo_ids: string[] }> {
   return prisma.$transaction(async (tx) => {
@@ -840,13 +841,19 @@ export async function repointKarutePhotos(
     const customer = await tx.customer.findFirst({ where: { id: input.customer_id, businessId }, select: { id: true } })
     if (!customer) throw new Error('Customer not found')
     if (karute.customer_id !== input.customer_id) throw new Error('Target customer is not the karute customer')
-    const actor = await tx.staff.findFirst({
-      where: { businessId, OR: [{ id: input.actor_staff_id }, { userId: input.actor_staff_id }] },
-      select: { id: true },
-    })
-    if (!actor) throw new Error('Staff not found')
     if (!karute.recording_session_id) return { moved_count: 0, photo_ids: [] }
 
+    const session = await tx.recordingSession.findFirst({
+      where: { id: karute.recording_session_id, businessId },
+      select: { customerId: true },
+    })
+    const sessionMoved = !!session && session.customerId !== input.customer_id
+    if (sessionMoved) {
+      await tx.recordingSession.updateMany({
+        where: { id: karute.recording_session_id, businessId },
+        data: { customerId: input.customer_id },
+      })
+    }
     const photos = await tx.customerPhoto.findMany({
       where: {
         businessId,
@@ -856,11 +863,16 @@ export async function repointKarutePhotos(
       },
       select: { id: true, customerId: true },
     })
-    if (photos.length === 0) return { moved_count: 0, photo_ids: [] }
     const photoIds = photos.map((p) => p.id)
-    await tx.customerPhoto.updateMany({ where: { id: { in: photoIds } }, data: { customerId: input.customer_id } })
+    if (photoIds.length > 0) {
+      await tx.customerPhoto.updateMany({ where: { id: { in: photoIds } }, data: { customerId: input.customer_id } })
+    }
+    if (!sessionMoved && photoIds.length === 0) return { moved_count: 0, photo_ids: [] }
+    const fromIds = photos.map((p) => p.customerId)
+    if (sessionMoved && session.customerId) fromIds.push(session.customerId)
     await logEventIn(tx, businessId, {
-      actor_id: input.actor_staff_id,
+      actor_id: actorStaffId,
+      actor_staff_ref: actorStaffId,
       actor_type: 'staff',
       request_id: requestId,
       category: 'karute',
@@ -868,9 +880,13 @@ export async function repointKarutePhotos(
       target_type: 'karute',
       target_id: karuteRecordId,
       detail: {
-        from_customer_ids: [...new Set(photos.map((p) => p.customerId))],
+        from_customer_ids: [...new Set(fromIds)],
         to_customer_id: input.customer_id,
-        photo_ids: photoIds,
+        recording_session_id: karute.recording_session_id,
+        photo_count: photoIds.length,
+        // The audit service replaces any detail over 2 KiB with a truncated
+        // blob; 30 ids keep the customer ids above always readable.
+        photo_ids: photoIds.slice(0, 30),
       },
     })
     return { moved_count: photoIds.length, photo_ids: photoIds }
