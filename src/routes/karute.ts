@@ -85,6 +85,9 @@ karuteRoutes.put('/:id', async (c) => {
     const rec = await karuteService.updateKaruteRecord(businessId, c.req.param('id'), parsed.data)
     return c.json(rec)
   } catch (err) {
+    if (err instanceof karuteService.ConditionConflictError) {
+      return c.json({ error: 'conflict', field: err.field, current: err.current }, 409)
+    }
     if (err instanceof Error && err.message === 'Karute record not found') {
       return c.json({ error: 'Karute record not found' }, 404)
     }

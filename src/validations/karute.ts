@@ -45,6 +45,9 @@ export const createKaruteRecordSchema = z.object({
 export const updateKaruteRecordSchema = z.object({
   customer_id: z.string().uuid().nullable().optional(),
   appointment_id: z.string().uuid().nullable().optional(),
+  // CORE-58: when present, the whole update applies only if the row's current
+  // appointment_id equals this (null = still unlinked); otherwise 409.
+  if_appointment_id_is: z.string().uuid().nullable().optional(),
   status: karuteStatusSchema.optional(),
   ai_summary: z.string().nullable().optional(),
   // Human overlay — the pencil's summary correction. AI paths must never send it.

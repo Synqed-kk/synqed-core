@@ -174,7 +174,7 @@ export class SynqedClient {
       : typeof error?.message === 'string' ? error.message : 'Request failed'
     const code = typeof error?.code === 'string' ? error.code
       : typeof body?.code === 'string' ? body.code : undefined
-    return new SynqedError(res.status, message, code)
+    return new SynqedError(res.status, message, code, typeof body === 'object' && body !== null ? body : undefined)
   }
 }
 
@@ -183,6 +183,8 @@ export class SynqedError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    /** The parsed JSON error body, e.g. a 409 conflict's `{ error, field, current }`. */
+    public body?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'SynqedError'

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types/api.js'
 import * as outcomeService from '../services/karute-outcome.service.js'
+import { ConditionConflictError } from '../services/karute.service.js'
 
 export const karuteOutcomeRoutes = new Hono<AppEnv>()
 const recordFiltersSchema = z.object({
@@ -52,16 +53,24 @@ karuteOutcomeRoutes.put('/', async (c) => {
   if (typeof b.karute_record_id !== 'string' || typeof b.outcome !== 'string') {
     return c.json({ error: 'karute_record_id and outcome required' }, 400)
   }
-  const outcome = await outcomeService.upsertOutcome(businessId, {
-    karute_record_id: b.karute_record_id,
-    customer_id: typeof b.customer_id === 'string' ? b.customer_id : null,
-    outcome: b.outcome,
-    reason: typeof b.reason === 'string' ? b.reason : null,
-    decision_context: b.decision_context === 'conversion' || b.decision_context === 'repurchase' ? b.decision_context : null,
-    is_first_visit: typeof b.is_first_visit === 'boolean' ? b.is_first_visit : false,
-    decided_by: typeof b.decided_by === 'string' ? b.decided_by : null,
-    decided_at: typeof b.decided_at === 'string' ? b.decided_at : null,
-    auto_decided: typeof b.auto_decided === 'boolean' ? b.auto_decided : false,
-  })
-  return c.json(outcome)
+  try {
+    const outcome = await outcomeService.upsertOutcome(businessId, {
+      karute_record_id: b.karute_record_id,
+      customer_id: typeof b.customer_id === 'string' ? b.customer_id : null,
+      outcome: b.outcome,
+      reason: typeof b.reason === 'string' ? b.reason : null,
+      decision_context: b.decision_context === 'conversion' || b.decision_context === 'repurchase' ? b.decision_context : null,
+      is_first_visit: typeof b.is_first_visit === 'boolean' ? b.is_first_visit : false,
+      decided_by: typeof b.decided_by === 'string' ? b.decided_by : null,
+      decided_at: typeof b.decided_at === 'string' ? b.decided_at : null,
+      auto_decided: typeof b.auto_decided === 'boolean' ? b.auto_decided : false,
+      if_not_decided: b.if_not_decided === true,
+    })
+    return c.json(outcome)
+  } catch (err) {
+    if (err instanceof ConditionConflictError) {
+      return c.json({ error: 'conflict', field: err.field, current: err.current }, 409)
+    }
+    throw err
+  }
 })
