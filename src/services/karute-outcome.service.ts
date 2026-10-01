@@ -90,14 +90,16 @@ export async function upsertOutcome(
     // CORE-58: one statement. DECIDED (refused) = the row exists, is not
     // 'pending', and either the incoming value is 'pending' or the row was
     // not auto-decided. ON CONFLICT ... WHERE false updates nothing and
-    // returns no row. The business_id term keeps another business's row
-    // out of reach.
+    // returns no row. The EXISTS and business_id terms keep another
+    // business's record and row out of reach.
     const rows = await prisma.$queryRaw<Array<Omit<KaruteOutcomePublic, 'decided_at'> & { decided_at: Date | null }>>(Prisma.sql`
       INSERT INTO karute_outcomes (karute_record_id, business_id, customer_id, outcome, reason,
         decision_context, is_first_visit, decided_by, decided_at, auto_decided, updated_at)
-      VALUES (${input.karute_record_id}::uuid, ${businessId}::uuid, ${data.customerId}::uuid, ${data.outcome},
+      SELECT ${input.karute_record_id}::uuid, ${businessId}::uuid, ${data.customerId}::uuid, ${data.outcome},
         ${data.reason}, ${data.decisionContext}, ${data.isFirstVisit}, ${data.decidedBy}::uuid,
-        ${data.decidedAt}::timestamptz, ${data.autoDecided}, now())
+        ${data.decidedAt}::timestamptz, ${data.autoDecided}, now()
+      WHERE EXISTS (SELECT 1 FROM karute_records
+        WHERE id = ${input.karute_record_id}::uuid AND business_id = ${businessId}::uuid)
       ON CONFLICT (karute_record_id) DO UPDATE SET customer_id = EXCLUDED.customer_id,
         outcome = EXCLUDED.outcome, reason = EXCLUDED.reason, decision_context = EXCLUDED.decision_context,
         is_first_visit = EXCLUDED.is_first_visit, decided_by = EXCLUDED.decided_by,
@@ -109,8 +111,8 @@ export async function upsertOutcome(
         is_first_visit, decided_by, decided_at, auto_decided
     `)
     if (rows.length === 0) {
-      // No row back and none in this business: the row belongs to another
-      // business. Answer as if it does not exist; never echo its outcome.
+      // No row back and none in this business: the record is not ours (or
+      // does not exist). Answer 404; never echo another business's outcome.
       const current = await prisma.karuteOutcome.findFirst({
         where: { karuteRecordId: input.karute_record_id, businessId },
       })

@@ -290,4 +290,18 @@ describe('CORE-58 interleaved writes and tenant scope', () => {
     expect(res.status).toBe(400)
     expect(await snapshotOutcome(rec.id)).toBe(before)
   })
+
+  it("outcomes: a conditional write cannot claim another business's record that has no outcome yet", async () => {
+    const { rec } = await seedRecord()
+    const foreign = await app.request('/v1/karute-outcomes', {
+      method: 'PUT',
+      headers: { ...headers, 'x-business-id': OTHER_BUSINESS },
+      body: JSON.stringify({ karute_record_id: rec.id, outcome: 'pending', if_not_decided: true }),
+    })
+    expect(foreign.status).toBe(404)
+    expect(await testPrisma.karuteOutcome.count({ where: { karuteRecordId: rec.id } })).toBe(0)
+    const own = await req('PUT', '/karute-outcomes', { karute_record_id: rec.id, outcome: 'success', if_not_decided: true })
+    expect(own.status).toBe(200)
+  })
 })
+
