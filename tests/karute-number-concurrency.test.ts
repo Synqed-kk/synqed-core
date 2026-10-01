@@ -87,13 +87,13 @@ describe('createCustomer karute number allocation under concurrency', () => {
       await tx.customer.create({ data: { businessId: TEST_BUSINESS_ID, name: '先客', email: 'same@example.com', karuteNumber: 999 } })
       inserted()
       await new Promise<void>(r => (release = r))
-    }, { timeout: 20_000 })
+    }, { timeout: 40_000 })
     await isInserted
     const create = createCustomer(TEST_BUSINESS_ID, { name: '後客', email: 'same@example.com' })
-    await new Promise(r => setTimeout(r, 6_000))
+    await new Promise(r => setTimeout(r, 16_000))
     release()
     await holder
     expect((await create).karute_number).toBe(999)
-  }, 20_000)
+  }, 40_000)
 })
 

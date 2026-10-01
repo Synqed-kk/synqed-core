@@ -329,7 +329,9 @@ export async function createCustomer(
       )
       return toCustomer(row)
     } catch (e) {
-      if (input.email && isUniqueViolation(e, 'email')) {
+      // A same-email row can hold our insert past the tx timeout (503); once
+      // it commits, that customer is the idempotent answer.
+      if (input.email && (isUniqueViolation(e, 'email') || e instanceof SlotContentionError)) {
         const existing = await prisma.customer.findFirst({
           where: { businessId, email: input.email },
         })
