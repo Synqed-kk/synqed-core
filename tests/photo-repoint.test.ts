@@ -174,12 +174,17 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect(rows[0]).toMatchObject({ category: 'karute', targetType: 'karute', targetId: s.karute.id, actorType: 'staff', actorId: s.staff.id, actorStaffRef: s.staff.id })
     expect(rows[0].detail).not.toHaveProperty('truncated')
     expect(rows[0].requestId).toBeTruthy()
-    const detail = rows[0].detail as { from_customer_ids: string[]; to_customer_id: string; recording_session_id: string; photo_count: number; photo_ids: string[] }
+    const detail = rows[0].detail as { from_customer_ids: string[]; to_customer_id: string; recording_session_id: string; photo_count: number }
     expect(detail.from_customer_ids).toEqual([s.from.id])
     expect(detail.to_customer_id).toBe(s.to.id)
     expect(detail.recording_session_id).toBe(s.session.id)
     expect(detail.photo_count).toBe(3)
-    expect(detail.photo_ids.sort()).toEqual([...s.live, s.deleted].map(p => p.id).sort())
+    expect(detail).not.toHaveProperty('photo_ids')
+  })
+
+  it('answers 404 for a karute id that is not a uuid', async () => {
+    await seed()
+    expect((await repoint('not-a-uuid', { customer_id: randomUUID() })).status).toBe(404)
   })
 
   it('keeps the customer ids in the audit detail for a large session', async () => {

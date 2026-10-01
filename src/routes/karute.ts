@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { Hono } from 'hono'
 import type { AppEnv } from '../types/api.js'
 import {
@@ -117,6 +118,7 @@ karuteRoutes.post('/:id/photos/repoint', actorAuthMiddleware, async (c) => {
   const businessId = c.get('businessId')
   const actor = c.get('actor')
   if (!actor.capabilities.includes('records.write')) return c.json({ error: 'records.write required' }, 403)
+  if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Karute record not found' }, 404)
   const body = await c.req.json().catch(() => ({}))
   const parsed = repointPhotosSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)

@@ -884,10 +884,9 @@ export async function repointKarutePhotos(
         from_customer_ids: [...new Set(fromIds)],
         to_customer_id: input.customer_id,
         recording_session_id: karute.recording_session_id,
+        // A count, not the ids: the audit service replaces any detail over
+        // 2 KiB with a truncated blob, which would lose the customer ids.
         photo_count: photoIds.length,
-        // The audit service replaces any detail over 2 KiB with a truncated
-        // blob; 30 ids keep the customer ids above always readable.
-        photo_ids: photoIds.slice(0, 30),
       },
     })
     return { moved_count: photoIds.length, photo_ids: photoIds }
