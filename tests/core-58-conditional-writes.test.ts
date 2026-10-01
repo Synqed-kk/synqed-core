@@ -226,12 +226,24 @@ describe('CORE-58 SDK', () => {
 // row lock in another session, send the conditional write while it waits, and
 // change the row before the lock is released: only a check made BY the write
 // sees the change.
+// Proves the write has reached the database and is blocked, so the change
+// below cannot commit before the write starts.
+async function untilAnotherSessionWaitsOnALock() {
+  for (let i = 0; i < 100; i++) {
+    const [{ n }] = await testPrisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'`
+    if (n > 0) return
+    await new Promise(r => setTimeout(r, 50))
+  }
+  throw new Error('the conditional write never blocked on the row lock')
+}
 async function whileRowLocked(lock: (tx: any) => Promise<unknown>, change: (tx: any) => Promise<unknown>, write: () => Promise<Response>) {
   let res!: Promise<Response>
   await testPrisma.$transaction(async (tx) => {
     await lock(tx)
     res = write()
-    await new Promise(r => setTimeout(r, 300))
+    await untilAnotherSessionWaitsOnALock()
     await change(tx)
   }, { timeout: 10_000 })
   return res
