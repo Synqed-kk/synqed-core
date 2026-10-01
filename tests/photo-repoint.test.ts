@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 
 // storageGate.hold pauses an upload between its session check and its insert.
-const storageGate = vi.hoisted(() => ({ hold: null as Promise<void> | null, reached: () => {}, removed: [] as string[] }))
+const storageGate = vi.hoisted(() => ({ hold: null as Promise<void> | null, reached: () => {}, removed: [] as string[], onRemove: null as null | (() => Promise<void>) }))
 vi.mock('../src/services/storage.js', () => ({
   getStorage: vi.fn(() => ({
     from: vi.fn(() => ({
@@ -12,7 +12,7 @@ vi.mock('../src/services/storage.js', () => ({
         if (storageGate.hold) { storageGate.reached(); await storageGate.hold }
         return { error: null }
       }),
-      remove: vi.fn(async (paths: string[]) => { storageGate.removed.push(...paths); return { error: null } }),
+      remove: vi.fn(async (paths: string[]) => { storageGate.removed.push(...paths); await storageGate.onRemove?.(); return { error: null } }),
       createSignedUrl: vi.fn(() => ({ data: { signedUrl: 'https://fake/signed' } })),
     })),
   })),
@@ -51,6 +51,7 @@ const listPhotos = async (customerId: string) =>
 afterEach(async () => {
   storageGate.hold = null
   storageGate.removed.length = 0
+  storageGate.onRemove = null
   await testPrisma.$executeRawUnsafe(
     `DO $$ BEGIN
        PERFORM set_config('app.audit_scrub', 'on', true);
@@ -121,6 +122,14 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     const pending = upload(s.from.id, s.session.id) // passes the first check, then waits in storage
     await reached
     expect((await repoint(s.karute.id, { customer_id: s.to.id })).status).toBe(200)
+    // The remove runs after the upload's transaction ends (its share lock is
+    // gone), and a remove that throws does not replace the 409.
+    let lockFreeAtRemove = false
+    storageGate.onRemove = async () => {
+      await testPrisma.$transaction(tx => tx.$queryRaw`SELECT 1 FROM recording_sessions WHERE id = ${s.session.id}::uuid FOR UPDATE NOWAIT`)
+      lockFreeAtRemove = true
+      throw new Error('storage down')
+    }
     storageGate.hold = null
     release()
     const res = await pending
@@ -128,6 +137,7 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect(await testPrisma.customerPhoto.count({ where: { recordingSessionId: s.session.id, customerId: s.from.id } })).toBe(0)
     expect(storageGate.removed).toHaveLength(1) // the orphan file is cleaned up
     expect(storageGate.removed[0]).toContain(s.from.id)
+    expect(lockFreeAtRemove).toBe(true)
   })
 
   it('a session photo committed while the repoint waits on the session lock is moved too', async () => {
