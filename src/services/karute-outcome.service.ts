@@ -90,7 +90,8 @@ export async function upsertOutcome(
     // CORE-58: one statement. DECIDED (refused) = the row exists, is not
     // 'pending', and either the incoming value is 'pending' or the row was
     // not auto-decided. ON CONFLICT ... WHERE false updates nothing and
-    // returns no row.
+    // returns no row. The business_id term keeps another business's row
+    // out of reach.
     const rows = await prisma.$queryRaw<Array<Omit<KaruteOutcomePublic, 'decided_at'> & { decided_at: Date | null }>>(Prisma.sql`
       INSERT INTO karute_outcomes (karute_record_id, business_id, customer_id, outcome, reason,
         decision_context, is_first_visit, decided_by, decided_at, auto_decided, updated_at)
@@ -101,14 +102,20 @@ export async function upsertOutcome(
         outcome = EXCLUDED.outcome, reason = EXCLUDED.reason, decision_context = EXCLUDED.decision_context,
         is_first_visit = EXCLUDED.is_first_visit, decided_by = EXCLUDED.decided_by,
         decided_at = EXCLUDED.decided_at, auto_decided = EXCLUDED.auto_decided, updated_at = now()
-      WHERE karute_outcomes.outcome = 'pending'
-        OR (EXCLUDED.outcome <> 'pending' AND karute_outcomes.auto_decided)
+      WHERE karute_outcomes.business_id = ${businessId}::uuid
+        AND (karute_outcomes.outcome = 'pending'
+          OR (EXCLUDED.outcome <> 'pending' AND karute_outcomes.auto_decided))
       RETURNING karute_record_id, customer_id, outcome, reason, decision_context,
         is_first_visit, decided_by, decided_at, auto_decided
     `)
     if (rows.length === 0) {
-      const current = await prisma.karuteOutcome.findUnique({ where: { karuteRecordId: input.karute_record_id } })
-      throw new ConditionConflictError('outcome', current?.outcome ?? null)
+      // No row back and none in this business: the row belongs to another
+      // business. Answer as if it does not exist; never echo its outcome.
+      const current = await prisma.karuteOutcome.findFirst({
+        where: { karuteRecordId: input.karute_record_id, businessId },
+      })
+      if (!current) throw new Error('Outcome not found')
+      throw new ConditionConflictError('outcome', current.outcome)
     }
     return { ...rows[0], decided_at: rows[0].decided_at?.toISOString() ?? null }
   }

@@ -456,7 +456,7 @@ export async function updateKaruteRecord(
       data,
       include: { entries: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
     })
-  })
+  }, { maxWait: 5_000, timeout: 15_000 }) // a large entries replace must not hit Prisma's 5 s default
 
   if (replaceBatchId !== undefined) {
     for (const created of row.entries) {
@@ -496,7 +496,6 @@ export async function deleteKaruteRecord(businessId: string, id: string): Promis
   ])
 }
 
-/** Optimistic-concurrency failure — routes map it to 409. */
 /** A conditional write (CORE-58) found the row not in the expected state. */
 export class ConditionConflictError extends Error {
   constructor(public field: string, public current: string | null) {
@@ -505,6 +504,7 @@ export class ConditionConflictError extends Error {
   }
 }
 
+/** Optimistic-concurrency failure — routes map it to 409. */
 export class StaleEntryVersionError extends Error {
   currentVersion: number
   constructor(currentVersion: number) {

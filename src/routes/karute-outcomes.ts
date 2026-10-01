@@ -53,6 +53,11 @@ karuteOutcomeRoutes.put('/', async (c) => {
   if (typeof b.karute_record_id !== 'string' || typeof b.outcome !== 'string') {
     return c.json({ error: 'karute_record_id and outcome required' }, 400)
   }
+  // A guard that is misspelled as "true" must not fall open to an
+  // unconditional overwrite.
+  if (b.if_not_decided !== undefined && typeof b.if_not_decided !== 'boolean') {
+    return c.json({ error: 'if_not_decided must be a boolean' }, 400)
+  }
   try {
     const outcome = await outcomeService.upsertOutcome(businessId, {
       karute_record_id: b.karute_record_id,
@@ -70,6 +75,9 @@ karuteOutcomeRoutes.put('/', async (c) => {
   } catch (err) {
     if (err instanceof ConditionConflictError) {
       return c.json({ error: 'conflict', field: err.field, current: err.current }, 409)
+    }
+    if (err instanceof Error && err.message === 'Outcome not found') {
+      return c.json({ error: 'Outcome not found' }, 404)
     }
     throw err
   }

@@ -221,3 +221,73 @@ describe('CORE-58 SDK', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string)).toEqual({ if_appointment_id_is: null, appointment_id: 'a' })
   })
 })
+
+// A read-then-write version passes the sequential tests above. These hold the
+// row lock in another session, send the conditional write while it waits, and
+// change the row before the lock is released: only a check made BY the write
+// sees the change.
+async function whileRowLocked(lock: (tx: any) => Promise<unknown>, change: (tx: any) => Promise<unknown>, write: () => Promise<Response>) {
+  let res!: Promise<Response>
+  await testPrisma.$transaction(async (tx) => {
+    await lock(tx)
+    res = write()
+    await new Promise(r => setTimeout(r, 300))
+    await change(tx)
+  }, { timeout: 10_000 })
+  return res
+}
+
+describe('CORE-58 interleaved writes and tenant scope', () => {
+  const OTHER_BUSINESS = '00000000-0000-0000-0000-0000000000b2'
+  afterEach(() => testPrisma.karuteOutcome.deleteMany({ where: { businessId: OTHER_BUSINESS } }))
+
+  it('records: a link committed while the conditional write waits → 409, the staff link stands', async () => {
+    const { rec } = await seedRecord()
+    const res = await whileRowLocked(
+      tx => tx.$executeRaw`SELECT 1 FROM karute_records WHERE id = ${rec.id}::uuid FOR UPDATE`,
+      tx => tx.karuteRecord.update({ where: { id: rec.id }, data: { appointmentId: APPT_B } }),
+      () => req('PUT', `/karute-records/${rec.id}`, { appointment_id: APPT_A, if_appointment_id_is: null }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'conflict', field: 'appointment_id', current: APPT_B })
+    expect((await testPrisma.karuteRecord.findUnique({ where: { id: rec.id } }))?.appointmentId).toBe(APPT_B)
+  })
+
+  it('outcomes: a staff answer committed while the job write waits → 409, the answer stands', async () => {
+    const { rec } = await seedRecord()
+    await testPrisma.karuteOutcome.create({ data: { karuteRecordId: rec.id, businessId: TEST_BUSINESS_ID, outcome: 'pending' } })
+    const res = await whileRowLocked(
+      tx => tx.$executeRaw`SELECT 1 FROM karute_outcomes WHERE karute_record_id = ${rec.id}::uuid FOR UPDATE`,
+      tx => tx.karuteOutcome.update({ where: { karuteRecordId: rec.id }, data: { outcome: 'no_deal', autoDecided: false } }),
+      () => req('PUT', '/karute-outcomes', { karute_record_id: rec.id, outcome: 'success', auto_decided: true, if_not_decided: true }),
+    )
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'conflict', field: 'outcome', current: 'no_deal' })
+    expect((await testPrisma.karuteOutcome.findUnique({ where: { karuteRecordId: rec.id } }))?.outcome).toBe('no_deal')
+  })
+
+  it("outcomes: another business's row is neither written nor disclosed", async () => {
+    const recordId = 'cccccccc-0000-4000-8000-000000000003'
+    for (const outcome of ['pending', 'success']) {
+      await testPrisma.karuteOutcome.upsert({
+        where: { karuteRecordId: recordId },
+        create: { karuteRecordId: recordId, businessId: OTHER_BUSINESS, outcome },
+        update: { outcome },
+      })
+      const before = await snapshotOutcome(recordId)
+      const res = await req('PUT', '/karute-outcomes', { karute_record_id: recordId, outcome: 'no_deal', if_not_decided: true })
+      expect(res.status).toBe(404)
+      expect(JSON.stringify(await res.json())).not.toContain('success')
+      expect(await snapshotOutcome(recordId)).toBe(before)
+    }
+  })
+
+  it('outcomes: a non-boolean if_not_decided is refused, not run unconditionally', async () => {
+    const { rec } = await seedRecord()
+    await testPrisma.karuteOutcome.create({ data: { karuteRecordId: rec.id, businessId: TEST_BUSINESS_ID, outcome: 'success' } })
+    const before = await snapshotOutcome(rec.id)
+    const res = await req('PUT', '/karute-outcomes', { karute_record_id: rec.id, outcome: 'pending', if_not_decided: 'true' })
+    expect(res.status).toBe(400)
+    expect(await snapshotOutcome(rec.id)).toBe(before)
+  })
+})
