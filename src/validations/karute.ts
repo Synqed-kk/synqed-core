@@ -125,3 +125,13 @@ export const listKaruteRecordsSchema = z.object({
 export type CreateKaruteRecordInput = z.infer<typeof createKaruteRecordSchema>
 export type UpdateKaruteRecordInput = z.infer<typeof updateKaruteRecordSchema>
 export type EntryInput = z.infer<typeof entryInputSchema>
+
+// CORE-16: move a re-pointed karute's session photos to its new customer.
+export const repointPhotosSchema = z.object({
+  customer_id: z.string().uuid(),
+  // Staff card id or auth user id; the audit row names this actor.
+  actor_staff_id: z.string().uuid(),
+  // Partial move; default = every photo in the karute's recording session.
+  photo_ids: z.array(z.string().uuid()).min(1).max(200).optional(),
+})
+export type RepointPhotosInput = z.infer<typeof repointPhotosSchema>

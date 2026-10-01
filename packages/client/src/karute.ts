@@ -11,6 +11,8 @@ import type {
   UpdateKaruteRecordInput,
   ListKaruteRecordsOptions,
   ListKaruteRecordsResponse,
+  RepointKarutePhotosInput,
+  RepointKarutePhotosResponse,
 } from './types.js'
 
 export interface GetKaruteRecordOptions {
@@ -72,6 +74,15 @@ export class KaruteRecordClient {
   async update(id: string, input: UpdateKaruteRecordInput): Promise<KaruteRecord> {
     return this.client.fetch<KaruteRecord>(`/karute-records/${id}`, {
       method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  }
+
+  /** Call after update(id, { customer_id }) so the karute's photos follow it.
+   *  Idempotent: a retry answers moved_count 0. */
+  async repointPhotos(id: string, input: RepointKarutePhotosInput): Promise<RepointKarutePhotosResponse> {
+    return this.client.fetch<RepointKarutePhotosResponse>(`/karute-records/${id}/photos/repoint`, {
+      method: 'POST',
       body: JSON.stringify(input),
     })
   }

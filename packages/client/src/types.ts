@@ -1190,6 +1190,22 @@ export interface UpdateKaruteRecordInput {
   model?: string | null
 }
 
+/** Move a re-pointed karute's session photos to its new customer (CORE-16). */
+export interface RepointKarutePhotosInput {
+  /** Must equal the karute's current customer_id (re-point the karute first). */
+  customer_id: string
+  /** Staff card id or auth user id; named in the audit row. */
+  actor_staff_id: string
+  /** Partial move; default = every photo in the karute's recording session. */
+  photo_ids?: string[]
+}
+
+export interface RepointKarutePhotosResponse {
+  /** 0 on a retry: nothing left to move. */
+  moved_count: number
+  photo_ids: string[]
+}
+
 export interface ListKaruteRecordsOptions {
   customer_id?: string
   store_id?: string

@@ -106,6 +106,8 @@ export type {
   EntryCategory,
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
+  RepointKarutePhotosInput,
+  RepointKarutePhotosResponse,
   ListKaruteRecordsOptions,
   ListKaruteRecordsResponse,
 

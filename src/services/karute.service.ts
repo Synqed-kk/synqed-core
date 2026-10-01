@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db/client.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
+import { logEventIn } from './audit.service.js'
 import type { KaruteStatus, EntryCategory, EntryAuthor, EntryEditAction } from '@prisma/client'
 import type {
   CreateKaruteRecordInput,
   UpdateKaruteRecordInput,
   EntryInput,
+  RepointPhotosInput,
 } from '../validations/karute.js'
 
 export interface EntryPublic {
@@ -816,4 +818,61 @@ export async function listEntryEdits(
     page,
     page_size: pageSize,
   }
+}
+
+/** CORE-16: after a karute is re-pointed to another customer, move the photos
+ *  taken in its recording session (soft-deleted ones too, so a restore lands
+ *  on the right customer) onto that customer. The session link is kept: the
+ *  session still belongs to this karute. Idempotent: a retry moves 0 and
+ *  writes no audit row. */
+export async function repointKarutePhotos(
+  businessId: string,
+  karuteRecordId: string,
+  input: RepointPhotosInput,
+  requestId: string | null,
+): Promise<{ moved_count: number; photo_ids: string[] }> {
+  return prisma.$transaction(async (tx) => {
+    // Row lock: serializes retries and a concurrent re-point of this karute.
+    const [karute] = await tx.$queryRaw<{ customer_id: string | null; recording_session_id: string | null }[]>`
+      SELECT customer_id, recording_session_id FROM karute_records
+      WHERE id = ${karuteRecordId}::uuid AND business_id = ${businessId}::uuid FOR UPDATE`
+    if (!karute) throw new Error('Karute record not found')
+    const customer = await tx.customer.findFirst({ where: { id: input.customer_id, businessId }, select: { id: true } })
+    if (!customer) throw new Error('Customer not found')
+    if (karute.customer_id !== input.customer_id) throw new Error('Target customer is not the karute customer')
+    const actor = await tx.staff.findFirst({
+      where: { businessId, OR: [{ id: input.actor_staff_id }, { userId: input.actor_staff_id }] },
+      select: { id: true },
+    })
+    if (!actor) throw new Error('Staff not found')
+    if (!karute.recording_session_id) return { moved_count: 0, photo_ids: [] }
+
+    const photos = await tx.customerPhoto.findMany({
+      where: {
+        businessId,
+        recordingSessionId: karute.recording_session_id,
+        customerId: { not: input.customer_id },
+        ...(input.photo_ids ? { id: { in: input.photo_ids } } : {}),
+      },
+      select: { id: true, customerId: true },
+    })
+    if (photos.length === 0) return { moved_count: 0, photo_ids: [] }
+    const photoIds = photos.map((p) => p.id)
+    await tx.customerPhoto.updateMany({ where: { id: { in: photoIds } }, data: { customerId: input.customer_id } })
+    await logEventIn(tx, businessId, {
+      actor_id: input.actor_staff_id,
+      actor_type: 'staff',
+      request_id: requestId,
+      category: 'karute',
+      action: 'karute.photos_repoint',
+      target_type: 'karute',
+      target_id: karuteRecordId,
+      detail: {
+        from_customer_ids: [...new Set(photos.map((p) => p.customerId))],
+        to_customer_id: input.customer_id,
+        photo_ids: photoIds,
+      },
+    })
+    return { moved_count: photoIds.length, photo_ids: photoIds }
+  })
 }
