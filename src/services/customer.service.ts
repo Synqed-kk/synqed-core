@@ -3,6 +3,8 @@ import { mergedCustomerTarget, resolveMergedCustomer } from './customer-merge.se
 import { prisma } from '../db/client.js'
 import { getStorage } from './storage.js'
 import { isUniqueViolation } from '../db/prisma-errors.js'
+import { SlotContentionError } from './appointment.service.js'
+import { Prisma } from '@prisma/client'
 import type {
   Customer,
   CreateCustomerInput,
@@ -216,16 +218,44 @@ export async function getCustomer(
 }
 
 /**
- * Next per-business chart number (カルテNo). max+1 over the business's
- * customers; the partial-unique index (business_id, karute_number) backstops
- * the rare concurrent-create race with a constraint error.
+ * Insert a customer with the next per-business chart number (カルテNo).
+ * max+1 and the insert run in one transaction under a per-business advisory
+ * lock, so concurrent creates queue instead of colliding (CORE-39). The
+ * unique index (business_id, karute_number) stays as the last wall.
  */
-export async function nextKaruteNumber(businessId: string): Promise<number> {
-  const agg = await prisma.customer.aggregate({
-    where: { businessId },
-    _max: { karuteNumber: true },
-  })
-  return (agg._max.karuteNumber ?? 0) + 1
+export function createWithKaruteNumber<T>(
+  businessId: string,
+  create: (tx: Prisma.TransactionClient, karuteNumber: number) => Promise<T>,
+): Promise<T> {
+  return prisma
+    .$transaction(
+      async (tx) => {
+        // Prisma's tx timeout does not cancel a query blocked on the lock, so
+        // bound the wait in Postgres (55P03 below).
+        await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`karute-number:${businessId}`}, 0))`
+        // Bound only the queue: the insert may still wait on a same-email row
+        // and then take the email-idempotent path.
+        await tx.$executeRaw`SET LOCAL lock_timeout = DEFAULT`
+        const agg = await tx.customer.aggregate({
+          where: { businessId },
+          _max: { karuteNumber: true },
+        })
+        return create(tx, (agg._max.karuteNumber ?? 0) + 1)
+      },
+      // Same queue room as withStaffSlotLock: a wait timeout (P2028, or the
+      // lock_timeout above) is retryable contention (503), not a server error.
+      { maxWait: 5_000, timeout: 15_000 },
+    )
+    .catch((e: unknown) => {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        (e.code === 'P2028' || (e.code === 'P2010' && e.meta?.code === '55P03'))
+      ) {
+        throw new SlotContentionError('Could not allocate a karute number due to concurrent creates. Retry the request.')
+      }
+      throw e
+    })
 }
 
 /** Guardian sanity (msg-7 item 3): must exist in the SAME business and must
@@ -248,7 +278,8 @@ export async function createCustomer(
   //    find-or-creates by NAME and collides on email for the SAME person under
   //    a drifted/unlisted name — that is the live 500. Callers that need
   //    "new only" (manual add) compare the returned name themselves.
-  //  • karuteNumber race (nextKaruteNumber is a non-atomic max+1) → retry.
+  //  • karuteNumber is allocated under a per-business lock; a unique
+  //    violation is only a safety net → short jittered retry.
   const data = {
     businessId,
     name: input.name,
@@ -293,21 +324,26 @@ export async function createCustomer(
   }
   for (let attempt = 0; ; attempt++) {
     try {
-      const row = await prisma.customer.create({
-        data: { ...data, karuteNumber: await nextKaruteNumber(businessId) },
-      })
+      const row = await createWithKaruteNumber(businessId, (tx, karuteNumber) =>
+        tx.customer.create({ data: { ...data, karuteNumber } }),
+      )
       return toCustomer(row)
     } catch (e) {
-      if (input.email && isUniqueViolation(e, 'email')) {
+      // A same-email row can hold our insert past the tx timeout (503); once
+      // it commits, that customer is the idempotent answer.
+      if (input.email && (isUniqueViolation(e, 'email') || e instanceof SlotContentionError)) {
         const existing = await prisma.customer.findFirst({
           where: { businessId, email: input.email },
         })
         if (existing) return toCustomer(await resolveMergedCustomer(businessId, existing.id))
       }
-      // karuteNumber (max+1) races under concurrent creates: retry a few
-      // times, then surface the exhaustion clearly (reachable, not dead code).
+      // Unreachable through the lock; a writer outside it (raw SQL import)
+      // could still take our number. Retry with jitter, then fail clearly.
       if (isUniqueViolation(e, 'karute_number')) {
-        if (attempt < 4) continue
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 20 + Math.random() * 80))
+          continue
+        }
         throw new Error('createCustomer: exhausted karuteNumber retries')
       }
       throw e

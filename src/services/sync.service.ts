@@ -726,20 +726,20 @@ async function findOrCreateCustomer(
   // concurrent sync, or the same email twice in one batch, can insert between
   // the checks above and this create. On P2002 the row now exists, so
   // re-resolve by email instead of crashing — the sync stays idempotent.
-  // nextKaruteNumber is max+1, so two concurrent syncs can race on
-  // (businessId, karuteNumber); the email may also already exist. Resolve each
+  // createWithKaruteNumber allocates the number under the per-business lock
+  // that createCustomer also takes; the email may already exist. Resolve each
   // by the VIOLATED constraint (P2002 meta.target), never by guessing:
-  //   - karuteNumber race  → someone took our number; recompute and retry.
+  //   - karuteNumber taken (writer outside the lock) → recompute and retry.
   //   - email already taken → re-resolve to that customer and backfill the QR
   //     id onto them (so step 1 hits next sync), rather than returning a row
   //     that merely happens to share the email.
-  const { nextKaruteNumber } = await import('./customer.service.js')
+  const { createWithKaruteNumber } = await import('./customer.service.js')
   for (let attempt = 0; ; attempt++) {
     try {
-      const created = await prisma.customer.create({
+      const created = await createWithKaruteNumber(businessId, (tx, karuteNumber) => tx.customer.create({
         data: {
           businessId,
-          karuteNumber: await nextKaruteNumber(businessId),
+          karuteNumber,
           name: r.customerName,
           furigana: r.customerKana || null,
           phone: r.customerPhone || null,
@@ -748,7 +748,7 @@ async function findOrCreateCustomer(
           externalRefs: { quickreserve: { customerId: r.qrCustomerId } },
         },
         select: { id: true },
-      })
+      }))
       return created.id
     } catch (e) {
       if (isUniqueViolation(e, 'karute_number')) {
