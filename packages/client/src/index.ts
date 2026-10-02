@@ -138,6 +138,7 @@ export type {
   // Invites
   Invite,
   CreateInviteInput,
+  ListInvitesOptions,
   ListInvitesResponse,
 
   // Customer memory
