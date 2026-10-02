@@ -52,6 +52,23 @@ describe('CORE-34 PUT /staff/:id if_user_id_is', () => {
     const res = await put(staff.id, { if_user_id_is: USER_B })
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ user_id: USER_B, name: staff.name })
+    expect(await snapshot(staff.id)).toBe(JSON.stringify(staff))
+  })
+
+  it('condition only, card does not match → 409, card unchanged', async () => {
+    const staff = await seedTestStaff({ userId: USER_B })
+    const res = await put(staff.id, { if_user_id_is: null })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual(conflict(USER_B))
+    expect(await snapshot(staff.id)).toBe(JSON.stringify(staff))
+  })
+
+  it('POST /staff with a login already linked → the same named 409', async () => {
+    await seedTestStaff({ userId: USER_A })
+    const res = await app.request('/v1/staff', { method: 'POST', headers, body: JSON.stringify({ name: 'new', user_id: USER_A }) })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' })
+    expect(await testPrisma.staff.count({ where: { userId: USER_A } })).toBe(1)
   })
 
   it('a login already linked to another card → named 409, no card disclosed, both paths', async () => {

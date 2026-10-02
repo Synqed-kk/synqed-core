@@ -146,18 +146,23 @@ export async function createStaff(
   businessId: string,
   input: CreateStaffInput,
 ): Promise<StaffPublic> {
-  const row = await prisma.staff.create({
-    data: {
-      businessId,
-      name: input.name,
-      nameKana: input.name_kana ?? null,
-      email: input.email ?? null,
-      userId: input.user_id ?? null,
-      role: input.role ?? 'STYLIST',
-      isActive: input.is_active ?? true,
-    },
-  })
-  return toPublic(row)
+  try {
+    const row = await prisma.staff.create({
+      data: {
+        businessId,
+        name: input.name,
+        nameKana: input.name_kana ?? null,
+        email: input.email ?? null,
+        userId: input.user_id ?? null,
+        role: input.role ?? 'STYLIST',
+        isActive: input.is_active ?? true,
+      },
+    })
+    return toPublic(row)
+  } catch (err) {
+    if (isUniqueViolation(err, 'user_id')) throw new StaffUserIdTakenError()
+    throw err
+  }
 }
 
 export async function updateStaff(
@@ -177,21 +182,24 @@ export async function updateStaff(
   if (input.is_active !== undefined) data.isActive = input.is_active
 
   try {
+    if (input.if_user_id_is !== undefined && Object.keys(data).length === 0) {
+      // Condition only: nothing to write, so check it without a write and
+      // leave updated_at alone.
+      if (existing.userId !== input.if_user_id_is) throw new ConditionConflictError('user_id', existing.userId)
+      return toPublic(existing)
+    }
     if (input.if_user_id_is !== undefined) {
       // CORE-34: the condition is checked by the write itself, so two concurrent
-      // claims on one card cannot both pass. A miss writes nothing. The guarded
-      // column is always in data: updateMany with empty data skips the WHERE.
-      // The read shares the write's transaction, so the row lock keeps it true.
+      // claims on one card cannot both pass. A miss writes nothing. data is
+      // never empty here (updateMany with empty data skips the WHERE). The read
+      // shares the write's transaction, so the row lock keeps it true.
       return await prisma.$transaction(async (tx) => {
-        const { count } = await tx.staff.updateMany({
-          where: { id, businessId, userId: input.if_user_id_is },
-          data: { userId: input.if_user_id_is, ...data },
-        })
+        const { count } = await tx.staff.updateMany({ where: { id, businessId, userId: input.if_user_id_is }, data })
         const current = await tx.staff.findFirst({ where: { id, businessId } })
         if (!current) throw new Error('Staff not found')
         if (count === 0) throw new ConditionConflictError('user_id', current.userId)
         return toPublic(current)
-      })
+      }, { maxWait: 5_000, timeout: 15_000 }) // a held row lock must not hit Prisma's 5 s default
     }
     return toPublic(await prisma.staff.update({ where: { id }, data }))
   } catch (err) {

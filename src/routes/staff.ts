@@ -41,8 +41,15 @@ staffRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = createStaffSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const staff = await staffService.createStaff(businessId, parsed.data)
-  return c.json(staff, 201)
+  try {
+    const staff = await staffService.createStaff(businessId, parsed.data)
+    return c.json(staff, 201)
+  } catch (err) {
+    if (err instanceof StaffUserIdTakenError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' }, 409)
+    }
+    throw err
+  }
 })
 
 staffRoutes.put('/:id', async (c) => {
