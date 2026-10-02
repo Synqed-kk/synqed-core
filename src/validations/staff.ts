@@ -11,7 +11,11 @@ export const createStaffSchema = z.object({
   is_active: z.boolean().optional(),
 })
 
-export const updateStaffSchema = createStaffSchema.partial()
+export const updateStaffSchema = createStaffSchema.partial().extend({
+  // CORE-34: when present, the whole update applies only if the card's current
+  // user_id equals this (null = still unlinked); otherwise 409.
+  if_user_id_is: z.string().uuid().nullable().optional(),
+})
 
 export const listStaffSchema = z.object({
   search: z.string().optional(),

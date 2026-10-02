@@ -9,6 +9,7 @@ import {
   verifyPinSchema,
 } from '../validations/staff.js'
 import * as staffService from '../services/staff.service.js'
+import { ConditionConflictError } from '../services/karute.service.js'
 import {
   StaffLastMemberError,
   StaffLinkedScheduleError,
@@ -53,6 +54,9 @@ staffRoutes.put('/:id', async (c) => {
     const staff = await staffService.updateStaff(businessId, c.req.param('id'), parsed.data)
     return c.json(staff)
   } catch (err) {
+    if (err instanceof ConditionConflictError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_CONFLICT', field: err.field, current: err.current }, 409)
+    }
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
     }

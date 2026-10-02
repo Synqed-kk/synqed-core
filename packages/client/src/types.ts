@@ -246,7 +246,12 @@ export interface CreateStaffInput {
   is_active?: boolean
 }
 
-export interface UpdateStaffInput extends Partial<CreateStaffInput> {}
+export interface UpdateStaffInput extends Partial<CreateStaffInput> {
+  /** When present, the whole update applies only if the card's current user_id equals this
+   *  (null = still unlinked); otherwise SynqedError 409 with code `STAFF_USER_ID_CONFLICT` and
+   *  `body: { error: 'conflict', code, field: 'user_id', current }`. */
+  if_user_id_is?: string | null
+}
 
 export interface ListStaffOptions {
   search?: string
