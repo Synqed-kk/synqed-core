@@ -55,6 +55,12 @@ describe('CORE-34 PUT /staff/:id if_user_id_is', () => {
     expect(await snapshot(staff.id)).toBe(JSON.stringify(staff))
   })
 
+  it('an uppercase condition matches the stored lowercase id on both paths', async () => {
+    const staff = await seedTestStaff({ userId: USER_B })
+    expect((await put(staff.id, { if_user_id_is: USER_B.toUpperCase() })).status).toBe(200)
+    expect((await put(staff.id, { if_user_id_is: USER_B.toUpperCase(), name: 'x' })).status).toBe(200)
+  })
+
   it('condition only, card does not match → 409, card unchanged', async () => {
     const staff = await seedTestStaff({ userId: USER_B })
     const res = await put(staff.id, { if_user_id_is: null })
