@@ -9,11 +9,13 @@ import {
   verifyPinSchema,
 } from '../validations/staff.js'
 import * as staffService from '../services/staff.service.js'
+import { ConditionConflictError } from '../services/karute.service.js'
 import {
   StaffLastMemberError,
   StaffLinkedScheduleError,
   StaffAttributedRecordsError,
   StaffForbiddenError,
+  StaffUserIdTakenError,
 } from '../services/staff.service.js'
 
 export const staffRoutes = new Hono<AppEnv>()
@@ -39,8 +41,15 @@ staffRoutes.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
   const parsed = createStaffSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
-  const staff = await staffService.createStaff(businessId, parsed.data)
-  return c.json(staff, 201)
+  try {
+    const staff = await staffService.createStaff(businessId, parsed.data)
+    return c.json(staff, 201)
+  } catch (err) {
+    if (err instanceof StaffUserIdTakenError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' }, 409)
+    }
+    throw err
+  }
 })
 
 staffRoutes.put('/:id', async (c) => {
@@ -53,6 +62,12 @@ staffRoutes.put('/:id', async (c) => {
     const staff = await staffService.updateStaff(businessId, c.req.param('id'), parsed.data)
     return c.json(staff)
   } catch (err) {
+    if (err instanceof ConditionConflictError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_CONFLICT', field: err.field, current: err.current }, 409)
+    }
+    if (err instanceof StaffUserIdTakenError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' }, 409)
+    }
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)
     }
