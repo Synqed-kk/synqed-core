@@ -4,6 +4,7 @@ import {
   createAppointmentSchema,
   updateAppointmentSchema,
   listAppointmentsSchema,
+  appointmentCountsSchema,
 } from '../validations/appointment.js'
 import * as appointmentService from '../services/appointment.service.js'
 import * as idempotencyService from '../services/idempotency.service.js'
@@ -25,11 +26,21 @@ export const appointmentRoutes = new Hono<AppEnv>()
 
 appointmentRoutes.get('/', async (c) => {
   const businessId = c.get('businessId')
-  const raw = Object.fromEntries(new URL(c.req.url).searchParams)
+  const params = new URL(c.req.url).searchParams
+  const raw: Record<string, unknown> = Object.fromEntries(params)
+  if (params.has('status_not')) raw.status_not = params.getAll('status_not')
   const parsed = listAppointmentsSchema.safeParse(raw)
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
   const result = await appointmentService.listAppointments(businessId, parsed.data)
   return c.json(result)
+})
+
+// Booking counts per JST day, without the rows (CORE-23). MUST be before /:id.
+appointmentRoutes.get('/counts', async (c) => {
+  const raw = Object.fromEntries(new URL(c.req.url).searchParams)
+  const parsed = appointmentCountsSchema.safeParse(raw)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  return c.json(await appointmentService.countBookingsByDay(c.get('businessId'), parsed.data))
 })
 
 appointmentRoutes.get('/:id', async (c) => {

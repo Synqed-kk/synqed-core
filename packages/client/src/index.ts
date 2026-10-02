@@ -65,6 +65,8 @@ export type {
   UpdateAppointmentInput,
   ListAppointmentsOptions,
   ListAppointmentsResponse,
+  AppointmentCountsOptions,
+  AppointmentCountsResponse,
 
   // Sync
   SyncConfig,

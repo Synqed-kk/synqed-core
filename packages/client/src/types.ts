@@ -769,6 +769,9 @@ export interface ListAppointmentsOptions {
   staff_id?: string
   customer_id?: string
   status?: AppointmentStatus
+  /** Exclude these statuses (sent as repeated status_not params). */
+  status_not?: AppointmentStatus[]
+  kind?: AppointmentKind
   source?: AppointmentSource
   page?: number
   page_size?: number
@@ -779,6 +782,20 @@ export interface ListAppointmentsResponse {
   total: number
   page: number
   page_size: number
+}
+
+/** from/to are required ISO datetimes; the window is at most 400 days. */
+export interface AppointmentCountsOptions {
+  from: string
+  to: string
+  store_id?: string
+  staff_id?: string
+}
+
+/** Customer BOOKINGs that are neither CANCELLED nor NO_SHOW, per JST day. */
+export interface AppointmentCountsResponse {
+  count: number
+  by_day: { date: string; count: number }[]
 }
 
 // ===========================================================================

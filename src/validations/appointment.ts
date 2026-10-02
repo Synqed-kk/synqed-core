@@ -82,10 +82,29 @@ export const listAppointmentsSchema = z.object({
   staff_id: z.string().uuid().optional(),
   customer_id: z.string().uuid().optional(),
   status: appointmentStatusSchema.optional(),
+  // Repeatable in the query string (status_not=CANCELLED&status_not=NO_SHOW).
+  status_not: z.array(appointmentStatusSchema).optional(),
+  kind: appointmentKindSchema.optional(),
   source: appointmentSourceSchema.optional(),
   page: z.coerce.number().int().min(1).optional(),
   page_size: z.coerce.number().int().min(1).max(500).optional(),
 })
+
+// 400 days: a year view with margin. The cap bounds the scan; the app's
+// largest window today is a 45-day month view.
+const MAX_COUNT_WINDOW_MS = 400 * 24 * 60 * 60 * 1000
+
+export const appointmentCountsSchema = z
+  .object({
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+    store_id: z.string().uuid().optional(),
+    staff_id: z.string().uuid().optional(),
+  })
+  .refine((q) => Date.parse(q.to) > Date.parse(q.from), { message: 'to must be after from' })
+  .refine((q) => Date.parse(q.to) - Date.parse(q.from) <= MAX_COUNT_WINDOW_MS, {
+    message: 'The window must be at most 400 days',
+  })
 
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>
 export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>

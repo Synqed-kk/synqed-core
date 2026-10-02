@@ -257,6 +257,8 @@ export async function listAppointments(
     staff_id?: string
     customer_id?: string
     status?: AppointmentStatus
+    status_not?: AppointmentStatus[]
+    kind?: AppointmentKind
     source?: AppointmentSource
     page?: number
     page_size?: number
@@ -275,7 +277,10 @@ export async function listAppointments(
   if (options.store_id) where.storeId = options.store_id
   if (options.staff_id) where.staffId = options.staff_id
   if (options.customer_id) where.customerId = options.customer_id
-  if (options.status) where.status = options.status
+  if (options.status || options.status_not) {
+    where.status = { equals: options.status, notIn: options.status_not }
+  }
+  if (options.kind) where.kind = options.kind
   if (options.source) where.source = options.source
   if (options.from || options.to) {
     const range: Record<string, Date> = {}
@@ -287,13 +292,36 @@ export async function listAppointments(
   const [rows, total] = await Promise.all([
     prisma.appointment.findMany({
       where,
-      orderBy: { startsAt: 'asc' },
+      // id breaks starts_at ties so a row never shifts between pages.
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       skip: offset,
       take: pageSize,
     }),
     prisma.appointment.count({ where }),
   ])
   return { appointments: rows.map(toPublic), total, page, page_size: pageSize }
+}
+
+/** The one 予約 count: customer BOOKINGs that are neither CANCELLED nor
+ *  NO_SHOW, bucketed by the JST calendar day (Tokyo has no DST). The DB CHECK
+ *  appointments_booking_requires_parties gives every BOOKING a customer. */
+export async function countBookingsByDay(
+  businessId: string,
+  q: { from: string; to: string; store_id?: string; staff_id?: string },
+): Promise<{ count: number; by_day: { date: string; count: number }[] }> {
+  const byDay = await prisma.$queryRaw<{ date: string; count: number }[]>`
+    SELECT to_char(starts_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS date, count(*)::int AS count
+    FROM appointments
+    WHERE business_id = ${businessId}::uuid
+      AND kind = 'BOOKING'
+      AND status NOT IN ('CANCELLED', 'NO_SHOW')
+      AND starts_at >= ${new Date(q.from)} AND starts_at < ${new Date(q.to)}
+      ${q.store_id ? Prisma.sql`AND store_id = ${q.store_id}::uuid` : Prisma.empty}
+      ${q.staff_id ? Prisma.sql`AND staff_id = ${q.staff_id}::uuid` : Prisma.empty}
+    GROUP BY 1
+    ORDER BY 1
+  `
+  return { count: byDay.reduce((n, d) => n + d.count, 0), by_day: byDay }
 }
 
 export async function getAppointment(
