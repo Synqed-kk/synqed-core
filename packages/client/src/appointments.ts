@@ -7,6 +7,8 @@ import type {
   UpdateAppointmentInput,
   ListAppointmentsOptions,
   ListAppointmentsResponse,
+  AppointmentCountsOptions,
+  AppointmentCountsResponse,
 } from './types.js'
 
 /** Structured refusal codes exposed on SynqedError.code by appointment writes. */
@@ -34,11 +36,21 @@ export class AppointmentClient {
     if (options?.staff_id) params.set('staff_id', options.staff_id)
     if (options?.customer_id) params.set('customer_id', options.customer_id)
     if (options?.status) params.set('status', options.status)
+    for (const s of options?.status_not ?? []) params.append('status_not', s)
+    if (options?.kind) params.set('kind', options.kind)
     if (options?.source) params.set('source', options.source)
     if (options?.page) params.set('page', String(options.page))
     if (options?.page_size) params.set('page_size', String(options.page_size))
     const qs = params.toString()
     return this.client.fetch<ListAppointmentsResponse>(`/appointments${qs ? `?${qs}` : ''}`)
+  }
+
+  /** Booking counts per JST day, without downloading rows. */
+  async counts(options: AppointmentCountsOptions): Promise<AppointmentCountsResponse> {
+    const params = new URLSearchParams({ from: options.from, to: options.to })
+    if (options.store_id) params.set('store_id', options.store_id)
+    if (options.staff_id) params.set('staff_id', options.staff_id)
+    return this.client.fetch<AppointmentCountsResponse>(`/appointments/counts?${params}`)
   }
 
   async get(id: string): Promise<Appointment> {
