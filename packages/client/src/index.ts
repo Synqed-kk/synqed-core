@@ -172,6 +172,7 @@ export type {
   WeeklyHours,
   SpecialOpenDay,
   NewClientSessionMinutes,
+  AutoReleaseBefore,
   StoreClosedDay,
   AddClosedDayInput,
   Qualification,

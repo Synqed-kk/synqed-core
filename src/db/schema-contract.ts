@@ -52,9 +52,15 @@ export const MIGRATION_HINTS: Record<string, string> = {
   idempotency_keys: '2026-07-28-idempotency-keys',
   recording_jobs: '2026-07-20-recording-jobs',
   ai_cache: '2026-06-25-ai-cache',
+  'store_booking_policies.sell_slot_min': '2026-09-15-store-policy-flexible-durations',
+  'store_booking_policies.auto_release_before': '2026-09-15-store-policy-flexible-durations',
+  'store_booking_policies.calendar_tight_max': '2026-09-15-store-policy-flexible-durations',
 }
 
 export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [
+  ...['sbp_new_client_session_range', 'sbp_settings_domains', 'sbp_selling_calendar_domains', 'sbp_role_keys'].map(name => ({
+    table: 'store_booking_policies', name, migration: '2026-09-15-store-policy-flexible-durations',
+  })),
   {
     table: 'recording_discard_events',
     name: 'rde_has_subject',
