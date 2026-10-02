@@ -187,6 +187,14 @@ describe('POST /karute-records/:id/photos/repoint', () => {
     expect((await repoint('not-a-uuid', { customer_id: randomUUID() })).status).toBe(404)
   })
 
+  it("customer erasure scrubs the repoint row's customer ids", async () => {
+    const s = await seed()
+    await repoint(s.karute.id, { customer_id: s.to.id })
+    await testPrisma.$executeRaw`SELECT audit_log_scrub_customer(${TEST_BUSINESS_ID}::uuid, ${s.from.id}::uuid)`
+    const [row] = await testPrisma.auditLog.findMany({ where: { businessId: TEST_BUSINESS_ID, action: 'karute.photos_repoint' } })
+    expect(row.detail).toBeNull()
+  })
+
   it('keeps the customer ids in the audit detail for a large session', async () => {
     const s = await seed()
     const ids = Array.from({ length: 200 }, () => randomUUID())
