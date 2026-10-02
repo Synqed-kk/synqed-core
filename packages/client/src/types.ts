@@ -411,6 +411,8 @@ export interface UpsertKaruteOutcomeInput {
   decided_by?: string | null
   decided_at?: string | null
   auto_decided?: boolean
+  /** Write only if the row is not decided; otherwise 409 with `body: { error: 'conflict', field: 'outcome', current }`. */
+  if_not_decided?: boolean
 }
 
 // ===========================================================================
@@ -1134,6 +1136,9 @@ export interface CreateKaruteRecordInput {
 export interface UpdateKaruteRecordInput {
   customer_id?: string | null
   appointment_id?: string | null
+  /** When present, the whole update applies only if the row's current appointment_id equals this
+   *  (null = still unlinked); otherwise 409 with `body: { error: 'conflict', field: 'appointment_id', current }`. */
+  if_appointment_id_is?: string | null
   status?: KaruteStatus
   ai_summary?: string | null
   /** Human overlay — ONLY the pencil writes it; AI/regen paths never send it. */

@@ -1,5 +1,6 @@
 import { prisma } from '../db/client.js'
 import { Prisma } from '@prisma/client'
+import { ConditionConflictError } from './karute.service.js'
 
 // CLOSING RATE (the one authoritative definition — Liam 8/7): 
 //   closing_rate = success / (success + no_deal)
@@ -66,6 +67,8 @@ export interface UpsertOutcomeInput {
   decided_by?: string | null
   decided_at?: string | null
   auto_decided?: boolean
+  /** CORE-58: write only if the row is not DECIDED; otherwise ConditionConflictError. */
+  if_not_decided?: boolean
 }
 
 /** Upsert a session's outcome, keyed on karute_record_id within the business. */
@@ -82,6 +85,41 @@ export async function upsertOutcome(
     decidedBy: input.decided_by ?? null,
     decidedAt: input.decided_at ? new Date(input.decided_at) : null,
     autoDecided: input.auto_decided ?? false,
+  }
+  if (input.if_not_decided) {
+    // CORE-58: one statement. DECIDED (refused) = the row exists, is not
+    // 'pending', and either the incoming value is 'pending' or the row was
+    // not auto-decided. ON CONFLICT ... WHERE false updates nothing and
+    // returns no row. The EXISTS and business_id terms keep another
+    // business's record and row out of reach.
+    const rows = await prisma.$queryRaw<Array<Omit<KaruteOutcomePublic, 'decided_at'> & { decided_at: Date | null }>>(Prisma.sql`
+      INSERT INTO karute_outcomes (karute_record_id, business_id, customer_id, outcome, reason,
+        decision_context, is_first_visit, decided_by, decided_at, auto_decided, updated_at)
+      SELECT ${input.karute_record_id}::uuid, ${businessId}::uuid, ${data.customerId}::uuid, ${data.outcome},
+        ${data.reason}, ${data.decisionContext}, ${data.isFirstVisit}, ${data.decidedBy}::uuid,
+        ${data.decidedAt}::timestamptz, ${data.autoDecided}, now()
+      WHERE EXISTS (SELECT 1 FROM karute_records
+        WHERE id = ${input.karute_record_id}::uuid AND business_id = ${businessId}::uuid)
+      ON CONFLICT (karute_record_id) DO UPDATE SET customer_id = EXCLUDED.customer_id,
+        outcome = EXCLUDED.outcome, reason = EXCLUDED.reason, decision_context = EXCLUDED.decision_context,
+        is_first_visit = EXCLUDED.is_first_visit, decided_by = EXCLUDED.decided_by,
+        decided_at = EXCLUDED.decided_at, auto_decided = EXCLUDED.auto_decided, updated_at = now()
+      WHERE karute_outcomes.business_id = ${businessId}::uuid
+        AND (karute_outcomes.outcome = 'pending'
+          OR (EXCLUDED.outcome <> 'pending' AND karute_outcomes.auto_decided))
+      RETURNING karute_record_id, customer_id, outcome, reason, decision_context,
+        is_first_visit, decided_by, decided_at, auto_decided
+    `)
+    if (rows.length === 0) {
+      // No row back and none in this business: the record is not ours (or
+      // does not exist). Answer 404; never echo another business's outcome.
+      const current = await prisma.karuteOutcome.findFirst({
+        where: { karuteRecordId: input.karute_record_id, businessId },
+      })
+      if (!current) throw new Error('Outcome not found')
+      throw new ConditionConflictError('outcome', current.outcome)
+    }
+    return { ...rows[0], decided_at: rows[0].decided_at?.toISOString() ?? null }
   }
   const row = await prisma.karuteOutcome.upsert({
     where: { karuteRecordId: input.karute_record_id },

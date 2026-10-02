@@ -419,7 +419,6 @@ export async function updateKaruteRecord(
         model: input.model ?? null,
       })
     }
-    await prisma.karuteEntry.deleteMany({ where: { karuteRecordId: id } })
     data.entries = {
       create: input.entries.map((e, i) => ({
         category: e.category,
@@ -436,11 +435,28 @@ export async function updateKaruteRecord(
     replaceBatchId = batchId
   }
 
-  const row = await prisma.karuteRecord.update({
-    where: { id },
-    data,
-    include: { entries: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
-  })
+  const row = await prisma.$transaction(async (tx) => {
+    // CORE-58: the condition is checked by the first write itself. A miss
+    // throws before anything else is written, so the refused request changes
+    // nothing (no entries, no audit rows).
+    if (input.if_appointment_id_is !== undefined) {
+      const { count } = await tx.karuteRecord.updateMany({
+        where: { id, businessId, appointmentId: input.if_appointment_id_is },
+        data: { appointmentId: input.if_appointment_id_is },
+      })
+      if (count === 0) {
+        const current = await tx.karuteRecord.findFirst({ where: { id, businessId }, select: { appointmentId: true } })
+        if (!current) throw new Error('Karute record not found')
+        throw new ConditionConflictError('appointment_id', current.appointmentId)
+      }
+    }
+    if (replaceBatchId !== undefined) await tx.karuteEntry.deleteMany({ where: { karuteRecordId: id } })
+    return tx.karuteRecord.update({
+      where: { id },
+      data,
+      include: { entries: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
+    })
+  }, { maxWait: 5_000, timeout: 15_000 }) // a large entries replace must not hit Prisma's 5 s default
 
   if (replaceBatchId !== undefined) {
     for (const created of row.entries) {
@@ -478,6 +494,14 @@ export async function deleteKaruteRecord(businessId: string, id: string): Promis
     prisma.karuteEntryEdit.deleteMany({ where: { karuteRecordId: id, businessId } }),
     prisma.karuteRecord.delete({ where: { id } }),
   ])
+}
+
+/** A conditional write (CORE-58) found the row not in the expected state. */
+export class ConditionConflictError extends Error {
+  constructor(public field: string, public current: string | null) {
+    super('conflict')
+    this.name = 'ConditionConflictError'
+  }
 }
 
 /** Optimistic-concurrency failure — routes map it to 409. */
