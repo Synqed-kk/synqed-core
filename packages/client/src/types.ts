@@ -344,8 +344,20 @@ export interface CreateInviteInput {
   expires_at?: string | null
 }
 
+/** Paging is opt-in. Omit both fields to get every invite (the old behaviour).
+ *  Pass either one to page: page defaults to 1, page_size defaults to 100,
+ *  page_size is capped at 200. Order is always newest first. */
+export interface ListInvitesOptions {
+  page?: number
+  page_size?: number
+}
+
 export interface ListInvitesResponse {
   invites: Invite[]
+  /** Set only on a paged request. */
+  total?: number
+  page?: number
+  page_size?: number
 }
 
 export interface MemoryItem {

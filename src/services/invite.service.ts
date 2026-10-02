@@ -44,6 +44,29 @@ export async function listInvites(businessId: string): Promise<InvitePublic[]> {
   return rows.map(toPublic)
 }
 
+export async function listInvitesPage(
+  businessId: string,
+  page: number,
+  pageSize: number,
+): Promise<{ invites: InvitePublic[]; total: number; page: number; page_size: number }> {
+  const where = { businessId }
+  const [rows, total] = await Promise.all([
+    prisma.invite.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.invite.count({ where }),
+  ])
+  return { invites: rows.map(toPublic), total, page, page_size: pageSize }
+}
+
+export async function getInvite(businessId: string, id: string): Promise<InvitePublic | null> {
+  const row = await prisma.invite.findFirst({ where: { id, businessId } })
+  return row ? toPublic(row) : null
+}
+
 /**
  * Look up an invite by its token, WITHOUT a business scope — the pre-auth /join
  * flow has no business yet; the high-entropy token is the per-invite secret and

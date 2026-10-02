@@ -1,11 +1,21 @@
 import type { SynqedClient } from './client.js'
-import type { Invite, CreateInviteInput, ListInvitesResponse } from './types.js'
+import type { Invite, CreateInviteInput, ListInvitesOptions, ListInvitesResponse } from './types.js'
 
 export class InviteClient {
   constructor(private client: SynqedClient) {}
 
-  async list(): Promise<ListInvitesResponse> {
-    return this.client.fetch<ListInvitesResponse>('/invites')
+  async list(options?: ListInvitesOptions): Promise<ListInvitesResponse> {
+    const params = new URLSearchParams()
+    if (options?.page) params.set('page', String(options.page))
+    if (options?.page_size) params.set('page_size', String(options.page_size))
+    const qs = params.toString()
+    return this.client.fetch<ListInvitesResponse>(`/invites${qs ? `?${qs}` : ''}`)
+  }
+
+  /** One invite by id, scoped to the client's business. Throws SynqedError(404)
+   *  if it does not exist or belongs to another business. */
+  async get(id: string): Promise<Invite> {
+    return this.client.fetch<Invite>(`/invites/${id}`)
   }
 
   /** Public (pre-auth) lookup by token — no business scope needed; the token is
