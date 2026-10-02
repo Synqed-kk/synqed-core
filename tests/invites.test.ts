@@ -94,6 +94,14 @@ describe('GET /invites/:id', () => {
     expect(res.status).toBe(404)
   })
 
+  it('404s on a non-uuid id and on a bare by-token path', async () => {
+    for (const path of ['/invites/not-a-uuid', '/invites/by-token']) {
+      const res = await req('GET', path)
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual({ error: 'Invite not found' })
+    }
+  })
+
   it('404s when absent', async () => {
     const res = await req('GET', '/invites/33333333-3333-3333-3333-333333333333')
     expect(res.status).toBe(404)
@@ -140,6 +148,33 @@ describe('GET /invites paging', () => {
     expect(body.invites).toHaveLength(3)
   })
 
+  it('pages rows with the same created_at without overlap or loss', async () => {
+    await cleanupInvites()
+    const createdAt = new Date(Date.UTC(2026, 1, 1))
+    await testPrisma.invite.createMany({
+      data: Array.from({ length: 30 }, (_, i) => ({
+        businessId: TEST_BUSINESS_ID,
+        email: `tie${i}@example.com`,
+        role: 'STYLIST',
+        token: `tie-${i}`.padEnd(64, 'x'),
+        createdAt,
+      })),
+    })
+    const seen: string[] = []
+    for (let page = 1; page <= 10; page++) {
+      const body = await (await req('GET', `/invites?page=${page}&page_size=3`)).json()
+      seen.push(...body.invites.map((i: { id: string }) => i.id))
+    }
+    expect(seen).toHaveLength(30)
+    expect(new Set(seen).size).toBe(30)
+  })
+
+  it('rejects a page above the 100000 cap', async () => {
+    for (const page of ['1e308', '100001']) {
+      expect((await req('GET', `/invites?page=${page}`)).status).toBe(400)
+    }
+  })
+
   it('rejects page_size above the 200 cap', async () => {
     const res = await req('GET', '/invites?page_size=201')
     expect(res.status).toBe(400)
@@ -168,6 +203,21 @@ describe('SDK invites.get / invites.list paging', () => {
     await expect(sdk.invites.get(other.id)).rejects.toMatchObject({ status: 404 })
     const mine = await sdk.invites.create({ email: 'm@example.com', role: 'STYLIST', token: 'g'.repeat(64) })
     expect(await sdk.invites.get(mine.id)).toEqual(mine)
+  })
+
+  it('encodes the id in the get path', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', (url: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(String(url))
+      return app.request(String(url).replace('http://core.test', ''), init)
+    })
+    await expect(sdk.invites.get('a/b')).rejects.toMatchObject({ status: 404 })
+    expect(urls).toEqual(['http://core.test/v1/invites/a%2Fb'])
+  })
+
+  it('sends a zero page or page_size so core rejects it', async () => {
+    await expect(sdk.invites.list({ page: 0 })).rejects.toMatchObject({ status: 400 })
+    await expect(sdk.invites.list({ page_size: 0 })).rejects.toMatchObject({ status: 400 })
   })
 
   it('pages only when asked', async () => {

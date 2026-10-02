@@ -39,8 +39,11 @@ function toPublic(row: {
   }
 }
 
+// id breaks created_at ties so pages never overlap or drop rows.
+const INVITE_ORDER = [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
+
 export async function listInvites(businessId: string): Promise<InvitePublic[]> {
-  const rows = await prisma.invite.findMany({ where: { businessId }, orderBy: { createdAt: 'desc' } })
+  const rows = await prisma.invite.findMany({ where: { businessId }, orderBy: INVITE_ORDER })
   return rows.map(toPublic)
 }
 
@@ -53,7 +56,7 @@ export async function listInvitesPage(
   const [rows, total] = await Promise.all([
     prisma.invite.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: INVITE_ORDER,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),

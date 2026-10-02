@@ -7,8 +7,9 @@ export const inviteRoutes = new Hono<AppEnv>()
 
 // Paging is opt-in: no page/page_size returns every row as before (the app's
 // invites.list() callers rely on that). page_size defaults to 100, max 200.
+// page max 100000 keeps skip (<= 2e7) a safe integer.
 const listInvitesSchema = z.object({
-  page: z.coerce.number().int().min(1).optional(),
+  page: z.coerce.number().int().min(1).max(100_000).optional(),
   page_size: z.coerce.number().int().min(1).max(200).optional(),
 })
 
@@ -32,7 +33,11 @@ inviteRoutes.get('/by-token/:token', async (c) => {
 })
 
 inviteRoutes.get('/:id', async (c) => {
-  const invite = await inviteService.getInvite(c.get('businessId'), c.req.param('id'))
+  const id = c.req.param('id')
+  // A non-uuid id (or a bare /by-token) cannot match a row; skip Prisma's uuid error.
+  const invite = z.string().uuid().safeParse(id).success
+    ? await inviteService.getInvite(c.get('businessId'), id)
+    : null
   if (!invite) return c.json({ error: 'Invite not found' }, 404)
   return c.json(invite)
 })
