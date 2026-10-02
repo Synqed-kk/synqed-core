@@ -123,20 +123,22 @@ describe('GET /v1/appointments/counts', () => {
     expect(none).toEqual({ count: 0, by_day: [] })
   })
 
-  it('a 600-booking window returns the count with no rows, equal to a full row download', async () => {
+  it('a 600-booking window returns the count with no rows, equal to a full row download, bounds included', async () => {
     const rows: Row[] = []
     for (let i = 0; i < 600; i++) {
       rows.push({ startsAt: new Date(Date.UTC(2026, 9, 1) + i * 60 * 60_000).toISOString() })
     }
+    rows.push({ startsAt: '2026-09-30T15:00:00Z' }) // exactly from: counted
+    rows.push({ startsAt: '2026-10-31T15:00:00Z' }) // exactly to: not counted
     rows.push({ startsAt: '2026-10-12T01:00:00Z', status: 'CANCELLED' })
     rows.push({ startsAt: '2026-10-12T02:00:00Z', kind: 'BLOCK' })
     await seed(rows)
 
     const res = await get(`/appointments/counts?${WINDOW}`)
     const body = await res.json()
-    expect(body.count).toBe(600)
+    expect(body.count).toBe(601)
     expect(body).not.toHaveProperty('appointments')
-    expect(body.by_day.reduce((n: number, d: { count: number }) => n + d.count, 0)).toBe(600)
+    expect(body.by_day.reduce((n: number, d: { count: number }) => n + d.count, 0)).toBe(601)
 
     // Same window, same definition, downloaded as rows to exhaustion.
     const listed: string[] = []
@@ -145,7 +147,7 @@ describe('GET /v1/appointments/counts', () => {
         await get(`/appointments?${WINDOW}&kind=BOOKING&status_not=CANCELLED&status_not=NO_SHOW&page_size=500&page=${page}`)
       ).json()
       listed.push(...r.appointments.map((a: { id: string }) => a.id))
-      expect(r.total).toBe(600)
+      expect(r.total).toBe(601)
       if (listed.length >= r.total) break
     }
     expect(listed.length).toBe(body.count)
