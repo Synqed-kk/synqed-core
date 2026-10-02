@@ -125,3 +125,9 @@ export const listKaruteRecordsSchema = z.object({
 export type CreateKaruteRecordInput = z.infer<typeof createKaruteRecordSchema>
 export type UpdateKaruteRecordInput = z.infer<typeof updateKaruteRecordSchema>
 export type EntryInput = z.infer<typeof entryInputSchema>
+
+// CORE-16: move a re-pointed karute's session photos to its new customer.
+export const repointPhotosSchema = z.object({
+  customer_id: z.string().uuid(),
+}).strict() // strict: the actor comes from the bearer token, never the body
+export type RepointPhotosInput = z.infer<typeof repointPhotosSchema>

@@ -683,19 +683,40 @@ export async function uploadPhoto(
     .upload(storagePath, file, { cacheControl: '3600', upsert: false })
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
 
-  const row = await prisma.customerPhoto.create({
-    data: {
-      id,
-      businessId,
-      customerId,
-      storagePath,
-      category: options.category ?? 'general',
-      caption: options.caption ?? null,
-      recordingSessionId,
-      capturedByStaffId,
-      takenWithConsent: options.taken_with_consent ?? false,
-    },
-  })
+  const data = {
+    id,
+    businessId,
+    customerId,
+    storagePath,
+    category: options.category ?? 'general',
+    caption: options.caption ?? null,
+    recordingSessionId,
+    capturedByStaffId,
+    takenWithConsent: options.taken_with_consent ?? false,
+  }
+  if (!recordingSessionId) return toCustomerPhotoDto(await prisma.customerPhoto.create({ data }))
+
+  let row
+  try {
+    row = await prisma.$transaction(async (tx) => {
+      // Re-check under a share lock: a karute repoint (CORE-16) may have moved
+      // the session while the file uploaded. The lock makes the repoint wait
+      // for this insert, so it moves this photo too.
+      const [session] = await tx.$queryRaw<{ customer_id: string | null }[]>`
+        SELECT customer_id FROM recording_sessions
+        WHERE id = ${recordingSessionId}::uuid AND business_id = ${businessId}::uuid FOR SHARE`
+      if (!session) throw new Error('Recording session not found')
+      if (session.customer_id && session.customer_id !== customerId) {
+        throw new Error('Recording session belongs to a different customer')
+      }
+      return tx.customerPhoto.create({ data })
+    })
+  } catch (err) {
+    // Rolled back: no row points at the file. Remove it after the lock is
+    // released; a failed remove must not replace the original error.
+    await storage.from(PHOTO_BUCKET).remove([storagePath]).catch(() => {})
+    throw err
+  }
 
   return toCustomerPhotoDto(row)
 }

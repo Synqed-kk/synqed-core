@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { Hono } from 'hono'
 import type { AppEnv } from '../types/api.js'
 import {
@@ -8,8 +9,10 @@ import {
   entryInputSchema,
   entryMutationMetaSchema,
   updateEntrySchema,
+  repointPhotosSchema,
 } from '../validations/karute.js'
 import * as karuteService from '../services/karute.service.js'
+import { actorAuthMiddleware } from '../middleware/actor-auth.js'
 
 export const karuteRoutes = new Hono<AppEnv>()
 
@@ -103,6 +106,32 @@ karuteRoutes.delete('/:id', async (c) => {
   } catch (err) {
     if (err instanceof Error && err.message === 'Karute record not found') {
       return c.json({ error: 'Karute record not found' }, 404)
+    }
+    throw err
+  }
+})
+
+// CORE-16: call after re-pointing the karute (PUT customer_id) so its session
+// photos and recording session follow it. customer_id must equal the karute's
+// current customer. Actor = the verified bearer token (actor-auth contract).
+karuteRoutes.post('/:id/photos/repoint', actorAuthMiddleware, async (c) => {
+  const businessId = c.get('businessId')
+  const actor = c.get('actor')
+  if (!actor.capabilities.includes('records.write')) return c.json({ error: 'records.write required' }, 403)
+  if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Karute record not found' }, 404)
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = repointPhotosSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400)
+  try {
+    return c.json(
+      await karuteService.repointKarutePhotos(businessId, c.req.param('id'), parsed.data, actor.staffId, c.get('requestId') ?? null),
+    )
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'Karute record not found' || err.message === 'Customer not found') {
+        return c.json({ error: err.message }, 404)
+      }
+      if (err.message === 'Target customer is not the karute customer') return c.json({ error: err.message }, 409)
     }
     throw err
   }
