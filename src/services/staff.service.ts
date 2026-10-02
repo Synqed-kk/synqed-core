@@ -4,6 +4,7 @@ import type { CreateStaffInput, UpdateStaffInput } from '../validations/staff.js
 import { hashPin } from './crypto.js'
 import { getStorage } from './storage.js'
 import { ConditionConflictError } from './karute.service.js'
+import { isUniqueViolation } from '../db/prisma-errors.js'
 
 export class StaffLastMemberError extends Error {
   constructor() {
@@ -21,6 +22,11 @@ export class StaffAttributedRecordsError extends Error {
 
 export class StaffLinkedScheduleError extends Error {
   constructor() { super('Staff with linked shifts or appointments cannot be deleted; remove the schedule or deactivate the staff member.') }
+}
+
+/** The login is already linked to another staff card (staff.user_id is unique). */
+export class StaffUserIdTakenError extends Error {
+  constructor() { super('conflict') }
 }
 
 export class StaffForbiddenError extends Error {
@@ -170,18 +176,28 @@ export async function updateStaff(
   if (input.role !== undefined) data.role = input.role
   if (input.is_active !== undefined) data.isActive = input.is_active
 
-  if (input.if_user_id_is !== undefined) {
-    // CORE-34: the condition is checked by the write itself, so two concurrent
-    // claims on one card cannot both pass. A miss writes nothing.
-    const { count } = await prisma.staff.updateMany({ where: { id, businessId, userId: input.if_user_id_is }, data })
-    const current = await prisma.staff.findFirst({ where: { id, businessId } })
-    if (!current) throw new Error('Staff not found')
-    if (count === 0) throw new ConditionConflictError('user_id', current.userId)
-    return toPublic(current)
+  try {
+    if (input.if_user_id_is !== undefined) {
+      // CORE-34: the condition is checked by the write itself, so two concurrent
+      // claims on one card cannot both pass. A miss writes nothing. The guarded
+      // column is always in data: updateMany with empty data skips the WHERE.
+      // The read shares the write's transaction, so the row lock keeps it true.
+      return await prisma.$transaction(async (tx) => {
+        const { count } = await tx.staff.updateMany({
+          where: { id, businessId, userId: input.if_user_id_is },
+          data: { userId: input.if_user_id_is, ...data },
+        })
+        const current = await tx.staff.findFirst({ where: { id, businessId } })
+        if (!current) throw new Error('Staff not found')
+        if (count === 0) throw new ConditionConflictError('user_id', current.userId)
+        return toPublic(current)
+      })
+    }
+    return toPublic(await prisma.staff.update({ where: { id }, data }))
+  } catch (err) {
+    if (isUniqueViolation(err, 'user_id')) throw new StaffUserIdTakenError()
+    throw err
   }
-
-  const row = await prisma.staff.update({ where: { id }, data })
-  return toPublic(row)
 }
 
 export async function deleteStaff(businessId: string, id: string): Promise<void> {

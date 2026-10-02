@@ -15,6 +15,7 @@ import {
   StaffLinkedScheduleError,
   StaffAttributedRecordsError,
   StaffForbiddenError,
+  StaffUserIdTakenError,
 } from '../services/staff.service.js'
 
 export const staffRoutes = new Hono<AppEnv>()
@@ -56,6 +57,9 @@ staffRoutes.put('/:id', async (c) => {
   } catch (err) {
     if (err instanceof ConditionConflictError) {
       return c.json({ error: 'conflict', code: 'STAFF_USER_ID_CONFLICT', field: err.field, current: err.current }, 409)
+    }
+    if (err instanceof StaffUserIdTakenError) {
+      return c.json({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' }, 409)
     }
     if (err instanceof Error && err.message === 'Staff not found') {
       return c.json({ error: 'Staff not found' }, 404)

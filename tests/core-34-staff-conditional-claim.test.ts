@@ -47,6 +47,26 @@ describe('CORE-34 PUT /staff/:id if_user_id_is', () => {
     expect(await snapshot(staff.id)).toBe(before)
   })
 
+  it('condition only, card matches → 200, card unchanged', async () => {
+    const staff = await seedTestStaff({ userId: USER_B })
+    const res = await put(staff.id, { if_user_id_is: USER_B })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ user_id: USER_B, name: staff.name })
+  })
+
+  it('a login already linked to another card → named 409, no card disclosed, both paths', async () => {
+    const holder = await seedTestStaff({ userId: USER_A })
+    const staff = await seedTestStaff()
+    const before = await snapshot(staff.id)
+    for (const body of [{ if_user_id_is: null, user_id: USER_A }, { user_id: USER_A }]) {
+      const res = await put(staff.id, body)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: 'conflict', code: 'STAFF_USER_ID_TAKEN', field: 'user_id' })
+      expect(await snapshot(staff.id)).toBe(before)
+    }
+    expect((await testPrisma.staff.findUnique({ where: { id: holder.id } }))?.userId).toBe(USER_A)
+  })
+
   it('field absent → today\'s unconditional overwrite', async () => {
     const staff = await seedTestStaff({ userId: USER_B })
     const res = await put(staff.id, { user_id: USER_A })
@@ -83,7 +103,8 @@ async function untilAnotherSessionWaitsOnALock() {
   for (let i = 0; i < 100; i++) {
     const [{ n }] = await testPrisma.$queryRaw<{ n: number }[]>`
       SELECT count(*)::int AS n FROM pg_stat_activity
-      WHERE datname = current_database() AND wait_event_type = 'Lock'`
+      WHERE datname = current_database() AND wait_event_type = 'Lock'
+        AND pid <> pg_backend_pid() AND query ILIKE '%staff%'`
     if (n > 0) return
     await new Promise(r => setTimeout(r, 50))
   }
