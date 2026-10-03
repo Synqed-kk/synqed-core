@@ -818,7 +818,8 @@ export interface SyncConfig {
   username: string | null
   store_slug: string | null
   store_id: number | null
-  karute_store_id: string | null
+  /** The Karute store this row crawls for. One row per store. */
+  karute_store_id: string
   enabled: boolean
   interval_minutes: number
   business_hours_start: number
@@ -839,7 +840,8 @@ export interface UpsertSyncConfigInput {
   password?: string
   store_slug?: string
   store_id?: number
-  karute_store_id?: string | null
+  /** Required: picks the store's row. Must be a store of this business. */
+  karute_store_id: string
   enabled?: boolean
   interval_minutes?: number
   business_hours_start?: number
@@ -856,8 +858,19 @@ export interface SyncRunResult {
   cancelled: number
   skipped_no_staff: number
   skipped_deleted: number
+  skipped_error: number
+  skipped_non_booking: number
   unmatched_staff: string[]
   duration_ms: number
+}
+
+/** `runAll`: one entry per store row, oldest row first. A failed row does
+ *  not stop the next. */
+export interface SyncRunAllResult {
+  results: Array<
+    | { karute_store_id: string; ok: true; result: SyncRunResult }
+    | { karute_store_id: string; ok: false; error: string }
+  >
 }
 
 // ===========================================================================

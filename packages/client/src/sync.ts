@@ -4,6 +4,7 @@ import type {
   SyncProvider,
   UpsertSyncConfigInput,
   SyncRunResult,
+  SyncRunAllResult,
 } from './types.js'
 
 export class SyncClient {
@@ -13,6 +14,15 @@ export class SyncClient {
     return provider.toLowerCase()
   }
 
+  /** Every store's row for this provider, oldest first. No secrets. */
+  async listConfigs(provider: SyncProvider): Promise<SyncConfig[]> {
+    const res = await this.client.fetch<{ configs: SyncConfig[] }>(
+      `/sync/${this.providerPath(provider)}/configs`,
+    )
+    return res.configs
+  }
+
+  /** The primary store's row (or the only row). Prefer listConfigs. */
   async getConfig(provider: SyncProvider): Promise<SyncConfig | null> {
     try {
       return await this.client.fetch<SyncConfig>(`/sync/${this.providerPath(provider)}/config`)
@@ -35,9 +45,24 @@ export class SyncClient {
     })
   }
 
-  async runNow(provider: SyncProvider): Promise<SyncRunResult> {
+  /** Run one store's row. Without a store, runs the primary store's row. */
+  async runNow(
+    provider: SyncProvider,
+    opts?: { karute_store_id?: string },
+  ): Promise<SyncRunResult> {
     return this.client.fetch<SyncRunResult>(`/sync/${this.providerPath(provider)}/run`, {
       method: 'POST',
+      ...(opts?.karute_store_id
+        ? { body: JSON.stringify({ karute_store_id: opts.karute_store_id }) }
+        : {}),
+    })
+  }
+
+  /** Run every store's row, one after the other. */
+  async runAll(provider: SyncProvider): Promise<SyncRunAllResult> {
+    return this.client.fetch<SyncRunAllResult>(`/sync/${this.providerPath(provider)}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ all: true }),
     })
   }
 }

@@ -74,6 +74,7 @@ export type {
   SyncStatus,
   UpsertSyncConfigInput,
   SyncRunResult,
+  SyncRunAllResult,
 
   // Recordings
   Recording,
