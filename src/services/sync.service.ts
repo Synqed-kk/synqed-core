@@ -182,25 +182,12 @@ export async function defaultConfigStoreId(
   businessId: string,
   provider: SyncProvider,
 ): Promise<string | null> {
-  const primary = await prisma.store.findFirst({
-    where: { businessId, isPrimary: true },
-    select: { id: true },
-  })
-  if (primary) {
-    const row = await prisma.syncConfig.findUnique({
-      where: {
-        businessId_provider_karuteStoreId: { businessId, provider, karuteStoreId: primary.id },
-      },
-      select: { karuteStoreId: true },
-    })
-    if (row) return row.karuteStoreId
-  }
-  const rows = await prisma.syncConfig.findMany({
-    where: { businessId, provider },
-    select: { karuteStoreId: true },
-    take: 2,
-  })
-  return rows.length === 1 ? rows[0].karuteStoreId : null
+  const [primary, rows] = await Promise.all([
+    prisma.store.findFirst({ where: { businessId, isPrimary: true }, select: { id: true } }),
+    prisma.syncConfig.findMany({ where: { businessId, provider }, select: { karuteStoreId: true } }),
+  ])
+  const row = rows.find((r) => r.karuteStoreId === primary?.id) ?? (rows.length === 1 ? rows[0] : null)
+  return row?.karuteStoreId ?? null
 }
 
 export async function upsertConfig(

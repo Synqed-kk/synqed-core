@@ -1,7 +1,7 @@
 -- CORE-43 File A: one Quick Reserve config per STORE, not per business.
 -- Apply BEFORE the code PR deploys. Every statement is safe for today's code:
 -- the old (business_id, provider) unique STAYS (today's code upserts on it).
--- File B (2026-10-03-sync-config-drop-business-unique.sql) drops it later.
+-- File B (a separate PR, applied after the deploy) drops it later.
 -- Fail closed: a config row on a business with no primary store stops the
 -- whole file. Never guess a store.
 --
@@ -16,6 +16,15 @@
 --
 -- If the exception below fires, the rows to report are those with a null
 -- primary_store in the pre-check output.
+--
+-- Merge gate (after this file, before the code PR merges): every enabled row
+-- must have crawled OK since this file ran. last_run_at alone is not enough;
+-- a failed run sets it too. This must return zero rows:
+--
+--   SELECT id, business_id, karute_store_id, last_run_status, last_run_at
+--   FROM sync_configs
+--   WHERE enabled AND (last_run_status IS DISTINCT FROM 'OK'
+--                      OR last_run_at IS NULL OR last_run_at <= '<File A applied at>');
 --
 -- Rollback: ALTER TABLE sync_configs DROP CONSTRAINT IF EXISTS
 -- sync_configs_business_id_provider_karute_store_id_key; ALTER TABLE

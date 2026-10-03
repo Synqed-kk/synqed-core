@@ -42,13 +42,11 @@ const QR = {
 const STAFF_NAME = 'テストスタッフ'
 
 // Tomorrow 12:00 JST, inside a lookahead of 1 day.
+const jstDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(d)
 function tomorrowJst(hour: number): Date {
-  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(
-    new Date(Date.now() + 24 * 3600_000),
-  )
+  const day = jstDay(new Date(Date.now() + 24 * 3600_000))
   return new Date(`${day}T${String(hour).padStart(2, '0')}:00:00+09:00`)
 }
-const jstDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(d)
 
 function reservation(id: number, qrStoreId: number, customerId: number, hour: number): QRReservation {
   const start = tomorrowJst(hour)
@@ -303,13 +301,12 @@ describe('dispatchCron', () => {
 })
 
 // =============================================================================
-// Migration rehearsal: File A and File B applied with psql to a scratch
+// Migration rehearsal: File A applied with psql to a scratch
 // database whose sync_configs has today's production shape (nullable
 // karute_store_id, old unique still named after tenant_id).
 // =============================================================================
 
 const FILE_A = 'prisma/migrations/manual/2026-10-03-sync-config-per-store.sql'
-const FILE_B = 'prisma/migrations/manual/2026-10-03-sync-config-drop-business-unique.sql'
 const scratchDb = `core43_rehearsal_${randomUUID().replaceAll('-', '')}`
 let adminUrl: string
 let scratchUrl: string
@@ -384,38 +381,5 @@ describe('migration rehearsal (psql, scratch database)', () => {
       WHERE table_name = 'sync_configs' AND column_name = 'karute_store_id'`)).toBe('YES')
     expect(sql(`SELECT count(*) FROM pg_constraint
       WHERE conname = 'sync_configs_business_id_provider_karute_store_id_key'`)).toBe('0')
-  })
-
-  it('File B refuses to run before File A', () => {
-    const r = psql(scratchUrl, ['-f', FILE_B])
-    expect(r.ok).toBe(false)
-    expect(r.err).toContain('apply File A first')
-    expect(sql(`SELECT count(*) FROM pg_indexes WHERE indexname = 'sync_configs_tenant_id_provider_key'`)).toBe('1')
-  })
-
-  it('File B drops the old unique INDEX (tenant_id name), says so, and is idempotent', () => {
-    expect(psql(scratchUrl, ['-f', FILE_A]).ok).toBe(true)
-    const r = psql(scratchUrl, ['-f', FILE_B])
-    expect(r.ok).toBe(true)
-    expect(r.err).toContain('dropped unique INDEX sync_configs_tenant_id_provider_key')
-    // A second store's row now inserts; a duplicate triple still fails.
-    sql(`INSERT INTO sync_configs (business_id, provider, karute_store_id)
-      VALUES ('${B1}', 'QUICKRESERVE', gen_random_uuid())`)
-    expect(() => sql(`INSERT INTO sync_configs (business_id, provider, karute_store_id)
-      VALUES ('${B1}', 'QUICKRESERVE', '${B1_PRIMARY}')`)).toThrow(/duplicate key/)
-    const again = psql(scratchUrl, ['-f', FILE_B])
-    expect(again.ok).toBe(true)
-    expect(again.err).toContain('nothing dropped')
-  })
-
-  it('File B drops the old unique when it is a CONSTRAINT (business_id name)', () => {
-    sql(`DROP INDEX sync_configs_tenant_id_provider_key;
-      ALTER TABLE sync_configs ADD CONSTRAINT sync_configs_business_id_provider_key UNIQUE (business_id, provider)`)
-    expect(psql(scratchUrl, ['-f', FILE_A]).ok).toBe(true)
-    const r = psql(scratchUrl, ['-f', FILE_B])
-    expect(r.ok).toBe(true)
-    expect(r.err).toContain('dropped unique CONSTRAINT sync_configs_business_id_provider_key')
-    expect(sql(`SELECT conname FROM pg_constraint WHERE conrelid = 'sync_configs'::regclass AND contype = 'u'`))
-      .toBe('sync_configs_business_id_provider_karute_store_id_key')
   })
 })
