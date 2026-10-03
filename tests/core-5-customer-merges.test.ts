@@ -166,8 +166,9 @@ describe('CORE-5 exact manual migration', () => {
   it('routes a later QuickReserve name match on FOLD to KEEP and preserves the soft deletion', async () => {
     await db.customer.update({ where: { id: pairs[0][1] }, data: { name: 'Unique old spelling' } })
     apply()
+    const karuteStoreId = randomUUID()
     await db.syncConfig.create({ data: { businessId, provider: 'QUICKRESERVE', credentialsEncrypted: 'test',
-      storeSlug: 'test', storeId: 1, lookaheadDays: 1, timezone: 'Asia/Tokyo' } })
+      storeSlug: 'test', storeId: 1, karuteStoreId, lookaheadDays: 1, timezone: 'Asia/Tokyo' } })
     vi.mocked(qrGetReservations).mockResolvedValueOnce([{
       id: 9876, store_id: 1, customer_id: 54321, treatment_course_id: 5, staff_id: 7, booth_id: 1,
       start_at: new Date('2026-10-01T04:00:00Z').getTime(), end_at: new Date('2026-10-01T05:00:00Z').getTime(),
@@ -176,7 +177,7 @@ describe('CORE-5 exact manual migration', () => {
       staff: { id: 7, name: 'Test staff', name_kana: '' },
       treatment_course: { id: 5, name: 'Visit', duration: 3600000, price: 5000 },
     }]).mockResolvedValue([])
-    const result = await runSyncForTenant(businessId, 'QUICKRESERVE')
+    const result = await runSyncForTenant(businessId, 'QUICKRESERVE', karuteStoreId)
     expect(result.created).toBe(1)
     const booking = await db.appointment.findFirstOrThrow({ where: { businessId, source: 'QUICKRESERVE' } })
     expect(booking.customerId).toBe(pairs[0][0])

@@ -5,6 +5,7 @@ import { prisma } from '../db/client.js'
 import { Prisma } from '@prisma/client'
 import { isUniqueViolation, isRecordNotFound, isResourceOverlap } from '../db/prisma-errors.js'
 import { decryptJson, encryptJson } from './crypto.js'
+import { getStore } from './store.service.js'
 import {
   mapReservation,
   qrGetReservations,
@@ -47,7 +48,7 @@ export interface SyncConfigPublic {
   username: string | null
   store_slug: string | null
   store_id: number | null
-  karute_store_id: string | null
+  karute_store_id: string
   enabled: boolean
   interval_minutes: number
   business_hours_start: number
@@ -68,7 +69,7 @@ export interface SyncConfigInput {
   password?: string
   store_slug?: string
   store_id?: number
-  karute_store_id?: string | null
+  karute_store_id: string
   enabled?: boolean
   interval_minutes?: number
   business_hours_start?: number
@@ -109,7 +110,7 @@ function toPublic(row: {
   username: string | null
   storeSlug: string | null
   storeId: number | null
-  karuteStoreId: string | null
+  karuteStoreId: string
   enabled: boolean
   intervalMinutes: number
   businessHoursStart: number
@@ -148,14 +149,58 @@ function toPublic(row: {
   }
 }
 
+/** A config write the caller must fix. `message` is the error code the route
+ *  answers with (400). */
+export class SyncConfigError extends Error {}
+
 export async function getConfig(
   businessId: string,
   provider: SyncProvider,
+  karuteStoreId: string,
 ): Promise<SyncConfigPublic | null> {
   const row = await prisma.syncConfig.findUnique({
-    where: { businessId_provider: { businessId, provider } },
+    where: { businessId_provider_karuteStoreId: { businessId, provider, karuteStoreId } },
   })
   return row ? toPublic(row) : null
+}
+
+export async function listConfigs(
+  businessId: string,
+  provider: SyncProvider,
+): Promise<SyncConfigPublic[]> {
+  const rows = await prisma.syncConfig.findMany({
+    where: { businessId, provider },
+    orderBy: { createdAt: 'asc' },
+  })
+  return rows.map(toPublic)
+}
+
+/** The store the store-less callers (GET /config, no-body POST /run) mean,
+ *  kept for one client release: the primary store's row; else, when the
+ *  business has exactly one row, that row; else null. */
+export async function defaultConfigStoreId(
+  businessId: string,
+  provider: SyncProvider,
+): Promise<string | null> {
+  const primary = await prisma.store.findFirst({
+    where: { businessId, isPrimary: true },
+    select: { id: true },
+  })
+  if (primary) {
+    const row = await prisma.syncConfig.findUnique({
+      where: {
+        businessId_provider_karuteStoreId: { businessId, provider, karuteStoreId: primary.id },
+      },
+      select: { karuteStoreId: true },
+    })
+    if (row) return row.karuteStoreId
+  }
+  const rows = await prisma.syncConfig.findMany({
+    where: { businessId, provider },
+    select: { karuteStoreId: true },
+    take: 2,
+  })
+  return rows.length === 1 ? rows[0].karuteStoreId : null
 }
 
 export async function upsertConfig(
@@ -163,14 +208,42 @@ export async function upsertConfig(
   provider: SyncProvider,
   input: SyncConfigInput,
 ): Promise<SyncConfigPublic> {
+  const karuteStoreId = input.karute_store_id
+  if (!(await getStore(businessId, karuteStoreId))) {
+    throw new SyncConfigError('store_not_in_business')
+  }
+  const key = { businessId_provider_karuteStoreId: { businessId, provider, karuteStoreId } }
+
+  // The SAME row this PUT writes, by the full key. Never a business-wide
+  // lookup: a new store's row would inherit another store's Quick Reserve
+  // store and crawl that store's bookings under the wrong name.
+  const existing = await prisma.syncConfig.findUnique({ where: key })
+
+  // A new Quick Reserve row without its QR store would fail every run.
+  if (
+    !existing &&
+    provider === 'QUICKRESERVE' &&
+    (input.store_slug === undefined || input.store_id === undefined)
+  ) {
+    throw new SyncConfigError('qr_store_required')
+  }
+
+  // Two Karute stores must never crawl one Quick Reserve store.
+  // ponytail: check-then-write, no DB unique on (business, provider, store_id);
+  // two racing PUTs could both pass. Add a partial unique if that matters.
+  if (input.store_id !== undefined) {
+    const clash = await prisma.syncConfig.findFirst({
+      where: { businessId, provider, storeId: input.store_id, NOT: { karuteStoreId } },
+      select: { id: true },
+    })
+    if (clash) throw new SyncConfigError('qr_store_already_linked')
+  }
+
   // If password is provided, encrypt the full credential envelope.
   // Otherwise leave existing ciphertext untouched.
   let credentialsEncrypted: Uint8Array<ArrayBuffer> | undefined
   if (input.password !== undefined) {
     if (provider === 'QUICKRESERVE') {
-      const existing = await prisma.syncConfig.findUnique({
-        where: { businessId_provider: { businessId, provider } },
-      })
       const creds: QRCredentials = {
         username: input.username ?? existing?.username ?? '',
         password: input.password,
@@ -182,14 +255,14 @@ export async function upsertConfig(
   }
 
   const row = await prisma.syncConfig.upsert({
-    where: { businessId_provider: { businessId, provider } },
+    where: key,
     create: {
       businessId,
       provider,
       username: input.username,
       storeSlug: input.store_slug,
       storeId: input.store_id,
-      karuteStoreId: input.karute_store_id ?? null,
+      karuteStoreId,
       enabled: input.enabled ?? false,
       intervalMinutes: input.interval_minutes ?? 15,
       businessHoursStart: input.business_hours_start ?? 8,
@@ -198,12 +271,11 @@ export async function upsertConfig(
       lookaheadDays: input.lookahead_days ?? 7,
       credentialsEncrypted,
     },
+    // karuteStoreId is part of the key: a row's store never changes.
     update: {
       username: input.username ?? undefined,
       storeSlug: input.store_slug ?? undefined,
       storeId: input.store_id ?? undefined,
-      // null is meaningful here (unassign the store); only skip when omitted.
-      ...('karute_store_id' in input ? { karuteStoreId: input.karute_store_id } : {}),
       enabled: input.enabled ?? undefined,
       intervalMinutes: input.interval_minutes ?? undefined,
       businessHoursStart: input.business_hours_start ?? undefined,
@@ -244,13 +316,17 @@ export async function dispatchCron(): Promise<{ dispatched: number; skipped: num
       skipped++
       continue
     }
-    // Fire-and-forget per tenant so one failure doesn't block the others.
+    // Run exactly THIS row (its store), never the business: one row, one crawl.
+    // Fire-and-forget per row so one failure doesn't block the others.
     // Errors are captured into last_run_status inside runSyncForTenant.
     try {
-      await runSyncForTenant(config.businessId, config.provider)
+      await runSyncForTenant(config.businessId, config.provider, config.karuteStoreId)
       dispatched++
     } catch (err) {
-      console.error(`[cron] sync failed for ${config.businessId}/${config.provider}`, err)
+      console.error(
+        `[cron] sync failed for ${config.businessId}/${config.provider}/store ${config.karuteStoreId}`,
+        err,
+      )
       dispatched++ // still counts as dispatched; status row written in runSyncForTenant
     }
   }
@@ -297,9 +373,10 @@ function getHourInTimezone(date: Date, timezone: string): number {
 export async function runSyncForTenant(
   businessId: string,
   provider: SyncProvider,
+  karuteStoreId: string,
 ): Promise<SyncRunResult> {
   const config = await prisma.syncConfig.findUnique({
-    where: { businessId_provider: { businessId, provider } },
+    where: { businessId_provider_karuteStoreId: { businessId, provider, karuteStoreId } },
   })
   if (!config) throw new Error('Sync config not found')
   if (!config.credentialsEncrypted) throw new Error('No credentials set for this provider')
@@ -345,6 +422,39 @@ export async function runSyncForTenant(
   }
 }
 
+export type SyncRunAllResult = {
+  results: Array<
+    | { karute_store_id: string; ok: true; result: SyncRunResult }
+    | { karute_store_id: string; ok: false; error: string }
+  >
+}
+
+/** Run every row of the business, oldest first, one after the other. A failed
+ *  row (its ERROR status already written by runSyncForTenant) never stops the
+ *  next. */
+export async function runAllForBusiness(
+  businessId: string,
+  provider: SyncProvider,
+): Promise<SyncRunAllResult> {
+  const rows = await prisma.syncConfig.findMany({
+    where: { businessId, provider },
+    orderBy: { createdAt: 'asc' },
+    select: { karuteStoreId: true },
+  })
+  if (rows.length === 0) throw new Error('Sync config not found')
+  const results: SyncRunAllResult['results'] = []
+  for (const { karuteStoreId } of rows) {
+    try {
+      const result = await runSyncForTenant(businessId, provider, karuteStoreId)
+      results.push({ karute_store_id: karuteStoreId, ok: true, result })
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error'
+      results.push({ karute_store_id: karuteStoreId, ok: false, error })
+    }
+  }
+  return { results }
+}
+
 // =============================================================================
 // Quick Reserve sync logic (the 6 robustness fixes live here)
 // =============================================================================
@@ -353,7 +463,7 @@ interface QRSyncConfig {
   businessId: string
   storeSlug: string | null
   storeId: number | null
-  karuteStoreId: string | null
+  karuteStoreId: string
   lookaheadDays: number
   timezone: string
 }
@@ -368,8 +478,9 @@ async function runQuickReserveSync(
   if (!storeSlug || !storeId) {
     throw new Error('Store slug / id missing from QR config')
   }
-  // Karute LOCATION (uuid) this config feeds. Stamped onto synced events so they
-  // carry the store. Null = unassigned/all-stores.
+  // Karute LOCATION (uuid) this config row feeds. Stamped onto every appointment
+  // the crawl creates, updates or adopts, and scopes the orphan sweep. Never
+  // null: it is part of the row's key.
   const karuteStoreId = config.karuteStoreId
 
   const session = await qrLogin(storeSlug, creds.username, creds.password)
@@ -598,6 +709,7 @@ async function runQuickReserveSync(
   if (cancellationSafe && seenAppointmentIds.length > 0) {
     cancelled = await markOrphanedCancelled(
       businessId,
+      karuteStoreId,
       windowStart,
       windowEnd,
       seenAppointmentIds,
@@ -923,6 +1035,7 @@ async function findAppointmentByQrId(
 
 export async function markOrphanedCancelled(
   businessId: string,
+  karuteStoreId: string,
   windowStart: Date,
   windowEnd: Date,
   seenIds: string[],
@@ -934,6 +1047,8 @@ export async function markOrphanedCancelled(
   // changed in between). Same guards as before: never a terminal row, never a
   // staff decision. Raw INSERT/UPDATE gotcha: updated_at stamped by hand —
   // @updatedAt is client-side only.
+  // Scoped to the row's store (CORE-43): one store's run must never cancel
+  // another store's bookings, which it never fetched.
   return prisma.$transaction(async (tx) => {
     const cancelled = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       UPDATE appointments SET
@@ -941,6 +1056,7 @@ export async function markOrphanedCancelled(
         cancelled_at = now(),
         updated_at = now()
       WHERE business_id = ${businessId}::uuid
+        AND store_id = ${karuteStoreId}::uuid
         AND source = 'QUICKRESERVE'::"AppointmentSource"
         AND starts_at >= ${windowStart} AND starts_at < ${windowEnd}
         AND cancelled_at IS NULL

@@ -227,12 +227,27 @@ async function main() {
         }
         const credentialsEncrypted = encryptJson(creds)
 
+        // Configs are per store (CORE-43). The old dump has no store: use the
+        // business's primary store, and refuse to guess when there is none.
+        const primary = await prisma.store.findFirst({
+          where: { businessId: s.business_id, isPrimary: true },
+          select: { id: true },
+        })
+        if (!primary) throw new Error(`sync_config ${s.id}: business ${s.business_id} has no primary store`)
+
         await prisma.syncConfig.upsert({
-          where: { businessId_provider: { businessId: s.business_id, provider } },
+          where: {
+            businessId_provider_karuteStoreId: {
+              businessId: s.business_id,
+              provider,
+              karuteStoreId: primary.id,
+            },
+          },
           create: {
             id: s.id,
             businessId: s.business_id,
             provider,
+            karuteStoreId: primary.id,
             username: s.username,
             storeSlug: s.base_url,
             storeId: s.store_id,

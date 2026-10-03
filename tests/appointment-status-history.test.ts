@@ -169,6 +169,9 @@ describe('booking status history (msg-8 item 5)', () => {
     expect(res.status).toBe(404)
   })
 
+  // The sweep is per store (CORE-43): rows carry the config row's store.
+  const SWEEP_STORE = '43430000-0000-4000-8000-000000000002'
+
   it('the orphan sweep writes a CANCELLED event with the machine reason', async () => {
     const customer = await seedTestCustomer()
     const staff = await seedTestStaff()
@@ -180,12 +183,14 @@ describe('booking status history (msg-8 item 5)', () => {
         startsAt: new Date('2026-09-01T03:00:00+09:00'),
         endsAt: new Date('2026-09-01T04:00:00+09:00'),
         source: 'QUICKRESERVE',
+        storeId: SWEEP_STORE,
         status: 'SCHEDULED',
         statusSource: 'QR',
       },
     })
     const count = await markOrphanedCancelled(
       TEST_BUSINESS_ID,
+      SWEEP_STORE,
       new Date('2026-09-01T00:00:00+09:00'),
       new Date('2026-09-02T00:00:00+09:00'),
       [],
@@ -218,12 +223,14 @@ describe('booking status history (msg-8 item 5)', () => {
         startsAt: new Date('2026-09-01T03:00:00+09:00'),
         endsAt: new Date('2026-09-01T04:00:00+09:00'),
         source: 'QUICKRESERVE',
+        storeId: SWEEP_STORE,
         status: 'SCHEDULED',
         statusSource: 'QR',
       },
     })
     const count = await markOrphanedCancelled(
       TEST_BUSINESS_ID,
+      SWEEP_STORE,
       new Date('2026-09-01T00:00:00+09:00'),
       new Date('2026-09-02T00:00:00+09:00'),
       [appt.id],

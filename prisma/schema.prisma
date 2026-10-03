@@ -408,7 +408,7 @@ model AppointmentStatusEvent {
 }
 
 // =============================================================================
-// SyncConfig — per-business external booking system integration config
+// SyncConfig — per-store external booking system integration config
 // =============================================================================
 
 enum SyncProvider {
@@ -437,7 +437,9 @@ model SyncConfig {
   storeId              Int?         @map("store_id")
   // Karute LOCATION (uuid) this QR config feeds — synced events get stamped with it.
   // Distinct from storeId above (the QR API's numeric store id).
-  karuteStoreId        String?      @map("karute_store_id") @db.Uuid
+  // One config row per (business, provider, store): the store is part of the
+  // key and never changes on a row (CORE-43).
+  karuteStoreId        String       @map("karute_store_id") @db.Uuid
   // Scheduling
   enabled              Boolean      @default(false)
   intervalMinutes      Int          @default(15) @map("interval_minutes")
@@ -454,7 +456,9 @@ model SyncConfig {
   createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz()
 
-  @@unique([businessId, provider])
+  // Named CONSTRAINT in production (2026-10-03-sync-config-per-store.sql), so
+  // the readiness probe (CONSTRAINT_CONTRACT) can see it.
+  @@unique([businessId, provider, karuteStoreId])
   @@index([enabled, lastRunAt])
   @@map("sync_configs")
 }

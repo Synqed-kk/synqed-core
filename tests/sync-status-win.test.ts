@@ -54,6 +54,8 @@ describe('markOrphanedCancelled — leaves staff-set rows alone', () => {
     await cleanupTestData()
   })
 
+  // The sweep is per store (CORE-43): rows carry the config row's store.
+  const STORE = '43430000-0000-4000-8000-000000000001'
   const start = new Date('2026-09-01T00:00:00+09:00')
   const end = new Date('2026-09-02T00:00:00+09:00')
 
@@ -68,6 +70,7 @@ describe('markOrphanedCancelled — leaves staff-set rows alone', () => {
         startsAt: new Date('2026-09-01T03:00:00+09:00'),
         endsAt: new Date('2026-09-01T04:00:00+09:00'),
         source: 'QUICKRESERVE',
+        storeId: STORE,
         ...overrides,
       },
     })
@@ -76,14 +79,14 @@ describe('markOrphanedCancelled — leaves staff-set rows alone', () => {
   it('does NOT flip a staff-set NO_SHOW that fell out of the feed', async () => {
     const appt = await seedQrAppt({ status: 'NO_SHOW', statusSource: 'STAFF' })
     // Not in seenIds → the orphan sweep would normally cancel it.
-    await markOrphanedCancelled(TEST_BUSINESS_ID, start, end, [])
+    await markOrphanedCancelled(TEST_BUSINESS_ID, STORE, start, end, [])
     const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(row.status).toBe('NO_SHOW')
   })
 
   it('still cancels a normal orphaned SCHEDULED QR booking', async () => {
     const appt = await seedQrAppt({ status: 'SCHEDULED', statusSource: 'QR' })
-    await markOrphanedCancelled(TEST_BUSINESS_ID, start, end, [])
+    await markOrphanedCancelled(TEST_BUSINESS_ID, STORE, start, end, [])
     const row = await prisma.appointment.findUniqueOrThrow({ where: { id: appt.id } })
     expect(row.status).toBe('CANCELLED')
   })

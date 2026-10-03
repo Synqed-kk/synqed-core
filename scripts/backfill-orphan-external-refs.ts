@@ -17,7 +17,8 @@
  * is NOT in .env — it lives in the Vercel deploy env; export it from there to
  * decrypt the stored QUICKRESERVE credentials (exactly as the crawl does).
  * Reads one business's config; pass --business=<uuid> to override (defaults to
- * the sole business that has the orphans).
+ * the sole business that has the orphans). Configs are per store (CORE-43):
+ * --store=<karute store uuid> is required and picks the store's config row.
  */
 import 'dotenv/config'
 import { prisma } from '../src/db/client.js'
@@ -26,6 +27,7 @@ import { qrLogin, qrGetReservations, mapReservation } from '../src/services/quic
 
 const APPLY = process.argv.includes('--apply')
 const businessArg = process.argv.find((a) => a.startsWith('--business='))?.split('=')[1]
+const storeArg = process.argv.find((a) => a.startsWith('--store='))?.split('=')[1]
 
 interface QRCredentials {
   username: string
@@ -67,8 +69,11 @@ async function main() {
   console.log(`${scoped.length} orphan(s) for business ${businessId}${APPLY ? '' : '  (DRY RUN)'}`)
 
   // 2. Load + decrypt the QUICKRESERVE credentials, log in.
+  if (!storeArg) throw new Error('Pass --store=<karute store uuid>: configs are per store')
   const config = await prisma.syncConfig.findUnique({
-    where: { businessId_provider: { businessId, provider: 'QUICKRESERVE' } },
+    where: {
+      businessId_provider_karuteStoreId: { businessId, provider: 'QUICKRESERVE', karuteStoreId: storeArg },
+    },
   })
   if (!config?.credentialsEncrypted) throw new Error('No QUICKRESERVE credentials for this business')
   const creds = decryptJson<QRCredentials>(config.credentialsEncrypted)
