@@ -70,6 +70,11 @@ export const CONSTRAINT_CONTRACT: ConstraintRequirement[] = [
     name: 'transcription_segments_recording_session_id_segment_index_key',
     migration: '2026-09-03-transcription-segment-unique',
   },
+  {
+    table: 'sync_configs',
+    name: 'sync_configs_business_id_provider_karute_store_id_key',
+    migration: '2026-10-03-sync-config-per-store',
+  },
 ]
 
 /** One missing piece of schema, named well enough to fix without digging. */
